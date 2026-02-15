@@ -3,7 +3,7 @@
 set -e
 trap 'handle_error $?' EXIT
 
-VERSION="0.1.0"
+VERSION="1.0.0"
 CHANGE_NAME=""
 ERROR_OCCURRED=false
 
@@ -20,10 +20,10 @@ SHOW_HELP=false
 
 usage() {
     cat << EOF
-ralph-run.sh - OpenSpec + open-ralph-wiggum integration
+ralph-run - OpenSpec + Ralph Loop integration for iterative development with opencode
 
 USAGE:
-    ./ralph-run.sh [OPTIONS]
+    ralph-run [OPTIONS]
 
 OPTIONS:
     --change <name>     Specify the OpenSpec change to execute (default: auto-detect)
@@ -31,9 +31,15 @@ OPTIONS:
     --help, -h          Show this help message
 
 EXAMPLES:
-    ./ralph-run.sh                          # Auto-detect most recent change
-    ./ralph-run.sh --change my-feature     # Execute specific change
-    ./ralph-run.sh --verbose                # Run with debug output
+    ralph-run                                    # Auto-detect most recent change
+    ralph-run --change my-feature                # Execute specific change
+    ralph-run --verbose                          # Run with debug output
+
+PREREQUISITES:
+    - Git repository (git init)
+    - OpenSpec artifacts created (openspec init, opsx-new, opsx-ff)
+    - opencode CLI installed (npm install -g opencode)
+    - jq CLI installed (apt install jq / brew install jq)
 
 EOF
 }
@@ -83,13 +89,38 @@ log_error() {
 
 validate_git_repository() {
     log_verbose "Validating git repository..."
-    
+
     if ! git rev-parse --git-dir > /dev/null 2>&1; then
         log_error "Not a git repository. Please run this script within a git repository."
+        log_error "Run: git init"
         exit 1
     fi
-    
+
     log_verbose "Git repository validated"
+}
+
+validate_dependencies() {
+    log_verbose "Validating dependencies..."
+
+    # Check for opencode
+    if ! command -v opencode &> /dev/null; then
+        log_error "opencode CLI not found."
+        log_error "Please install opencode: npm install -g opencode"
+        exit 1
+    fi
+    log_verbose "Found: opencode"
+
+    # Check for jq
+    if ! command -v jq &> /dev/null; then
+        log_error "jq CLI not found."
+        log_error "Please install jq:"
+        log_error "  Ubuntu/Debian: apt install jq"
+        log_error "  macOS: brew install jq"
+        exit 1
+    fi
+    log_verbose "Found: jq"
+
+    log_verbose "All dependencies validated"
 }
 
 validate_openspec_artifacts() {
@@ -682,11 +713,12 @@ update_task_status_atomic() {
 
 main() {
     parse_arguments "$@"
-    
-    log_verbose "Starting ralph-run.sh v$VERSION"
+
+    log_verbose "Starting ralph-run v$VERSION"
     log_verbose "Change name: ${CHANGE_NAME:-<auto-detect>}"
-    
+
     validate_git_repository
+    validate_dependencies
     
     if [[ -z "$CHANGE_NAME" ]]; then
         CHANGE_NAME=$(auto_detect_change)

@@ -1,0 +1,13 @@
+#!/usr/bin/env node
+
+const path = require('path');
+const { execSync } = require('child_process');
+
+const scriptPath = path.join(__dirname, '..', 'scripts', 'ralph-run.sh');
+const args = process.argv.slice(2).map(arg => `"${arg.replace(/"/g, '\\"')}"`).join(' ');
+
+try {
+  execSync(`bash "${scriptPath}" ${args}`, { stdio: 'inherit' });
+} catch (err) {
+  process.exit(err.status || 1);
+}

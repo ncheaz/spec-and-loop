@@ -1,0 +1,41 @@
+{
+  "name": "spec-and-loop",
+  "version": "1.0.0",
+  "description": "OpenSpec + Ralph Loop integration for iterative development with opencode",
+  "main": "index.js",
+  "bin": {
+    "ralph-run": "./bin/ralph-run"
+  },
+  "scripts": {
+    "postinstall": "node scripts/setup.js"
+  },
+  "dependencies": {
+    "openspec": "^1.0.0"
+  },
+  "keywords": [
+    "openspec",
+    "ralph-wiggum",
+    "opencode",
+    "iterative-development",
+    "agentic-coding"
+  ],
+  "author": "",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ncheaz/spec-and-loop.git"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "QUICKSTART.md"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ]
+}
