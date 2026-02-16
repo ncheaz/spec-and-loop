@@ -8,10 +8,10 @@ Install these tools (one-time setup):
 
 ```bash
 # 1. Install openspec (OpenSpec CLI)
-npm install -g openspec
+npm install -g @fission-ai/openspec@latest
 
 # 2. Install opencode (agentic coding assistant)
-npm install -g opencode
+npm install -g opencode-ai
 
 # 3. Install jq (command-line JSON processor)
 # Ubuntu/Debian:
@@ -32,7 +32,7 @@ npm install -g spec-and-loop
 
 **Prerequisites:** Install openspec and opencode:
 ```bash
-npm install -g openspec opencode
+npm install -g @fission-ai/openspec@latest opencode-ai
 ```
 
 ## Quick Demo (5 Minutes)
@@ -47,10 +47,10 @@ git init
 openspec init
 
 # 3. Create a new change
-opsx-new add-hello-world
+openspec new add-hello-world
 
 # 4. Fast-forward through artifact creation
-opsx-ff
+openspec ff
 
 # 5. Run the ralph loop (executes tasks with opencode)
 ralph-run --change add-hello-world
@@ -156,7 +156,7 @@ git diff HEAD~15        # See full implementation
 ### "openspec CLI not found" or "opencode CLI not found"
 
 ```bash
-npm install -g openspec opencode
+npm install -g @fission-ai/openspec@latest opencode-ai
 ```
 
 ### "jq CLI not found"
@@ -198,7 +198,7 @@ source ~/.bashrc
 grep "^\- \[x\]" openspec/changes/my-feature/tasks.md
 
 # Or create a new change
-opsx-new another-feature
+openspec new another-feature
 ```
 
 ## Features at a Glance

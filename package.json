@@ -10,7 +10,7 @@
     "postinstall": "node scripts/setup.js"
   },
   "dependencies": {
-    "openspec": "^1.0.0"
+    "@fission-ai/openspec": "latest"
   },
   "keywords": [
     "openspec",

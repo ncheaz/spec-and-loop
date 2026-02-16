@@ -1,7 +1,7 @@
 ---
 name: openspec-verify-change
 description: Verify implementation matches change artifacts. Use when the user wants to validate that implementation is complete, correct, and coherent before archiving.
-license: MIT
+license: GPL-3.0
 compatibility: Requires openspec CLI.
 metadata:
   author: openspec

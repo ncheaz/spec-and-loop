@@ -74,7 +74,7 @@ PREREQUISITES:
     - Git repository (git init)
     - OpenSpec artifacts created (openspec init, opsx-new, opsx-ff)
     - ralph CLI installed (npm install -g @th0rgal/ralph-wiggum)
-    - opencode CLI installed (npm install -g opencode)
+    - opencode CLI installed (npm install -g opencode-ai)
 
 EOF
 }
@@ -152,7 +152,7 @@ validate_dependencies() {
     # Check for opencode
     if ! command -v opencode &> /dev/null; then
         log_error "opencode CLI not found."
-        log_error "Please install opencode: npm install -g opencode"
+        log_error "Please install opencode: npm install -g opencode-ai"
         exit 1
     fi
     log_verbose "Found: opencode"

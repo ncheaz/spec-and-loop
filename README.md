@@ -8,21 +8,33 @@ OpenSpec + Ralph Loop integration for iterative development with opencode.
 
 OpenSpec provides excellent structure for planning (proposal → specs → design → tasks) but leaves execution manual. Ralph Wiggum's iterative development loop (execute → commit → repeat) is powerful but requires PRD format instead of OpenSpec specs.
 
-**This utility bridges the gap**: use OpenSpec for planning, then automatically execute tasks with full context using opencode agentic coding assistant.
-
 ## Installation
 
 ```bash
 npm install -g spec-and-loop
 ```
 
-**Prerequisites:** You need openspec and opencode installed:
+**Prerequisites:** You need OpenSpec and the OpenCode AI agent installed:
 
 ```bash
-npm install -g openspec opencode
+# Install OpenSpec and OpenCode (recommended)
+npm install -g @fission-ai/openspec@latest opencode-ai
 ```
 
-## Quick Start
+Alternative OpenCode install methods (if you prefer):
+
+```bash
+# npm (recommended)
+npm install -g opencode-ai
+
+# Install script (general use)
+curl -fsSL https://opencode.ai/install | bash
+
+# Homebrew (macOS / Linux)
+brew install anomalyco/tap/opencode
+
+# Windows: use WSL and install via one of the Linux methods above
+```
 
 **[🚀 Get Started in 5 Minutes](./QUICKSTART.md)**
 
@@ -42,46 +54,26 @@ ralph-run --change add-user-auth
 
 For detailed step-by-step instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
-## Quick Start
-
-```bash
-# 1. Initialize OpenSpec in your project
-openspec init
-
-# 2. Create a new change
-openspec new add-user-auth
-
-# 3. Fast-forward through artifact creation
-openspec ff add-user-auth
-
-# 4. Run the ralph loop (executes tasks with opencode)
-ralph-run --change add-user-auth
-```
-
-Or auto-detect the most recent change:
-
-```bash
-ralph-run
-```
+<!-- Duplicate Quick Start removed; see QUICKSTART.md for full instructions -->
 
 ## Prerequisites
 
 Before using spec-and-loop, ensure you have:
 
-1. **Node.js & npm** - For package installation
+1. **Node.js** - For package installation
    ```bash
-   node --version  # Should be 14+
-   npm --version   # Should be 6+
+   node --version  # Should be >=24
    ```
 
 2. **openspec** - OpenSpec CLI for specification workflow
    ```bash
-   npm install -g openspec
+   npm install -g @fission-ai/openspec@latest
    ```
 
 3. **opencode** - Agentic coding assistant
    ```bash
-   npm install -g opencode
+   # Install via npm
+   npm install -g opencode-ai
    ```
 
 4. **jq** - Command-line JSON processor
@@ -321,7 +313,7 @@ For common issues and solutions, see [QUICKSTART.md#troubleshooting](./QUICKSTAR
 
 ```bash
 # opencode not found?
-npm install -g opencode
+npm install -g opencode-ai
 
 # jq not found?
 sudo apt install jq  # or: brew install jq
@@ -341,4 +333,4 @@ export PATH="$PATH:$(npm root -g)/.bin"
 
 ## License
 
-MIT
+GPL-3.0
