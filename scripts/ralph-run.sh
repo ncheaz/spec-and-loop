@@ -1,11 +1,44 @@
 #!/bin/bash
 
 set -e
-trap 'handle_error $?' EXIT
 
 VERSION="1.0.0"
+
+# Add Bun to PATH if installed
+if [[ -d "$HOME/.bun/bin" ]]; then
+    export PATH="$HOME/.bun/bin:$PATH"
+fi
+
 CHANGE_NAME=""
+MAX_ITERATIONS=""
 ERROR_OCCURRED=false
+CLEANUP_IN_PROGRESS=false
+
+# Trap signals for proper cleanup
+cleanup() {
+    # Prevent multiple cleanup calls
+    if [[ "$CLEANUP_IN_PROGRESS" == "true" ]]; then
+        return 0
+    fi
+    CLEANUP_IN_PROGRESS=true
+    
+    local exit_code=$1
+    log_info "Cleaning up..."
+    
+    # NOTE: We do NOT kill ralph/bun processes here because:
+    # 1. Ralph runs synchronously in the foreground
+    # 2. Ctrl+C (SIGINT) naturally propagates to child processes
+    # 3. Using pkill -f "bun" is DANGEROUS - it matches gnome-session-binary!
+    # 4. Using pkill -f "ralph" could kill other user processes
+    # The shell's process group handling ensures clean termination.
+    
+    if [[ $exit_code -ne 0 ]]; then
+        log_error "Script terminated with exit code: $exit_code"
+    fi
+    exit $exit_code
+}
+
+trap 'cleanup $?' EXIT INT TERM QUIT
 
 handle_error() {
     local exit_code=$1
@@ -26,20 +59,22 @@ USAGE:
     ralph-run [OPTIONS]
 
 OPTIONS:
-    --change <name>     Specify the OpenSpec change to execute (default: auto-detect)
-    --verbose, -v       Enable verbose mode for debugging
-    --help, -h          Show this help message
+    --change <name>          Specify the OpenSpec change to execute (default: auto-detect)
+    --max-iterations <n>     Maximum iterations for Ralph loop (default: 50)
+    --verbose, -v            Enable verbose mode for debugging
+    --help, -h               Show this help message
 
 EXAMPLES:
     ralph-run                                    # Auto-detect most recent change
     ralph-run --change my-feature                # Execute specific change
+    ralph-run --max-iterations 100             # Limit loop to 100 iterations
     ralph-run --verbose                          # Run with debug output
 
 PREREQUISITES:
     - Git repository (git init)
     - OpenSpec artifacts created (openspec init, opsx-new, opsx-ff)
+    - ralph CLI installed (npm install -g @th0rgal/ralph-wiggum)
     - opencode CLI installed (npm install -g opencode)
-    - jq CLI installed (apt install jq / brew install jq)
 
 EOF
 }
@@ -49,6 +84,10 @@ parse_arguments() {
         case $1 in
             --change)
                 CHANGE_NAME="$2"
+                shift 2
+                ;;
+            --max-iterations)
+                MAX_ITERATIONS="$2"
                 shift 2
                 ;;
             --verbose|-v)
@@ -75,12 +114,12 @@ parse_arguments() {
 
 log_verbose() {
     if [[ "$VERBOSE" == true ]]; then
-        echo "[VERBOSE] $*"
+        echo "[VERBOSE] $*" >&2
     fi
 }
 
 log_info() {
-    echo "[INFO] $*"
+    echo "[INFO] $*" >&2
 }
 
 log_error() {
@@ -101,7 +140,15 @@ validate_git_repository() {
 
 validate_dependencies() {
     log_verbose "Validating dependencies..."
-
+    
+    # Check for ralph
+    if ! command -v ralph &> /dev/null; then
+        log_error "ralph CLI not found."
+        log_error "Please install open-ralph-wiggum: npm install -g @th0rgal/ralph-wiggum"
+        exit 1
+    fi
+    log_verbose "Found: ralph"
+    
     # Check for opencode
     if ! command -v opencode &> /dev/null; then
         log_error "opencode CLI not found."
@@ -109,17 +156,7 @@ validate_dependencies() {
         exit 1
     fi
     log_verbose "Found: opencode"
-
-    # Check for jq
-    if ! command -v jq &> /dev/null; then
-        log_error "jq CLI not found."
-        log_error "Please install jq:"
-        log_error "  Ubuntu/Debian: apt install jq"
-        log_error "  macOS: brew install jq"
-        exit 1
-    fi
-    log_verbose "Found: jq"
-
+    
     log_verbose "All dependencies validated"
 }
 
@@ -473,21 +510,12 @@ get_git_history() {
 gather_opencode_context() {
     local task_description="$1"
     
-    log_verbose "Gathering opencode context..."
+    log_verbose "Gathering minimal opencode context..."
     
     local context=""
     
     context+="## Task"$'\n'
     context+="$task_description"$'\n'$'\n'
-    
-    context+="## Proposal Summary"$'\n'
-    context+="$(echo "$OPENSPEC_PROPOSAL" | head -20)"$'\n'$'\n'
-    
-    context+="## Design Decisions"$'\n'
-    context+="$(echo "$OPENSPEC_DESIGN" | head -30)"$'\n'$'\n'
-    
-    context+="## Specifications"$'\n'
-    context+="$(echo "$OPENSPEC_SPECS" | head -50)"$'\n'$'\n'
     
     echo "$context"
 }
@@ -496,112 +524,191 @@ generate_opencode_prompt() {
     local task_description="$1"
     local ralph_dir="$2"
     
-    log_verbose "Generating opencode prompt..."
+    log_verbose "Generating minimal opencode prompt..."
     
     local context
     context=$(gather_opencode_context "$task_description")
     
     local prompt=""
-    prompt+="You are implementing a task as part of an OpenSpec change."$'\n'$'\n'
+    prompt+="Implement this task:"$'\n'
     prompt+="$context"$'\n'
-    
-    prompt+="## Recent Git History"$'\n'
-    local git_history
-    git_history=$(get_git_history 10)
-    if [[ -n "$git_history" ]]; then
-        echo "$git_history" | while IFS='|' read -r hash date author message; do
-            prompt+="- $hash ($date $author): $message"$'\n'
-        done
-    fi
-    prompt+=$'\n'
-    
-    prompt+="## Error History"$'\n'
-    local errors_file="$ralph_dir/errors.md"
-    if [[ -f "$errors_file" ]]; then
-        prompt+="$(cat "$errors_file" | tail -50)"$'\n'
-    else
-        prompt+="(No previous errors)"$'\n'
-    fi
-    prompt+=$'\n'
-    
-    prompt+="## Instructions"$'\n'
-    prompt+="Implement the task above. Use the context provided to understand the requirements and any relevant design decisions."$'\n'
-    prompt+="If there are previous errors, use them to guide your implementation to avoid repeating mistakes."$'\n'
-    
-    local injected_context
-    if injected_context=$(handle_context_injection "$ralph_dir"); then
-        prompt+=$'\n'
-        prompt+="## Injected Context"$'\n'
-        prompt+="$injected_context"$'\n'
-    fi
     
     echo "$prompt"
 }
 
-execute_opencode() {
-    local prompt="$1"
+sync_tasks_to_ralph() {
+    local change_dir="$1"
+    local ralph_dir="$2"
     
-    log_verbose "Executing opencode CLI..."
+    local tasks_file="$change_dir/tasks.md"
+    local ralph_tasks_file=".ralph/ralph-tasks.md"
+    local old_ralph_tasks_file="$change_dir/.ralph/ralph-tasks.md"
     
-    if ! command -v opencode &> /dev/null; then
-        log_error "opencode CLI not found. Please install opencode."
+    if [[ ! -f "$tasks_file" ]]; then
+        log_error "Tasks file not found: $tasks_file"
         return 1
     fi
     
-    local output
-    output=$(echo "$prompt" | opencode 2>&1)
-    local exit_code=$?
+    local abs_tasks_file=$(realpath "$tasks_file" 2>/dev/null)
     
-    echo "$output"
-    return $exit_code
+    # Clean up old Ralph tasks file in change directory if exists
+    if [[ -f "$old_ralph_tasks_file" ]]; then
+        log_verbose "Removing old Ralph tasks file from change directory: $old_ralph_tasks_file"
+        rm "$old_ralph_tasks_file"
+    fi
+    
+    # Use symlink so Ralph and openspec-apply-change work on the SAME file
+    if [[ -L "$ralph_tasks_file" ]]; then
+        log_verbose "Symlink exists, ensuring it points to correct location"
+        local current_target=$(readlink -f "$ralph_tasks_file" 2>/dev/null || echo "")
+        
+        if [[ "$current_target" != "$abs_tasks_file" ]]; then
+            log_verbose "Updating symlink to point to new change directory"
+            ln -sf "$abs_tasks_file" "$ralph_tasks_file"
+        fi
+    elif [[ -f "$ralph_tasks_file" ]]; then
+        # File exists but is not a symlink - replace with symlink
+        log_verbose "Replacing regular file with symlink to openspec tasks..."
+        rm "$ralph_tasks_file"
+        ln -sf "$abs_tasks_file" "$ralph_tasks_file"
+    else
+        # No file exists - create new symlink
+        log_verbose "Creating symlink from .ralph/ralph-tasks.md to openspec tasks..."
+        ln -sf "$abs_tasks_file" "$ralph_tasks_file"
+    fi
+    
+    log_verbose "Symlink configured: $ralph_tasks_file -> $abs_tasks_file"
 }
 
-create_git_commit() {
-    local task_description="$1"
+create_prompt_template() {
+    local change_dir="$1"
+    local template_file="$2"
     
-    log_verbose "Creating git commit..."
+    log_verbose "Creating custom prompt template..."
     
-    if ! git diff-index --quiet HEAD --; then
-        git add -A
-        git commit -m "$task_description" 2>&1
-        log_verbose "Git commit created"
-    else
-        log_verbose "No changes to commit"
+    local abs_change_dir
+    abs_change_dir=$(realpath "$change_dir" 2>/dev/null)
+    
+    cat > "$template_file" << 'EOF'
+# Ralph Wiggum Task Execution - Iteration {{iteration}} / {{max_iterations}}
+
+Change directory: {{change_dir}}
+
+## OpenSpec Artifacts Context
+
+Include full context from openspec artifacts in {{change_dir}}:
+- Read {{change_dir}}/proposal.md for the overall project goal
+- Read {{change_dir}}/design.md for the technical design approach
+- Read {{change_dir}}/specs/*/spec.md for the detailed specifications
+
+## Task List
+
+{{tasks}}
+
+## Instructions
+
+1. **Identify** current task:
+   - Find any task marked as [/] (in progress)
+   - If no task is in progress, pick the first task marked as [ ] (incomplete)
+   - Mark the task as [/] in the tasks file before starting work
+
+2. **Implement** task using openspec-apply-change:
+   - Use the /opsx-apply skill to implement the current task
+   - Read the relevant openspec artifacts for context (proposal.md, design.md, specs)
+   - Follow the openspec workflow to complete the task
+   - The openspec-apply-change skill will implement changes and update task status automatically
+
+3. **Complete** task:
+   - Verify that the implementation meets the requirements
+   - When the task is successfully completed, mark it as [x] in the tasks file
+   - Output: `<promise>{{task_promise}}</promise>`
+
+4. **Continue** to the next task:
+   - The loop will continue with the next iteration
+   - Find the next incomplete task and repeat the process
+
+## Critical Rules
+
+- Work on ONE task at a time from the task list
+- Use openspec-apply-change (/opsx-apply) for implementation
+- ONLY output `<promise>{{task_promise}}</promise>` when the current task is complete and marked as [x]
+- ONLY output `<promise>{{completion_promise}}</promise>` when ALL tasks are [x]
+- Output promise tags DIRECTLY - do not quote them, explain them, or say you "will" output them
+- Do NOT lie or output false promises to exit the loop
+- If stuck, try a different approach
+- Check your work before claiming completion
+
+{{context}}
+EOF
+    
+    sed -i "s|{{change_dir}}|$abs_change_dir|g" "$template_file"
+    
+    log_verbose "Prompt template created: $template_file"
+}
+
+restore_ralph_state_from_tasks() {
+    local tasks_file="$1"
+    local ralph_loop_file=".ralph/ralph-loop.state.json"
+    
+    if [[ ! -f "$ralph_loop_file" ]]; then
+        log_verbose "No Ralph state file found, nothing to restore"
+        return 0
+    fi
+    
+    # Count completed tasks in tasks.md
+    local completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
+    local next_iteration=$((completed_count + 1))
+    log_verbose "Found $completed_count completed tasks in tasks.md, setting iteration to $next_iteration"
+    
+    # Update Ralph state to resume from completed task
+    local updated_state
+    updated_state=$(jq --argjson state "$(cat "$ralph_loop_file")" --arg iter "$next_iteration" '
+        .iteration = $iter |
+        .active = true
+    ' 2>/dev/null)
+    
+    if [[ -n "$updated_state" ]]; then
+        log_verbose "Updated Ralph state: iteration set to $next_iteration"
+        echo "$updated_state" > "$ralph_loop_file"
     fi
 }
 
-execute_task_loop() {
-    local ralph_dir="$1"
+execute_ralph_loop() {
+    local change_dir="$1"
+    local ralph_dir="$2"
+    local tasks_file="$change_dir/tasks.md"
+    local max_iterations="${3:-50}"
     
-    log_info "Starting task execution loop..."
+    log_info "Starting Ralph Wiggum loop with open-ralph-wiggum..."
+    log_info "Max iterations: $max_iterations"
+    log_info "Change directory: $change_dir"
     
-    local total_tasks=${#TASKS[@]}
-    log_info "Total tasks to execute: $total_tasks"
+    if ! command -v ralph &> /dev/null; then
+        log_error "ralph CLI not found."
+        log_error "Please install open-ralph-wiggum: npm install -g @th0rgal/ralph-wiggum"
+        return 1
+    fi
     
-    for i in "${!TASKS[@]}"; do
-        local task_description="${TASKS[$i]}"
-        local task_id="${TASK_IDS[$i]}"
-        
-        log_info "Executing task $((i+1))/$total_tasks: $task_description"
-        
-        local prompt
-        prompt=$(generate_opencode_prompt "$task_description" "$ralph_dir")
-        
-        local output
-        output=$(execute_opencode "$prompt")
-        local exit_code=$?
-        
-        if [[ $exit_code -eq 0 ]]; then
-            log_info "Task completed successfully"
-            create_git_commit "$task_description"
-        else
-            log_error "Task failed with exit code: $exit_code"
-            log_error "Output: $output"
-            break
-        fi
-    done
+    local template_file="$ralph_dir/prompt-template.md"
     
-    log_info "Task execution loop complete"
+    sync_tasks_to_ralph "$change_dir" "$ralph_dir"
+    create_prompt_template "$change_dir" "$template_file"
+    
+    local prd_content
+    prd_content=$(generate_prd "$change_dir")
+    
+    # Restore Ralph state from tasks.md before running
+    restore_ralph_state_from_tasks "$tasks_file"
+    
+    log_info "Delegating to ralph CLI..."
+    ralph "$prd_content" \
+        --agent opencode \
+        --tasks \
+        --max-iterations "$max_iterations" \
+        --prompt-template "$template_file" \
+        --verbose-tools
+    
+    return $?
 }
 
 initialize_tracking() {
@@ -743,7 +850,9 @@ main() {
     log_info "PRD generation complete"
     log_info "Found ${#TASKS[@]} tasks to execute"
     
-    execute_task_loop "$ralph_dir"
+    local max_iterations="${MAX_ITERATIONS:-50}"
+    
+    execute_ralph_loop "$change_dir" "$ralph_dir" "$max_iterations"
     
     log_info "ralph-run.sh initialized successfully"
 }
