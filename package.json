@@ -1,10 +1,10 @@
 {
   "name": "spec-and-loop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenSpec + Ralph Loop integration for iterative development with opencode",
   "main": "index.js",
   "bin": {
-    "ralph-run": "./bin/ralph-run"
+    "ralph-run": "bin/ralph-run"
   },
   "scripts": {
     "postinstall": "node scripts/setup.js"
@@ -23,7 +23,7 @@
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ncheaz/spec-and-loop.git"
+    "url": "git+https://github.com/ncheaz/spec-and-loop.git"
   },
   "files": [
     "bin/",

@@ -74,7 +74,7 @@ PREREQUISITES:
     - Git repository (git init)
     - OpenSpec artifacts created (openspec init, opsx-new, opsx-ff)
     - ralph CLI installed (npm install -g @th0rgal/ralph-wiggum)
-    - opencode CLI installed (npm install -g opencode-ai)
+    - opencode CLI installed (npm install -g opencode)
 
 EOF
 }
@@ -152,7 +152,7 @@ validate_dependencies() {
     # Check for opencode
     if ! command -v opencode &> /dev/null; then
         log_error "opencode CLI not found."
-        log_error "Please install opencode: npm install -g opencode-ai"
+        log_error "Please install opencode: npm install -g opencode"
         exit 1
     fi
     log_verbose "Found: opencode"
@@ -287,7 +287,16 @@ generate_prd() {
     prd_content+="$OPENSPEC_SPECS"$'\n'$'\n'
     
     prd_content+="## Design"$'\n'$'\n'
-    prd_content+="$OPENSPEC_DESIGN"$'\n'
+    prd_content+="$OPENSPEC_DESIGN"$'\n'$'\n'
+    
+    # Add current task context for Ralph to use in commits
+    local task_context
+    task_context=$(get_current_task_context "$change_dir")
+    
+    if [[ -n "$task_context" ]]; then
+        prd_content+="## Current Task Context"$'\n'$'\n'
+        prd_content+="$task_context"$'\n'$'\n'
+    fi
     
     echo "$prd_content"
 }
@@ -638,6 +647,42 @@ Include full context from openspec artifacts in {{change_dir}}:
 - If stuck, try a different approach
 - Check your work before claiming completion
 
+## CRITICAL: Git Commit Format (MANDATORY)
+
+When making git commits, you MUST use this EXACT format:
+
+```
+Ralph iteration <N>: <brief description of work completed>
+
+Tasks completed:
+- [x] <task.number> <task description text>
+- [x] <task.number> <task description text>
+...
+```
+
+**Requirements:**
+1. Use iteration number from Ralph's state (e.g., "Ralph iteration 7")
+2. Include a BRIEF description summarizing what was done
+3. List ALL completed tasks with their numbers and full descriptions
+4. Use the EXACT format: "- [x] <task.number> <task description>"
+5. Read the "## Completed Tasks for Git Commit" section from the PRD for the task list
+
+**FORBIDDEN:**
+- DO NOT use generic messages like "work in progress" or "iteration N"
+- DO NOT skip task numbers
+- DO NOT truncate task descriptions
+- DO NOT create commits without task information
+
+**Example:**
+```
+Ralph iteration 7: Implement unit tests for response processing
+
+Tasks completed:
+- [x] 11.6 Write unit test for personality state management
+- [x] 11.7 Write unit test for personality validation
+- [x] 11.8 Write unit test for system prompt validation
+```
+
 {{context}}
 EOF
     
@@ -655,28 +700,119 @@ restore_ralph_state_from_tasks() {
         return 0
     fi
     
-    # Count completed tasks in tasks.md
+    # Read current iteration from state file - don't use completed task count
+    local current_iteration
+    current_iteration=$(jq -r '.iteration // 0' "$ralph_loop_file" 2>/dev/null || echo "0")
+    
+    # Count completed tasks for informational purposes only
     local completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
-    local next_iteration=$((completed_count + 1))
-    log_verbose "Found $completed_count completed tasks in tasks.md, setting iteration to $next_iteration"
+    log_verbose "Found $completed_count completed tasks in tasks.md (iteration $current_iteration)"
     
-    # Update Ralph state to resume from completed task
-    local updated_state
-    updated_state=$(jq --argjson state "$(cat "$ralph_loop_file")" --arg iter "$next_iteration" '
-        .iteration = $iter |
-        .active = true
-    ' 2>/dev/null)
+    # Read maxIterations from state file
+    local max_iterations
+    max_iterations=$(jq -r '.maxIterations // 50' "$ralph_loop_file" 2>/dev/null || echo "50")
     
-    if [[ -n "$updated_state" ]]; then
-        log_verbose "Updated Ralph state: iteration set to $next_iteration"
-        echo "$updated_state" > "$ralph_loop_file"
+    # Only update iteration if it's 0 or missing (fresh start)
+    if [[ $current_iteration -eq 0 ]]; then
+        log_verbose "Setting initial iteration to 1 (max: $max_iterations)"
+        local updated_state
+        updated_state=$(jq --argjson state "$(cat "$ralph_loop_file")" '
+            .iteration = 1 |
+            .active = true
+        ' 2>/dev/null)
+        
+        if [[ -n "$updated_state" ]]; then
+            echo "$updated_state" > "$ralph_loop_file"
+        fi
+    else
+        log_verbose "Ralph state preserved at iteration $current_iteration"
     fi
+}
+
+get_current_task_context() {
+    local change_dir="$1"
+    local tasks_file="$change_dir/tasks.md"
+    
+    if [[ ! -f "$tasks_file" ]]; then
+        echo ""
+        return
+    fi
+    
+    log_verbose "Reading current task context from tasks.md..."
+    
+    local context=""
+    local found_task=false
+    local all_completed_tasks=""
+    local current_task_desc=""
+    
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^-\ \[/\] ]]; then
+            # Found in-progress task - extract description
+            current_task_desc="${line#- [/] }"
+            found_task=true
+            break
+        elif [[ "$line" =~ ^-\ \[\ \] ]] && [[ "$found_task" == "false" ]]; then
+            # Found incomplete task - extract description
+            current_task_desc="${line#- [ ] }"
+            found_task=true
+            break
+        fi
+    done < "$tasks_file"
+    
+    # Also collect all completed tasks for commit message
+    local line_number=0
+    while IFS= read -r line; do
+        ((line_number++)) || true
+        if [[ "$line" =~ ^-\ \[x\] ]]; then
+            # Use the full line as-is to preserve task number and description
+            all_completed_tasks+="$line"$'\n'
+        fi
+    done < "$tasks_file"
+    
+    if [[ "$found_task" == "true" ]]; then
+        context="## Current Task"$'\n'
+        context+="- $current_task_desc"$'\n'
+    fi
+    
+    if [[ -n "$all_completed_tasks" ]]; then
+        context+="## Completed Tasks for Git Commit"$'\n'
+        context+="$all_completed_tasks"
+    fi
+    
+    echo "$context"
+}
+
+setup_output_capture() {
+    local ralph_dir="$1"
+    
+    log_verbose "Setting up output capture..."
+    
+    # Create timestamped output directory in /tmp
+    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local output_dir="/tmp/ralph-run-$timestamp"
+    
+    mkdir -p "$output_dir"
+    log_info "Output directory: $output_dir"
+    
+    # Store output directory path in Ralph directory for reference
+    echo "$output_dir" > "$ralph_dir/.output_dir"
+    
+    echo "$output_dir"
+}
+
+cleanup_old_output() {
+    log_verbose "Cleaning up old Ralph output directories..."
+    
+    # Keep last 3 Ralph output directories, delete older ones
+    find /tmp -type d -name "ralph-run-*" -mtime +7d 2>/dev/null | while read old_dir; do
+        log_verbose "Removing old output directory: $old_dir"
+        rm -rf "$old_dir"
+    done
 }
 
 execute_ralph_loop() {
     local change_dir="$1"
     local ralph_dir="$2"
-    local tasks_file="$change_dir/tasks.md"
     local max_iterations="${3:-50}"
     
     log_info "Starting Ralph Wiggum loop with open-ralph-wiggum..."
@@ -691,139 +827,63 @@ execute_ralph_loop() {
     
     local template_file="$ralph_dir/prompt-template.md"
     
+    # Clean up old output directories and setup new one
+    cleanup_old_output
+    local output_dir=$(setup_output_capture "$ralph_dir")
+    
     sync_tasks_to_ralph "$change_dir" "$ralph_dir"
     create_prompt_template "$change_dir" "$template_file"
     
+    # Generate PRD and write to file
     local prd_content
     prd_content=$(generate_prd "$change_dir")
+    echo "$prd_content" > "$ralph_dir/PRD.md"
+    
+    # Get current task context for Ralph to use in commits
+    local task_context
+    task_context=$(get_current_task_context "$change_dir")
+    
+    # Create context injection file for Ralph
+    local context_file="$ralph_dir/.context_injection"
+    if [[ -n "$task_context" ]]; then
+        log_verbose "Writing task context injection..."
+        echo "$task_context" > "$context_file"
+    fi
     
     # Restore Ralph state from tasks.md before running
-    restore_ralph_state_from_tasks "$tasks_file"
+    restore_ralph_state_from_tasks "$change_dir/tasks.md"
+    
+    # Initialize context injections file for Ralph to read context
+    initialize_context_injections "$ralph_dir"
+    
+    # Output files
+    local stdout_log="$output_dir/ralph-stdout.log"
+    local stderr_log="$output_dir/ralph-stderr.log"
     
     log_info "Delegating to ralph CLI..."
-    ralph "$prd_content" \
-        --agent opencode \
-        --tasks \
-        --max-iterations "$max_iterations" \
-        --prompt-template "$template_file" \
-        --verbose-tools
+    log_info "Capturing output to: $output_dir"
+    
+    # Run Ralph and capture output to both console and files
+    {
+        ralph --prompt-file "$ralph_dir/PRD.md" \
+            --agent opencode \
+            --tasks \
+            --max-iterations "$max_iterations" \
+            --prompt-template "$template_file" \
+            --verbose-tools
+    } > >(tee "$stdout_log") 2> >(tee "$stderr_log")
     
     return $?
 }
 
-initialize_tracking() {
-    local ralph_dir="$1"
-    local tracking_file="$ralph_dir/tracking.json"
-    
-    log_verbose "Initializing tracking..."
-    
-    if [[ ! -f "$tracking_file" ]]; then
-        log_verbose "Creating tracking.json..."
-        echo '{"tasks":{}}' > "$tracking_file"
-    fi
-    
-    echo "$tracking_file"
-}
 
-read_tracking() {
-    local tracking_file="$1"
-    
-    log_verbose "Reading tracking.json..."
-    
-    if [[ -f "$tracking_file" ]]; then
-        cat "$tracking_file"
-    else
-        echo '{"tasks":{}}'
-    fi
-}
-
-update_task_checkbox() {
-    local change_dir="$1"
-    local task_id="$2"
-    local complete="$3"
-    
-    log_verbose "Updating task checkbox (line $task_id, complete=$complete)..."
-    
-    local tasks_file="$change_dir/tasks.md"
-    local temp_file=$(mktemp)
-    
-    local line_number=0
-    while IFS= read -r line; do
-        ((line_number++)) || true
-        
-        if [[ $line_number -eq $task_id ]]; then
-            if [[ "$complete" == "true" ]]; then
-                echo "${line/- \[ \]/- [x]}" >> "$temp_file"
-            else
-                echo "${line/- \[x\]/- [ ]}" >> "$temp_file"
-            fi
-        else
-            echo "$line" >> "$temp_file"
-        fi
-    done < "$tasks_file"
-    
-    mv "$temp_file" "$tasks_file"
-}
-
-update_tracking() {
-    local tracking_file="$1"
-    local task_id="$2"
-    local complete="$3"
-    
-    log_verbose "Updating tracking.json (task $task_id, complete=$complete)..."
-    
-    local status="pending"
-    if [[ "$complete" == "true" ]]; then
-        status="complete"
-    fi
-    
-    local tracking_json
-    tracking_json=$(cat "$tracking_file")
-    
-    local updated_json
-    updated_json=$(echo "$tracking_json" | jq --arg id "$task_id" --arg status "$status" '.tasks[$id] = {status: $status}' 2>/dev/null || echo '{"tasks":{}}')
-    
-    echo "$updated_json" > "$tracking_file"
-}
-
-update_task_status_atomic() {
-    local change_dir="$1"
-    local task_id="$2"
-    local complete="$3"
-    local tracking_file="$4"
-    
-    log_verbose "Updating task status atomically..."
-    
-    local tasks_file="$change_dir/tasks.md"
-    local tasks_backup="${tasks_file}.bak"
-    local tracking_backup="${tracking_file}.bak"
-    
-    cp "$tasks_file" "$tasks_backup"
-    cp "$tracking_file" "$tracking_backup"
-    
-    update_task_checkbox "$change_dir" "$task_id" "$complete"
-    update_tracking "$tracking_file" "$task_id" "$complete"
-    
-    if [[ ! -f "$tasks_file" ]] || [[ ! -f "$tracking_file" ]]; then
-        log_error "Update failed: files not found"
-        mv "$tasks_backup" "$tasks_file"
-        mv "$tracking_backup" "$tracking_file"
-        return 1
-    fi
-    
-    rm "$tasks_backup"
-    rm "$tracking_backup"
-    
-    log_verbose "Atomic update successful"
-    return 0
-}
 
 main() {
     parse_arguments "$@"
-
+    
     log_verbose "Starting ralph-run v$VERSION"
     log_verbose "Change name: ${CHANGE_NAME:-<auto-detect>}"
-
+    
     validate_git_repository
     validate_dependencies
     
@@ -836,7 +896,6 @@ main() {
     validate_openspec_artifacts "$change_dir"
     validate_script_state "$change_dir"
     local ralph_dir=$(setup_ralph_directory "$change_dir")
-    local tracking_file=$(initialize_tracking "$ralph_dir")
     
     log_info "Change directory: $change_dir"
     log_info "Ralph directory: $ralph_dir"
