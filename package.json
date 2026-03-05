@@ -1,6 +1,6 @@
 {
   "name": "spec-and-loop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "OpenSpec + Ralph Loop integration for iterative development with opencode",
   "main": "index.js",
   "bin": {
@@ -10,7 +10,8 @@
     "postinstall": "node scripts/setup.js"
   },
   "dependencies": {
-    "@fission-ai/openspec": "latest"
+    "@fission-ai/openspec": "latest",
+    "@th0rgal/ralph-wiggum": "latest"
   },
   "keywords": [
     "openspec",
