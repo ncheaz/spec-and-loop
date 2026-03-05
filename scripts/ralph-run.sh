@@ -265,9 +265,9 @@ read_openspec_artifacts() {
         log_verbose "Read design.md"
     fi
     
-    declare -g OPENSPEC_PROPOSAL="$proposal_content"
-    declare -g OPENSPEC_SPECS="$specs_content"
-    declare -g OPENSPEC_DESIGN="$design_content"
+    OPENSPEC_PROPOSAL="$proposal_content"
+    OPENSPEC_SPECS="$specs_content"
+    OPENSPEC_DESIGN="$design_content"
 }
 
 generate_prd() {
@@ -318,9 +318,9 @@ parse_tasks() {
     
     log_verbose "Parsing tasks from tasks.md..."
     
-    declare -g TASKS=()
-    declare -g TASK_IDS=()
-    declare -g TASKS_MD5=""
+    TASKS=()
+    TASK_IDS=()
+    TASKS_MD5=""
     
     if [[ -f "$tasks_file" ]]; then
         TASKS_MD5=$(md5sum "$tasks_file" | cut -d' ' -f1)
@@ -328,8 +328,8 @@ parse_tasks() {
     
     log_verbose "Parsing tasks from tasks.md..."
     
-    declare -g TASKS=()
-    declare -g TASK_IDS=()
+    TASKS=()
+    TASK_IDS=()
     
     local line_number=0
     while IFS= read -r line; do
