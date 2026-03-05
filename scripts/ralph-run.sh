@@ -550,7 +550,7 @@ sync_tasks_to_ralph() {
     local ralph_dir="$2"
     
     local tasks_file="$change_dir/tasks.md"
-    local ralph_tasks_file=".ralph/ralph-tasks.md"
+    local ralph_tasks_file="$ralph_dir/ralph-tasks.md"
     local old_ralph_tasks_file="$change_dir/.ralph/ralph-tasks.md"
     
     if [[ ! -f "$tasks_file" ]]; then
@@ -558,7 +558,23 @@ sync_tasks_to_ralph() {
         return 1
     fi
     
-    local abs_tasks_file=$(realpath "$tasks_file" 2>/dev/null)
+    # Ensure the ralph directory exists
+    if [[ ! -d "$ralph_dir" ]]; then
+        mkdir -p "$ralph_dir"
+        log_verbose "Created ralph dir: $ralph_dir"
+    fi
+
+    # Resolve absolute path to tasks file (portable across Linux/macOS)
+    local abs_tasks_file=""
+    if command -v realpath >/dev/null 2>&1; then
+        abs_tasks_file=$(realpath "$tasks_file" 2>/dev/null || true)
+    elif readlink -f / >/dev/null 2>&1; then
+        abs_tasks_file=$(readlink -f "$tasks_file" 2>/dev/null || true)
+    else
+        local _tdir
+        _tdir=$(cd "$(dirname "$tasks_file")" 2>/dev/null && pwd -P || echo "")
+        abs_tasks_file="$_tdir/$(basename "$tasks_file")"
+    fi
     
     # Clean up old Ralph tasks file in change directory if exists
     if [[ -f "$old_ralph_tasks_file" ]]; then
@@ -567,10 +583,23 @@ sync_tasks_to_ralph() {
     fi
     
     # Use symlink so Ralph and openspec-apply-change work on the SAME file
+    # Ensure parent directory for ralph_tasks_file exists
+    mkdir -p "$(dirname "$ralph_tasks_file")"
+
     if [[ -L "$ralph_tasks_file" ]]; then
         log_verbose "Symlink exists, ensuring it points to correct location"
-        local current_target=$(readlink -f "$ralph_tasks_file" 2>/dev/null || echo "")
-        
+        local current_target=""
+        if command -v realpath >/dev/null 2>&1; then
+            current_target=$(realpath "$ralph_tasks_file" 2>/dev/null || echo "")
+        elif readlink -f / >/dev/null 2>&1; then
+            current_target=$(readlink -f "$ralph_tasks_file" 2>/dev/null || echo "")
+        else
+            current_target=$(readlink "$ralph_tasks_file" 2>/dev/null || echo "")
+            if [[ -n "$current_target" && "$current_target" != /* ]]; then
+                current_target="$(cd "$(dirname "$ralph_tasks_file")" && pwd -P)/$current_target"
+            fi
+        fi
+
         if [[ "$current_target" != "$abs_tasks_file" ]]; then
             log_verbose "Updating symlink to point to new change directory"
             ln -sf "$abs_tasks_file" "$ralph_tasks_file"
@@ -578,11 +607,11 @@ sync_tasks_to_ralph() {
     elif [[ -f "$ralph_tasks_file" ]]; then
         # File exists but is not a symlink - replace with symlink
         log_verbose "Replacing regular file with symlink to openspec tasks..."
-        rm "$ralph_tasks_file"
+        rm -f "$ralph_tasks_file"
         ln -sf "$abs_tasks_file" "$ralph_tasks_file"
     else
         # No file exists - create new symlink
-        log_verbose "Creating symlink from .ralph/ralph-tasks.md to openspec tasks..."
+        log_verbose "Creating symlink from $ralph_tasks_file to openspec tasks..."
         ln -sf "$abs_tasks_file" "$ralph_tasks_file"
     fi
     
