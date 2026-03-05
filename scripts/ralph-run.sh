@@ -715,7 +715,10 @@ Tasks completed:
 {{context}}
 EOF
     
-    sed -i "s|{{change_dir}}|$abs_change_dir|g" "$template_file"
+    # Use a portable inplace replace: write to temp file then move into place
+    local _tmpfile
+    _tmpfile=$(mktemp 2>/dev/null || mktemp -t ralph-template)
+    sed "s|{{change_dir}}|$abs_change_dir|g" "$template_file" > "$_tmpfile" && mv "$_tmpfile" "$template_file"
     
     log_verbose "Prompt template created: $template_file"
 }
