@@ -213,12 +213,49 @@ openspec new another-feature
 | **Auto-Resume** | Interrupted? Run again—picks up where left off |
 | **Context Injection** | Inject custom instructions during execution |
 
+## Testing
+
+Spec-and-loop includes a comprehensive test suite to ensure reliability and cross-platform compatibility.
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run unit tests only
+npm run test:unit
+
+# Run integration tests only
+npm run test:integration
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run shellcheck linting
+npm run lint
+```
+
+### Test Requirements
+
+To run tests, you'll need:
+- **Node.js** (>= 24.0.0)
+- **Bats** (Bash testing framework): `apt install bats-core` or `brew install bats-core`
+- **Shellcheck** (Bash linting): `apt install shellcheck` or `brew install shellcheck`
+
+### CI/CD
+
+Tests run automatically on every push and pull request via GitHub Actions on both Linux and macOS.
+
+**For more details, see [TESTING.md](./TESTING.md)**
+
 ## Next Steps
 
 1. **Read the full README.md** for detailed documentation
 2. **Try a real feature** in your project
 3. **Explore the .ralph/** directory to see internal state
 4. **Check out .hidden/** directory for advanced guides
+5. **Review TESTING.md** for testing guidelines
 
 ## Resources
 

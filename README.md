@@ -2,6 +2,10 @@
 
 OpenSpec + Ralph Loop integration for iterative development with opencode.
 
+![CI Status](https://img.shields.io/github/actions/workflow/status/ncheaz/spec-and-loop/test.yml)
+![Coverage](https://img.shields.io/badge/coverage-0%25-red)
+[![npm version](https://badge.fury.io/js/spec-and-loop.svg)](https://badge.fury.io/js/spec-and-loop)
+
 **[🚀 Quick Start Guide](./QUICKSTART.md)** - Get up and running in 5 minutes!
 
 ## Why This Exists
@@ -55,6 +59,114 @@ ralph-run --change add-user-auth
 For detailed step-by-step instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 <!-- Duplicate Quick Start removed; see QUICKSTART.md for full instructions -->
+
+## Testing
+
+Spec-and-loop includes a comprehensive test suite to ensure reliability and cross-platform compatibility.
+
+**[📋 Testing Guide](./TESTING.md)** - Detailed instructions for running tests
+
+### Quick Test Commands
+
+```bash
+# Run all tests
+npm test
+
+# Run unit tests only
+npm run test:unit
+
+# Run integration tests only
+npm run test:integration
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run shellcheck linting
+npm run lint
+```
+
+### CI/CD Status
+
+- **Linux**: Tests run on Ubuntu (latest)
+- **macOS**: Tests run on macOS (latest)
+- **Node.js**: Tested on Node.js 24
+
+All tests are run automatically via GitHub Actions on every push and pull request.
+
+### CI/CD Workflow
+
+The CI/CD pipeline is defined in `.github/workflows/test.yml` and performs the following steps:
+
+1. **Checkout Code**: Pulls the latest code from the repository
+2. **Setup Node.js**: Installs Node.js version 24 with npm caching
+3. **Install System Dependencies**:
+   - Linux: `apt-get install bats-core jq shellcheck`
+   - macOS: `brew install bats-core jq shellcheck`
+4. **Install npm Dependencies**: Runs `npm ci` to install dependencies
+5. **Install Global CLIs**: Installs openspec, ralph, and opencode globally
+6. **Run Shellcheck Linting**: Checks bash scripts for errors and best practices
+7. **Run Unit Tests**: Executes bash and JavaScript unit tests
+8. **Run Integration Tests**: Validates full workflow end-to-end
+9. **Upload Artifacts**: Uploads test logs and coverage reports
+
+### Triggering CI/CD
+
+The workflow runs automatically on:
+- Push to `main` or `develop` branches
+- Pull requests to `main` or `develop` branches
+- Manual trigger via GitHub Actions UI
+
+To manually trigger:
+1. Go to Actions tab in GitHub
+2. Select "Test Suite" workflow
+3. Click "Run workflow"
+4. Select branch and test suite (all/unit/integration)
+
+### Troubleshooting CI/CD
+
+**Tests Failing on One Platform**
+
+If tests pass on Linux but fail on macOS (or vice versa):
+- Check for platform-specific command differences (GNU vs BSD tools)
+- Review platform-specific tests in `test-symlink-linux.bats`, `test-symlink-macos.bats`, etc.
+- Verify stat, md5sum/md5, and other commands use correct flags
+
+**Coverage Below Threshold**
+
+If coverage drops below 80%:
+- Review coverage reports uploaded as artifacts
+- Identify which functions lost coverage
+- Add tests to cover the missing code paths
+
+**Linting Failures**
+
+If shellcheck finds issues:
+- Review the warnings in the CI logs
+- Fix the issues locally: `npm run lint`
+- Commit the fixes
+
+**Timeout Issues**
+
+If tests timeout:
+- Integration tests may take longer than expected
+- Check for infinite loops or hanging processes
+- Review test fixture setup/teardown
+
+**Artifact Access**
+
+Download test logs and coverage reports:
+1. Go to the failed workflow run
+2. Scroll to "Artifacts" section
+3. Download relevant artifacts (test logs, coverage reports)
+4. Analyze locally to identify issues
+
+### Test Coverage
+
+Critical functions have >80% test coverage. View detailed coverage reports:
+```bash
+npm run test:coverage
+open coverage/index.html
+```
 
 ## Prerequisites
 
