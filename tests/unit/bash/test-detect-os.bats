@@ -6,7 +6,7 @@
 setup() {
   # Source the main script to access the detect_os function
   load '../../helpers/test-common'
-  source ../../../scripts/ralph-run.sh
+  source scripts/ralph-run.sh
 }
 
 teardown() {

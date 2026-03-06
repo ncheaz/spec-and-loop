@@ -6,7 +6,7 @@
 setup() {
   # Load the main script to access the parse_tasks function
   load '../../helpers/test-common'
-  source ../../../scripts/ralph-run.sh
+  source scripts/ralph-run.sh
   setup_test_dir
 }
 

@@ -6,7 +6,7 @@
 setup() {
   # Load the main script to access validation functions
   load '../../helpers/test-common'
-  source ../../../scripts/ralph-run.sh
+  source scripts/ralph-run.sh
 }
 
 teardown() {
