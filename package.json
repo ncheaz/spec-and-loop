@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
+    "bats": "^1.13.0",
     "jest": "^29.7.0"
   },
   "jest": {
