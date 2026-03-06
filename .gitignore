@@ -132,3 +132,4 @@ dist/
 openspec/*
 *.tgz
 /hidden/*
+.ralph
