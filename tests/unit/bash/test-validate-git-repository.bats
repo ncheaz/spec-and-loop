@@ -6,7 +6,7 @@
 setup() {
   # Load the main script to access the validate_git_repository function
   load '../../helpers/test-common'
-  source scripts/ralph-run.sh
+  source tests/helpers/test-functions.sh
 }
 
 teardown() {
@@ -49,7 +49,7 @@ teardown() {
 
   # Run validate_git_repository - should exit with error
   # Use subshell to prevent test from exiting
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   
   # Function should exit with code 1
   [ "$status" -eq 1 ]
@@ -75,7 +75,7 @@ teardown() {
   export -f git
 
   # Run validate_git_repository
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   
   # Should suggest running git init
   [[ "$output" == *"git init"* ]] || true
@@ -129,7 +129,7 @@ teardown() {
   export -f git
 
   # Run validate_git_repository - should handle error and exit
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   
   # Should exit with error code
   [ "$status" -eq 1 ]
@@ -200,7 +200,7 @@ teardown() {
   export -f git
 
   # Run validate_git_repository
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   
   # Should log error message
   [[ "$output" == *"error"* || "$output" == *"Error"* ]] || true

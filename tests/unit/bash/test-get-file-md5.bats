@@ -5,7 +5,7 @@
 
 setup() {
   load '../../helpers/test-common'
-  source scripts/ralph-run.sh
+  source tests/helpers/test-functions.sh
   TEST_DIR=$(setup_test_dir "get-file-md5")
 }
 

@@ -6,7 +6,7 @@
 setup() {
   # Load the main script to access the validate_script_state function
   load '../../helpers/test-common'
-  source scripts/ralph-run.sh
+  source tests/helpers/test-functions.sh
 }
 
 teardown() {

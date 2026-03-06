@@ -5,7 +5,7 @@
 
 setup() {
   load '../../helpers/test-common'
-  source scripts/ralph-run.sh
+  source tests/helpers/test-functions.sh
 }
 
 teardown() {

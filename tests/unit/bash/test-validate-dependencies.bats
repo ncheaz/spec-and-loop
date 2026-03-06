@@ -6,7 +6,7 @@
 setup() {
   # Load the main script to access the validate_dependencies function
   load '../../helpers/test-common'
-  source scripts/ralph-run.sh
+  source tests/helpers/test-functions.sh
 }
 
 teardown() {
@@ -63,7 +63,7 @@ teardown() {
   export -f command
 
   # Run validate_dependencies - should exit with error
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   # Function should exit with code 1
   [ "$status" -eq 1 ]
@@ -93,7 +93,7 @@ teardown() {
   export -f command
 
   # Run validate_dependencies - should exit with error
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   # Function should exit with code 1
   [ "$status" -eq 1 ]
@@ -123,7 +123,7 @@ teardown() {
   export -f command
 
   # Run validate_dependencies
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   # Should suggest installing ralph
   [[ "$output" == *"npm install -g"* ]] || true
@@ -151,7 +151,7 @@ teardown() {
   export -f command
 
   # Run validate_dependencies
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   # Should suggest installing opencode
   [[ "$output" == *"npm install -g"* ]] || true

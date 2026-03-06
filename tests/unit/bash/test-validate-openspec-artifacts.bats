@@ -6,7 +6,7 @@
 setup() {
   # Load the main script to access the validate_openspec_artifacts function
   load '../../helpers/test-common'
-  source scripts/ralph-run.sh
+  source tests/helpers/test-functions.sh
 }
 
 teardown() {
@@ -50,7 +50,7 @@ teardown() {
   touch "$change_dir/specs/test-spec/spec.md"
 
   # Run validate_openspec_artifacts - should exit with error
-  run bash -c 'source scripts/ralph-run.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
+  run bash -c 'source tests/helpers/test-functions.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
 
   # Function should exit with code 1
   [ "$status" -eq 1 ]
@@ -76,7 +76,7 @@ teardown() {
   touch "$change_dir/specs/test-spec/spec.md"
 
   # Run validate_openspec_artifacts - should exit with error
-  run bash -c 'source scripts/ralph-run.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
+  run bash -c 'source tests/helpers/test-functions.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
 
   # Function should exit with code 1
   [ "$status" -eq 1 ]
@@ -102,7 +102,7 @@ teardown() {
   touch "$change_dir/specs/test-spec/spec.md"
 
   # Run validate_openspec_artifacts - should exit with error
-  run bash -c 'source scripts/ralph-run.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
+  run bash -c 'source tests/helpers/test-functions.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
 
   # Function should exit with code 1
   [ "$status" -eq 1 ]
@@ -127,7 +127,7 @@ teardown() {
   touch "$change_dir/tasks.md"
 
   # Run validate_openspec_artifacts - should exit with error
-  run bash -c 'source scripts/ralph-run.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
+  run bash -c 'source tests/helpers/test-functions.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
 
   # Function should exit with code 1
   [ "$status" -eq 1 ]
@@ -150,7 +150,7 @@ teardown() {
   touch "$change_dir/proposal.md"
 
   # Run validate_openspec_artifacts - should exit with error
-  run bash -c 'source scripts/ralph-run.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
+  run bash -c 'source tests/helpers/test-functions.sh && validate_openspec_artifacts "$1"' _ "$change_dir"
 
   # Function should exit with code 1
   [ "$status" -eq 1 ]

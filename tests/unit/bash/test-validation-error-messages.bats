@@ -6,7 +6,7 @@
 setup() {
   # Load the main script to access validation functions
   load '../../helpers/test-common'
-  source scripts/ralph-run.sh
+  source tests/helpers/test-functions.sh
 }
 
 teardown() {
@@ -43,7 +43,7 @@ teardown() {
   export -f git
 
   # Run validate_git_repository - should fail with exit code 1
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   
   [ "$status" -eq 1 ]
 }
@@ -65,7 +65,7 @@ teardown() {
   export -f git
 
   # Run validate_git_repository
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   
   # Should show error message
   [[ "$output" == *"error"* || "$output" == *"Error"* ]] || true
@@ -89,7 +89,7 @@ teardown() {
   export -f git
 
   # Run validate_git_repository
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   
   # Should suggest git init
   [[ "$output" == *"git init"* ]] || true
@@ -126,7 +126,7 @@ teardown() {
   export -f ralph opencode jq
 
   # Run validate_dependencies - should fail with exit code 1
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   [ "$status" -eq 1 ]
 }
@@ -144,7 +144,7 @@ teardown() {
   export -f ralph opencode jq
 
   # Run validate_dependencies
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   # Should identify ralph as missing
   [[ "$output" == *"ralph"* ]] || true
@@ -164,7 +164,7 @@ teardown() {
   export -f ralph opencode jq
 
   # Run validate_dependencies - should fail with exit code 1
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   [ "$status" -eq 1 ]
 }
@@ -182,7 +182,7 @@ teardown() {
   export -f ralph opencode jq
 
   # Run validate_dependencies
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   # Should identify opencode as missing
   [[ "$output" == *"opencode"* ]] || true
@@ -202,7 +202,7 @@ teardown() {
   export -f ralph opencode jq
 
   # Run validate_dependencies - should fail with exit code 1
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   [ "$status" -eq 1 ]
 }
@@ -220,7 +220,7 @@ teardown() {
   export -f ralph opencode jq
 
   # Run validate_dependencies
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   
   # Should identify jq as missing
   [[ "$output" == *"jq"* ]] || true
@@ -473,7 +473,7 @@ teardown() {
   # Test validate_git_repository with error
   git() { return 128; }
   export -f git
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   [ "$status" -eq 1 ]
   
   # Test validate_dependencies with error
@@ -481,7 +481,7 @@ teardown() {
   opencode() { return 127; }
   jq() { return 127; }
   export -f ralph opencode jq
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   [ "$status" -eq 1 ]
   
   # Test validate_openspec_artifacts with error
@@ -540,7 +540,7 @@ teardown() {
   # Test validate_git_repository error message
   git() { return 128; }
   export -f git
-  run bash -c 'source scripts/ralph-run.sh && validate_git_repository'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_git_repository'
   [[ "$output" == *"git"* ]] || true
   
   # Test validate_dependencies error message
@@ -548,7 +548,7 @@ teardown() {
   opencode() { echo "opencode $*" && return 0; }
   jq() { echo "{}" && return 0; }
   export -f ralph opencode jq
-  run bash -c 'source scripts/ralph-run.sh && validate_dependencies'
+  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   [[ "$output" == *"ralph"* ]] || true
   
   # Test validate_openspec_artifacts error message
