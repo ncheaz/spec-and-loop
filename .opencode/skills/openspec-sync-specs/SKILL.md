@@ -1,12 +1,12 @@
 ---
 name: openspec-sync-specs
 description: Sync delta specs from a change to main specs. Use when the user wants to update main specs with changes from a delta spec, without archiving the change.
-license: GPL-3.0
+license: MIT
 compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.1.1"
+  generatedBy: "1.2.0"
 ---
 
 Sync delta specs from a change to main specs.

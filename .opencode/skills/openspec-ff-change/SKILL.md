@@ -1,12 +1,12 @@
 ---
 name: openspec-ff-change
 description: Fast-forward through OpenSpec artifact creation. Use when the user wants to quickly create all artifacts needed for implementation without stepping through each one individually.
-license: GPL-3.0
+license: MIT
 compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.1.1"
+  generatedBy: "1.2.0"
 ---
 
 Fast-forward through artifact creation - generate everything needed to start implementation in one go.

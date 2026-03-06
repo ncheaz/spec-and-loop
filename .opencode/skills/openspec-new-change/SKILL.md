@@ -1,12 +1,12 @@
 ---
 name: openspec-new-change
 description: Start a new OpenSpec change using the experimental artifact workflow. Use when the user wants to create a new feature, fix, or modification with a structured step-by-step approach.
-license: GPL-3.0
+license: MIT
 compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.1.1"
+  generatedBy: "1.2.0"
 ---
 
 Start a new change using the experimental artifact-driven approach.

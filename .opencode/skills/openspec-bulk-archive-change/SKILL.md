@@ -1,12 +1,12 @@
 ---
 name: openspec-bulk-archive-change
 description: Archive multiple completed changes at once. Use when archiving several parallel changes.
-license: GPL-3.0
+license: MIT
 compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.1.1"
+  generatedBy: "1.2.0"
 ---
 
 Archive multiple completed changes in a single operation.
@@ -229,7 +229,7 @@ Failed K changes:
 ```
 ## No Changes to Archive
 
-No active changes found. Use `/opsx-new` to create a new change.
+No active changes found. Create a new change to get started.
 ```
 
 **Guardrails**
