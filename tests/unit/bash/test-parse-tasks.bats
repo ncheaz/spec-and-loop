@@ -248,3 +248,196 @@ EOF
   [ -z "$TASKS_MD5" ]
   [ "${#TASKS[@]}" -eq 0 ]
 }
+
+@test "parse_tasks: ignores uppercase checkbox state [X]" {
+  # Create tasks file with uppercase X (should not parse as incomplete)
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+- [X] 1.1 Uppercase X task (should be ignored)
+- [ ] 1.2 Normal incomplete task
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify only lowercase [ ] is parsed
+  [ "${#TASKS[@]}" -eq 1 ]
+  [ "${TASKS[0]}" = "1.2 Normal incomplete task" ]
+}
+
+@test "parse_tasks: handles malformed checkbox without space after dash" {
+  # Create tasks file with malformed checkbox (no space after dash)
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+-[ ] 1.1 Malformed dash spacing
+- [ ] 1.2 Normal task
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify malformed task is not parsed
+  [ "${#TASKS[@]}" -eq 1 ]
+  [ "${TASKS[0]}" = "1.2 Normal task" ]
+}
+
+@test "parse_tasks: handles malformed checkbox with extra spaces" {
+  # Create tasks file with extra spaces in checkbox
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+- [  ] 1.1 Double space in checkbox (should not parse)
+- [ ] 1.2 Normal task
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify malformed checkbox is not parsed
+  [ "${#TASKS[@]}" -eq 1 ]
+  [ "${TASKS[0]}" = "1.2 Normal task" ]
+}
+
+@test "parse_tasks: handles empty task description" {
+  # Create tasks file with empty task description
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+- [ ] 
+- [ ] 1.2 Normal task
+- [ ]    (only spaces)
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify empty and whitespace-only tasks are parsed
+  [ "${#TASKS[@]}" -ge 2 ]
+}
+
+@test "parse_tasks: handles special characters in task descriptions" {
+  # Create tasks file with special characters
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+- [ ] 1.1 Task with "quotes"
+- [ ] 1.2 Task with 'single quotes'
+- [ ] 1.3 Task with $dollar sign
+- [ ] 1.4 Task with &ampersand
+- [ ] 1.5 Task with |pipe|
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify special characters are preserved
+  [ "${#TASKS[@]}" -eq 5 ]
+  [[ "${TASKS[0]}" == *"quotes"* ]]
+  [[ "${TASKS[1]}" == *"'single quotes'"* ]]
+}
+
+@test "parse_tasks: handles unicode characters in tasks" {
+  # Create tasks file with unicode/emoji characters
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+- [ ] 1.1 Task with emoji 🎉
+- [ ] 1.2 Task with unicode café
+- [ ] 1.3 Task with arrow →
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify unicode characters are preserved
+  [ "${#TASKS[@]}" -eq 3 ]
+  [[ "${TASKS[0]}" == *"🎉"* ]]
+}
+
+@test "parse_tasks: handles very long task descriptions" {
+  # Create tasks file with very long description
+  local tasks_file="$TEST_DIR/tasks.md"
+  local long_desc="1.1 This is a very long task description that goes on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on and on"
+  
+  cat > "$tasks_file" <<EOF
+## Test Tasks
+
+- [ ] $long_desc
+- [ ] 1.2 Normal task
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify long description is preserved
+  [ "${#TASKS[@]}" -eq 2 ]
+  [[ "${TASKS[0]}" == *"very long task description"* ]]
+}
+
+@test "parse_tasks: handles backslash in task descriptions" {
+  # Create tasks file with backslashes
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+- [ ] 1.1 Task with \backslash
+- [ ] 1.2 Task with /forward/slash\back
+- [ ] 1.3 Normal task
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify backslashes are preserved
+  [ "${#TASKS[@]}" -eq 3 ]
+  [[ "${TASKS[0]}" == *"\\"* ]]
+}
+
+@test "parse_tasks: handles tasks with only numbers" {
+  # Create tasks file with minimal descriptions
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+- [ ] 1
+- [ ] 1.1
+- [ ] Task with words
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify minimal descriptions are parsed
+  [ "${#TASKS[@]}" -eq 3 ]
+}
+
+@test "parse_tasks: ignores comment-like lines" {
+  # Create tasks file with lines that look like comments or headers
+  local tasks_file="$TEST_DIR/tasks.md"
+  cat > "$tasks_file" <<'EOF'
+## Test Tasks
+
+# This is a comment, not a task
+## This is a header, not a task
+### Also not a task
+- [ ] 1.1 Actual task
+# Another comment
+- [ ] 1.2 Another task
+EOF
+
+  # Call parse_tasks
+  parse_tasks "$TEST_DIR"
+
+  # Verify only actual tasks are parsed
+  [ "${#TASKS[@]}" -eq 2 ]
+  [ "${TASKS[0]}" = "1.1 Actual task" ]
+  [ "${TASKS[1]}" = "1.2 Another task" ]
+}
