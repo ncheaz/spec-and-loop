@@ -4,8 +4,8 @@
 # Tests symlink creation and Ralph tasks file synchronization
 
 setup() {
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
 }
 
 teardown() {

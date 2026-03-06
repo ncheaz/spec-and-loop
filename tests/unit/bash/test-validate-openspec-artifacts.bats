@@ -5,8 +5,8 @@
 
 setup() {
   # Load the main script to access the validate_openspec_artifacts function
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
 }
 
 teardown() {

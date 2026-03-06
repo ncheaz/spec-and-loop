@@ -5,8 +5,8 @@
 
 setup() {
   # Load the main script
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
 }
 
 teardown() {
@@ -33,7 +33,7 @@ teardown() {
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -98,7 +98,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -145,7 +145,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -178,7 +178,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -208,7 +208,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -239,7 +239,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -275,7 +275,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -309,7 +309,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -336,7 +336,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -373,7 +373,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -405,7 +405,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -434,7 +434,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -456,7 +456,7 @@ EOF
   > "$change_dir/tasks.md"
   
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -487,7 +487,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -519,7 +519,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -550,7 +550,7 @@ EOF
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   

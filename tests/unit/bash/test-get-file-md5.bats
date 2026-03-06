@@ -4,8 +4,8 @@
 # Tests cross-platform MD5 hash retrieval
 
 setup() {
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
   TEST_DIR=$(setup_test_dir "get-file-md5")
 }
 

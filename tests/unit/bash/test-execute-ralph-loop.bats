@@ -4,8 +4,8 @@
 # Tests Ralph CLI invocation and loop execution orchestration
 
 setup() {
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
 }
 
 teardown() {

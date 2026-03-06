@@ -4,8 +4,8 @@
 # Tests MD5 hashing for detecting task file modifications
 
 setup() {
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
   TEST_DIR=$(setup_test_dir "task-md5-hashing")
 }
 

@@ -4,8 +4,8 @@
 # Tests cleanup behavior and exit code handling
 
 setup() {
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
 }
 
 teardown() {

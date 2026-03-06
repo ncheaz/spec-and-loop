@@ -5,8 +5,8 @@
 
 setup() {
   # Load the main script
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
 }
 
 teardown() {
@@ -191,7 +191,7 @@ Decision 2: Unique decision 2
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -429,7 +429,7 @@ EOF
   > "$change_dir/design.md"
   
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -487,7 +487,7 @@ Content with backticks: \`code\`
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -532,7 +532,7 @@ Table:
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -575,7 +575,7 @@ console.log(greeting);
 EOF
 
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   
@@ -598,7 +598,7 @@ EOF
   change_dir=$(create_openspec_change)
   
   # Read artifacts and generate PRD
-  read_openspec_artifacts "$change_dir")
+  read_openspec_artifacts "$change_dir"
   local prd
   prd=$(generate_prd "$change_dir")
   

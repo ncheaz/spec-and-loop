@@ -4,8 +4,8 @@
 # Tests extraction of current task and completed tasks from tasks.md
 
 setup() {
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
   setup_test_dir
 }
 

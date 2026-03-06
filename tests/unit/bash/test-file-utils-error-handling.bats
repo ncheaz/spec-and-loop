@@ -4,8 +4,8 @@
 # Tests missing files, permission errors, and edge cases
 
 setup() {
-  load '../helpers/test-common'
-  source ../../../../scripts/ralph-run.sh
+  load '../../helpers/test-common'
+  source ../../../scripts/ralph-run.sh
   TEST_DIR=$(setup_test_dir "file-utils-error-handling")
 }
 
