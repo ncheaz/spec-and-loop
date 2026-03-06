@@ -9,6 +9,58 @@ if [[ -d "$HOME/.bun/bin" ]]; then
     export PATH="$HOME/.bun/bin:$PATH"
 fi
 
+# Detect OS for cross-platform compatibility
+detect_os() {
+    case "$(uname -s)" in
+        Linux*)     OS="Linux";;
+        Darwin*)    OS="macOS";;
+        *)          OS="Unknown";;
+    esac
+}
+
+detect_os
+
+# Cross-platform file modification time
+get_file_mtime() {
+    local file="$1"
+    if [[ "$OS" == "macOS" ]]; then
+        stat -f %m "$file" 2>/dev/null || echo 0
+    else
+        stat -c %Y "$file" 2>/dev/null || echo 0
+    fi
+}
+
+# Cross-platform MD5 hash
+get_file_md5() {
+    local file="$1"
+    if command -v md5sum >/dev/null 2>&1; then
+        md5sum "$file" | cut -d' ' -f1
+    elif command -v md5 >/dev/null 2>&1; then
+        md5 -q "$file"
+    else
+        echo "0"
+    fi
+}
+
+# Cross-platform realpath with fallback
+get_realpath() {
+    local path="$1"
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$path" 2>/dev/null || echo ""
+    elif readlink -f / >/dev/null 2>&1; then
+        readlink -f "$path" 2>/dev/null || echo ""
+    else
+        # Fallback for systems without realpath
+        local dir
+        dir=$(cd "$(dirname "$path")" 2>/dev/null && pwd -P || echo "")
+        if [[ -n "$dir" ]]; then
+            echo "$dir/$(basename "$path")"
+        else
+            echo ""
+        fi
+    fi
+}
+
 CHANGE_NAME=""
 MAX_ITERATIONS=""
 ERROR_OCCURRED=false
@@ -219,7 +271,7 @@ auto_detect_change() {
         if [[ -d "$change_dir" ]]; then
             local tasks_file="$change_dir/tasks.md"
             if [[ -f "$tasks_file" ]]; then
-                local mod_time=$(stat -c %Y "$tasks_file" 2>/dev/null || echo 0)
+                local mod_time=$(get_file_mtime "$tasks_file")
                 if [[ $mod_time -gt $latest_time ]]; then
                     latest_time=$mod_time
                     latest_change=$(basename "$change_dir")
@@ -323,7 +375,7 @@ parse_tasks() {
     TASKS_MD5=""
     
     if [[ -f "$tasks_file" ]]; then
-        TASKS_MD5=$(md5sum "$tasks_file" | cut -d' ' -f1)
+        TASKS_MD5=$(get_file_md5 "$tasks_file")
     fi
     
     log_verbose "Parsing tasks from tasks.md..."
@@ -356,7 +408,7 @@ check_tasks_modified() {
     fi
     
     local current_md5
-    current_md5=$(md5sum "$tasks_file" | cut -d' ' -f1)
+    current_md5=$(get_file_md5 "$tasks_file")
     
     if [[ "$current_md5" != "$original_md5" ]]; then
         return 0
@@ -566,15 +618,7 @@ sync_tasks_to_ralph() {
 
     # Resolve absolute path to tasks file (portable across Linux/macOS)
     local abs_tasks_file=""
-    if command -v realpath >/dev/null 2>&1; then
-        abs_tasks_file=$(realpath "$tasks_file" 2>/dev/null || true)
-    elif readlink -f / >/dev/null 2>&1; then
-        abs_tasks_file=$(readlink -f "$tasks_file" 2>/dev/null || true)
-    else
-        local _tdir
-        _tdir=$(cd "$(dirname "$tasks_file")" 2>/dev/null && pwd -P || echo "")
-        abs_tasks_file="$_tdir/$(basename "$tasks_file")"
-    fi
+    abs_tasks_file=$(get_realpath "$tasks_file")
     
     # Clean up old Ralph tasks file in change directory if exists
     if [[ -f "$old_ralph_tasks_file" ]]; then
@@ -589,16 +633,7 @@ sync_tasks_to_ralph() {
     if [[ -L "$ralph_tasks_file" ]]; then
         log_verbose "Symlink exists, ensuring it points to correct location"
         local current_target=""
-        if command -v realpath >/dev/null 2>&1; then
-            current_target=$(realpath "$ralph_tasks_file" 2>/dev/null || echo "")
-        elif readlink -f / >/dev/null 2>&1; then
-            current_target=$(readlink -f "$ralph_tasks_file" 2>/dev/null || echo "")
-        else
-            current_target=$(readlink "$ralph_tasks_file" 2>/dev/null || echo "")
-            if [[ -n "$current_target" && "$current_target" != /* ]]; then
-                current_target="$(cd "$(dirname "$ralph_tasks_file")" && pwd -P)/$current_target"
-            fi
-        fi
+        current_target=$(get_realpath "$ralph_tasks_file")
 
         if [[ "$current_target" != "$abs_tasks_file" ]]; then
             log_verbose "Updating symlink to point to new change directory"
@@ -625,7 +660,7 @@ create_prompt_template() {
     log_verbose "Creating custom prompt template..."
     
     local abs_change_dir
-    abs_change_dir=$(realpath "$change_dir" 2>/dev/null)
+    abs_change_dir=$(get_realpath "$change_dir")
     
     cat > "$template_file" << 'EOF'
 # Ralph Wiggum Task Execution - Iteration {{iteration}} / {{max_iterations}}

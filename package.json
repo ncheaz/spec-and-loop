@@ -10,8 +10,8 @@
     "postinstall": "node scripts/setup.js"
   },
   "dependencies": {
-    "@fission-ai/openspec": "latest",
-    "@th0rgal/ralph-wiggum": "latest"
+    "@fission-ai/openspec": "1.2.0",
+    "@th0rgal/ralph-wiggum": "1.2.2"
   },
   "keywords": [
     "openspec",

@@ -2,6 +2,27 @@
 
 set -e
 
+# Detect OS for cross-platform compatibility
+detect_os() {
+    case "$(uname -s)" in
+        Linux*)     OS="Linux";;
+        Darwin*)    OS="macOS";;
+        *)          OS="Unknown";;
+    esac
+}
+
+detect_os
+
+# Cross-platform file modification time display
+get_file_mtime_display() {
+    local file="$1"
+    if [[ "$OS" == "macOS" ]]; then
+        stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$file" 2>/dev/null || echo "Unknown"
+    else
+        stat -c "%y" "$file" 2>/dev/null | cut -d'.' -f1 || echo "Unknown"
+    fi
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHANGE_NAME="${1:-auto-detect}"
 
@@ -85,7 +106,7 @@ while true; do
     echo ""
     
     # File status
-    echo " Last Updated: $(stat -c "%y" "$TASKS_FILE" 2>/dev/null | cut -d'.' -f1)"
+    echo " Last Updated: $(get_file_mtime_display "$TASKS_FILE")"
     echo ""
     
     echo "======================================================================="
