@@ -9,6 +9,7 @@ PROJECT_ROOT=""
 FIXTURES_DIR=""
 SCRIPT_PATH=""
 MOCK_BIN_DIR=""
+ITERATION_FILE=""
 
 setup() {
   PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
@@ -22,11 +23,12 @@ setup() {
   # Create mock bin directory
   MOCK_BIN_DIR="$test_dir/mock-bin"
   mkdir -p "$MOCK_BIN_DIR"
+  ITERATION_FILE="$TEST_DIR/ralph-iterations.txt"
+  export ITERATION_FILE
   
   # Create mock ralph command that records iterations
   cat > "$MOCK_BIN_DIR/ralph" <<'EOF'
 #!/bin/bash
-ITERATION_FILE="/tmp/ralph-iterations.txt"
 if [ -f "$ITERATION_FILE" ]; then
   count=$(cat "$ITERATION_FILE")
   count=$((count + 1))
@@ -47,7 +49,7 @@ EOF
 
 teardown() {
   cd / || true
-  rm -f /tmp/ralph-iterations.txt
+  rm -f "$ITERATION_FILE"
   cleanup_test_dir
 }
 

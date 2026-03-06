@@ -9,6 +9,9 @@ PROJECT_ROOT=""
 FIXTURES_DIR=""
 SCRIPT_PATH=""
 MOCK_BIN_DIR=""
+INTERRUPT_LOG=""
+INTERRUPT_EXIT_FILE=""
+RUN_EXIT_CODE=0
 
 setup() {
   PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
@@ -35,11 +38,78 @@ EOF
   export PATH="$MOCK_BIN_DIR:$PATH"
   
   cd "$test_dir" || return 1
+  INTERRUPT_LOG="$TEST_DIR/interrupt-test.log"
+  INTERRUPT_EXIT_FILE="$TEST_DIR/interrupt-test.exit"
 }
 
 teardown() {
   cd / || true
   cleanup_test_dir
+}
+
+temp_output_root() {
+  local temp_root="${TMPDIR:-/tmp}"
+  temp_root="${temp_root%/}"
+
+  if [[ -z "$temp_root" ]]; then
+    temp_root="/tmp"
+  fi
+
+  echo "$temp_root"
+}
+
+run_interrupted_script() {
+  local signal="${1:-INT}"
+  shift
+
+  rm -f "$INTERRUPT_LOG"
+  rm -f "$INTERRUPT_EXIT_FILE"
+
+  python3 - "$signal" "$INTERRUPT_LOG" "$INTERRUPT_EXIT_FILE" bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sig_name, log_path, exit_path, *cmd = sys.argv[1:]
+sig = getattr(signal, f"SIG{sig_name}")
+
+with open(log_path, "w") as log_file:
+    proc = subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True)
+    time.sleep(1)
+
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        pass
+
+    try:
+        exit_code = proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+        try:
+            exit_code = proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            exit_code = proc.wait()
+
+    Path(exit_path).write_text(str(exit_code))
+PY
+
+  if [[ -f "$INTERRUPT_EXIT_FILE" ]]; then
+    RUN_EXIT_CODE=$(cat "$INTERRUPT_EXIT_FILE")
+  else
+    RUN_EXIT_CODE=1
+  fi
 }
 
 @test "interrupted execution: SIGINT terminates script" {
@@ -48,11 +118,7 @@ teardown() {
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 > /tmp/interrupt-test.log 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script INT
   
   true
 }
@@ -63,13 +129,9 @@ teardown() {
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 > /tmp/interrupt-test.log 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script INT
   
-  grep -q "Cleaning up" /tmp/interrupt-test.log || true
+  grep -q "Cleaning up" "$INTERRUPT_LOG" || true
 }
 
 @test "interrupted execution: no orphaned ralph processes" {
@@ -78,11 +140,7 @@ teardown() {
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 > /tmp/interrupt-test.log 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script INT
   sleep 0.5
   
   local final_count
@@ -97,13 +155,9 @@ teardown() {
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 > /tmp/interrupt-test.log 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script INT
   
-  grep -q "terminated" /tmp/interrupt-test.log || grep -q "interrupted" /tmp/interrupt-test.log || true
+  grep -q "terminated" "$INTERRUPT_LOG" || grep -q "interrupted" "$INTERRUPT_LOG" || true
 }
 
 @test "interrupted execution: exit code reflects interruption" {
@@ -112,14 +166,9 @@ teardown() {
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid"
-  local exit_code=$?
+  run_interrupted_script INT
   
-  [ "$exit_code" -ne 0 ] || true
+  [ "$RUN_EXIT_CODE" -ne 0 ] || true
 }
 
 @test "interrupted execution: SIGTERM also works" {
@@ -128,11 +177,7 @@ teardown() {
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 > /tmp/interrupt-test.log 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -TERM "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script TERM
   
   true
 }
@@ -143,11 +188,7 @@ teardown() {
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 > /tmp/interrupt-test.log 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script INT
   
   cat > "$MOCK_BIN_DIR/ralph" <<'EOF'
 #!/bin/bash
@@ -167,14 +208,12 @@ EOF
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 > /tmp/interrupt-test.log 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script INT
   
+  local temp_root
+  temp_root=$(temp_output_root)
   local temp_count
-  temp_count=$(find /tmp -name "ralph-run-*" -type d -mmin -1 2>/dev/null | wc -l) || echo 0
+  temp_count=$(find "$temp_root" -name "ralph-run*" -type d 2>/dev/null | wc -l) || echo 0
   
   [ "$temp_count" -lt 10 ] || true
 }
@@ -185,13 +224,9 @@ EOF
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 --verbose > /tmp/interrupt-test.log 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script INT --verbose
   
-  grep -q "Cleaning up" /tmp/interrupt-test.log || true
+  grep -q "Cleaning up" "$INTERRUPT_LOG" || true
 }
 
 @test "interrupted execution: script exits gracefully" {
@@ -200,11 +235,7 @@ EOF
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  timeout 5 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 2>&1 &
-  local pid=$!
-  sleep 1
-  kill -INT "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  run_interrupted_script INT
   
   # Just ensure it doesn't hang
   true

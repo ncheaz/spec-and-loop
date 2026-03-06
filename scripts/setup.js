@@ -38,6 +38,6 @@ console.log('  ralph-run                       # Auto-detect change');
 console.log('');
 console.log('Prerequisites:');
 console.log('  - openspec CLI: npm install -g openspec');
-console.log('  - opencode CLI: npm install -g opencode');
+console.log('  - opencode CLI: npm install -g opencode-ai');
 console.log('  - jq CLI: apt install jq / brew install jq');
 console.log('  - git: git init');

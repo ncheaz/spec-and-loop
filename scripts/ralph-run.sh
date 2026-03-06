@@ -61,6 +61,64 @@ get_realpath() {
     fi
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_NODE_BIN="$SCRIPT_DIR/../node_modules/.bin"
+BUNDLED_RALPH_JS="$SCRIPT_DIR/../node_modules/@th0rgal/ralph-wiggum/bin/ralph.js"
+RALPH_CMD=()
+
+if [[ -d "$LOCAL_NODE_BIN" ]]; then
+    case ":$PATH:" in
+        *":$LOCAL_NODE_BIN:"*) ;;
+        *) export PATH="$LOCAL_NODE_BIN:$PATH" ;;
+    esac
+fi
+
+get_temp_root() {
+    local temp_root="${TMPDIR:-/tmp}"
+    temp_root="${temp_root%/}"
+
+    if [[ -z "$temp_root" ]]; then
+        temp_root="/tmp"
+    fi
+
+    printf "%s" "$temp_root"
+}
+
+make_temp_dir() {
+    local prefix="${1:-ralph-run}"
+    local temp_root
+    temp_root=$(get_temp_root)
+
+    local temp_dir=""
+    temp_dir=$(mktemp -d "${temp_root}/${prefix}-XXXXXX" 2>/dev/null) || \
+        temp_dir=$(mktemp -d -t "$prefix" 2>/dev/null) || \
+        temp_dir=""
+
+    if [[ -n "$temp_dir" ]]; then
+        printf "%s" "$temp_dir"
+        return 0
+    fi
+
+    local fallback_dir="${temp_root}/${prefix}-$(date +"%Y%m%d_%H%M%S")-$$"
+    mkdir -p "$fallback_dir"
+    printf "%s" "$fallback_dir"
+}
+
+resolve_ralph_command() {
+    if command -v ralph >/dev/null 2>&1; then
+        RALPH_CMD=("ralph")
+        return 0
+    fi
+
+    if [[ -f "$BUNDLED_RALPH_JS" ]] && command -v node >/dev/null 2>&1; then
+        RALPH_CMD=("node" "$BUNDLED_RALPH_JS")
+        return 0
+    fi
+
+    RALPH_CMD=()
+    return 1
+}
+
 CHANGE_NAME=""
 MAX_ITERATIONS=""
 ERROR_OCCURRED=false
@@ -126,7 +184,7 @@ PREREQUISITES:
     - Git repository (git init)
     - OpenSpec artifacts created (openspec init, opsx-new, opsx-ff)
     - ralph CLI installed (npm install -g @th0rgal/ralph-wiggum)
-    - opencode CLI installed (npm install -g opencode)
+    - opencode CLI installed (npm install -g opencode-ai)
 
 EOF
 }
@@ -193,21 +251,29 @@ validate_git_repository() {
 validate_dependencies() {
     log_verbose "Validating dependencies..."
     
-    # Check for ralph
-    if ! command -v ralph &> /dev/null; then
+    if ! resolve_ralph_command; then
         log_error "ralph CLI not found."
         log_error "Please install open-ralph-wiggum: npm install -g @th0rgal/ralph-wiggum"
+        log_error "If spec-and-loop is globally installed, reinstalling it should also restore the bundled Ralph dependency."
         exit 1
     fi
-    log_verbose "Found: ralph"
+    log_verbose "Found Ralph command: ${RALPH_CMD[*]}"
     
     # Check for opencode
     if ! command -v opencode &> /dev/null; then
         log_error "opencode CLI not found."
-        log_error "Please install opencode: npm install -g opencode"
+        log_error "Please install opencode: npm install -g opencode-ai"
         exit 1
     fi
     log_verbose "Found: opencode"
+
+    # Check for jq
+    if ! command -v jq &> /dev/null; then
+        log_error "jq CLI not found."
+        log_error "Please install jq: brew install jq / apt-get install jq"
+        exit 1
+    fi
+    log_verbose "Found: jq"
     
     log_verbose "All dependencies validated"
 }
@@ -854,11 +920,9 @@ setup_output_capture() {
     
     log_verbose "Setting up output capture..."
     
-    # Create timestamped output directory in /tmp
-    local timestamp=$(date +"%Y%m%d_%H%M%S")
-    local output_dir="/tmp/ralph-run-$timestamp"
-    
-    mkdir -p "$output_dir"
+    # Use the system temp directory so macOS and Linux both work naturally.
+    local output_dir
+    output_dir=$(make_temp_dir "ralph-run")
     log_info "Output directory: $output_dir"
     
     # Store output directory path in Ralph directory for reference
@@ -870,8 +934,11 @@ setup_output_capture() {
 cleanup_old_output() {
     log_verbose "Cleaning up old Ralph output directories..."
     
+    local temp_root
+    temp_root=$(get_temp_root)
+    
     # Keep last 3 Ralph output directories, delete older ones
-    find /tmp -type d -name "ralph-run-*" -mtime +7d 2>/dev/null | while read old_dir; do
+    find "$temp_root" -type d -name "ralph-run*" -mtime +7 2>/dev/null | while IFS= read -r old_dir; do
         log_verbose "Removing old output directory: $old_dir"
         rm -rf "$old_dir"
     done
@@ -886,7 +953,7 @@ execute_ralph_loop() {
     log_info "Max iterations: $max_iterations"
     log_info "Change directory: $change_dir"
     
-    if ! command -v ralph &> /dev/null; then
+    if ! resolve_ralph_command; then
         log_error "ralph CLI not found."
         log_error "Please install open-ralph-wiggum: npm install -g @th0rgal/ralph-wiggum"
         return 1
@@ -932,7 +999,7 @@ execute_ralph_loop() {
     
     # Run Ralph and capture output to both console and files
     {
-        ralph --prompt-file "$ralph_dir/PRD.md" \
+        "${RALPH_CMD[@]}" --prompt-file "$ralph_dir/PRD.md" \
             --agent opencode \
             --tasks \
             --max-iterations "$max_iterations" \

@@ -24,7 +24,7 @@ teardown() {
     if [[ "$1" == "-v" ]]; then
       # Simulate that commands are found
       shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" ]]; then
+      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
         return 0
       fi
     fi
@@ -42,6 +42,36 @@ teardown() {
   [[ "$output" == *"All dependencies validated"* ]] || true
 }
 
+@test "validate_dependencies: uses bundled Ralph when global ralph is missing" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  cd "$test_dir" || return 1
+
+  local bundled_dir="$test_dir/node_modules/@th0rgal/ralph-wiggum/bin"
+  mkdir -p "$bundled_dir"
+  printf '%s\n' '#!/usr/bin/env node' 'console.log("bundled ralph");' > "$bundled_dir/ralph.js"
+
+  BUNDLED_RALPH_JS="$bundled_dir/ralph.js"
+
+  command() {
+    if [[ "$1" == "-v" ]]; then
+      shift
+      if [[ "$1" == "ralph" ]]; then
+        return 1
+      elif [[ "$1" == "node" || "$1" == "opencode" || "$1" == "jq" ]]; then
+        return 0
+      fi
+    fi
+    command command "$@"
+  }
+  export -f command
+
+  validate_dependencies
+
+  [ "${RALPH_CMD[0]}" = "node" ]
+  [ "${RALPH_CMD[1]}" = "$bundled_dir/ralph.js" ]
+}
+
 @test "validate_dependencies: fails when ralph CLI is missing" {
   # Create a test directory
   local test_dir
@@ -54,8 +84,8 @@ teardown() {
       shift
       if [[ "$1" == "ralph" ]]; then
         return 1  # ralph not found
-      elif [[ "$1" == "opencode" ]]; then
-        return 0  # opencode found
+      elif [[ "$1" == "opencode" || "$1" == "jq" ]]; then
+        return 0  # other dependencies found
       fi
     fi
     command command "$@"
@@ -86,6 +116,8 @@ teardown() {
         return 0  # ralph found
       elif [[ "$1" == "opencode" ]]; then
         return 1  # opencode not found
+      elif [[ "$1" == "jq" ]]; then
+        return 0  # jq found
       fi
     fi
     command command "$@"
@@ -114,7 +146,7 @@ teardown() {
       shift
       if [[ "$1" == "ralph" ]]; then
         return 1
-      elif [[ "$1" == "opencode" ]]; then
+      elif [[ "$1" == "opencode" || "$1" == "jq" ]]; then
         return 0
       fi
     fi
@@ -144,6 +176,8 @@ teardown() {
         return 0
       elif [[ "$1" == "opencode" ]]; then
         return 1
+      elif [[ "$1" == "jq" ]]; then
+        return 0
       fi
     fi
     command command "$@"
@@ -173,7 +207,7 @@ teardown() {
       command_called=true
       shift
       checked_commands+=("$1")
-      if [[ "$1" == "ralph" || "$1" == "opencode" ]]; then
+      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
         return 0
       fi
     fi
@@ -206,7 +240,7 @@ teardown() {
       command_called=true
       shift
       checked_commands+=("$1")
-      if [[ "$1" == "ralph" || "$1" == "opencode" ]]; then
+      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
         return 0
       fi
     fi
@@ -234,7 +268,7 @@ teardown() {
   command() {
     if [[ "$1" == "-v" ]]; then
       shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" ]]; then
+      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
         return 0
       fi
     fi
@@ -259,7 +293,7 @@ teardown() {
   command() {
     if [[ "$1" == "-v" ]]; then
       shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" ]]; then
+      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
         return 0
       fi
     fi
@@ -284,7 +318,7 @@ teardown() {
   command() {
     if [[ "$1" == "-v" ]]; then
       shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" ]]; then
+      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
         return 0
       fi
     fi
@@ -340,7 +374,7 @@ teardown() {
   command() {
     if [[ "$1" == "-v" ]]; then
       shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" ]]; then
+      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
         return 0
       fi
     fi

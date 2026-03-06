@@ -13,6 +13,16 @@ detect_os() {
 
 detect_os
 
+# Cross-platform file modification time
+get_file_mtime() {
+    local file="$1"
+    if [[ "$OS" == "macOS" ]]; then
+        stat -f %m "$file" 2>/dev/null || echo 0
+    else
+        stat -c %Y "$file" 2>/dev/null || echo 0
+    fi
+}
+
 # Cross-platform file modification time display
 get_file_mtime_display() {
     local file="$1"
@@ -23,20 +33,57 @@ get_file_mtime_display() {
     fi
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+resolve_project_root() {
+    local git_root=""
+    git_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+
+    if [[ -n "$git_root" ]]; then
+        printf "%s" "$git_root"
+    else
+        pwd
+    fi
+}
+
+auto_detect_change() {
+    local project_root="$1"
+    local changes_dir="$project_root/openspec/changes"
+
+    if [[ ! -d "$changes_dir" ]]; then
+        echo ""
+        return 1
+    fi
+
+    local latest_change=""
+    local latest_time=0
+
+    for change_dir in "$changes_dir"/*; do
+        if [[ -d "$change_dir" && -f "$change_dir/tasks.md" ]]; then
+            local mod_time
+            mod_time=$(get_file_mtime "$change_dir/tasks.md")
+
+            if [[ "$mod_time" -gt "$latest_time" ]]; then
+                latest_time="$mod_time"
+                latest_change=$(basename "$change_dir")
+            fi
+        fi
+    done
+
+    printf "%s" "$latest_change"
+}
+
+PROJECT_ROOT="$(resolve_project_root)"
 CHANGE_NAME="${1:-auto-detect}"
 
 if [[ "$CHANGE_NAME" == "auto-detect" ]]; then
-    # Auto-detect most recent change
-    CHANGE_NAME=$(ls -t openspec/changes/ 2>/dev/null | head -1)
+    CHANGE_NAME=$(auto_detect_change "$PROJECT_ROOT")
     if [[ -z "$CHANGE_NAME" ]]; then
-        echo "No changes found in openspec/changes/"
+        echo "No changes found in $PROJECT_ROOT/openspec/changes/"
         exit 1
     fi
 fi
 
-TASKS_FILE="$SCRIPT_DIR/../openspec/changes/$CHANGE_NAME/tasks.md"
-RALPH_STATE="$SCRIPT_DIR/../.ralph/ralph-loop.state.json"
+TASKS_FILE="$PROJECT_ROOT/openspec/changes/$CHANGE_NAME/tasks.md"
+RALPH_STATE="$PROJECT_ROOT/.ralph/ralph-loop.state.json"
 
 if [[ ! -f "$TASKS_FILE" ]]; then
     echo "Tasks file not found: $TASKS_FILE"

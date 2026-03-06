@@ -14,12 +14,32 @@ detect_os() {
   fi
 }
 
+get_test_temp_root() {
+  local temp_root="${TMPDIR:-/tmp}"
+  temp_root="${temp_root%/}"
+
+  if [[ -z "$temp_root" ]]; then
+    temp_root="/tmp"
+  fi
+
+  echo "$temp_root"
+}
+
 # Create a temporary test directory with unique name
 setup_test_dir() {
   local test_name="${1:-test}"
-  local timestamp=$(date +%s)
-  TEST_DIR="/tmp/${test_name}-${timestamp}"
-  mkdir -p "$TEST_DIR"
+  local temp_root
+  temp_root=$(get_test_temp_root)
+
+  TEST_DIR=$(mktemp -d "${temp_root}/${test_name}-XXXXXX" 2>/dev/null) || \
+    TEST_DIR=$(mktemp -d -t "$test_name" 2>/dev/null) || \
+    TEST_DIR=""
+
+  if [[ -z "$TEST_DIR" ]]; then
+    TEST_DIR="${temp_root}/${test_name}-$(date +%s)-$$"
+    mkdir -p "$TEST_DIR"
+  fi
+
   echo "$TEST_DIR"
 }
 
@@ -228,6 +248,7 @@ assert_symlink_target() {
 
 # Export all functions for use in Bats tests
 export -f detect_os
+export -f get_test_temp_root
 export -f setup_test_dir
 export -f cleanup_test_dir
 export -f create_git_repo
