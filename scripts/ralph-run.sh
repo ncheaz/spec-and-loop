@@ -64,6 +64,7 @@ get_realpath() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_NODE_BIN="$SCRIPT_DIR/../node_modules/.bin"
 BUNDLED_RALPH_JS="$SCRIPT_DIR/../node_modules/@th0rgal/ralph-wiggum/bin/ralph.js"
+MINI_RALPH_CLI="$SCRIPT_DIR/mini-ralph-cli.js"
 RALPH_CMD=()
 
 if [[ -d "$LOCAL_NODE_BIN" ]]; then
@@ -121,6 +122,10 @@ resolve_ralph_command() {
 
 CHANGE_NAME=""
 MAX_ITERATIONS=""
+NO_COMMIT=false
+SHOW_STATUS=false
+ADD_CONTEXT=""
+CLEAR_CONTEXT=false
 ERROR_OCCURRED=false
 CLEANUP_IN_PROGRESS=false
 
@@ -171,19 +176,28 @@ USAGE:
 OPTIONS:
     --change <name>          Specify the OpenSpec change to execute (default: auto-detect)
     --max-iterations <n>     Maximum iterations for Ralph loop (default: 50)
+    --no-commit              Suppress automatic git commits during the loop
     --verbose, -v            Enable verbose mode for debugging
     --help, -h               Show this help message
+
+OBSERVABILITY AND CONTROL:
+    --status                 Print the current loop status dashboard and exit
+    --add-context <text>     Add pending context to inject into the next iteration and exit
+    --clear-context          Clear any pending context and exit
 
 EXAMPLES:
     ralph-run                                    # Auto-detect most recent change
     ralph-run --change my-feature                # Execute specific change
-    ralph-run --max-iterations 100             # Limit loop to 100 iterations
+    ralph-run --change my-feature --max-iterations 100
+    ralph-run --change my-feature --no-commit    # Run without auto-committing
     ralph-run --verbose                          # Run with debug output
+    ralph-run --status                           # Check status of the active loop
+    ralph-run --add-context "Focus on error handling in module X"
+    ralph-run --clear-context                    # Remove pending context
 
 PREREQUISITES:
     - Git repository (git init)
     - OpenSpec artifacts created (openspec init, opsx-new, opsx-ff)
-    - ralph CLI installed (npm install -g @th0rgal/ralph-wiggum)
     - opencode CLI installed (npm install -g opencode-ai)
 
 EOF
@@ -200,8 +214,24 @@ parse_arguments() {
                 MAX_ITERATIONS="$2"
                 shift 2
                 ;;
+            --no-commit)
+                NO_COMMIT=true
+                shift
+                ;;
             --verbose|-v)
                 VERBOSE=true
+                shift
+                ;;
+            --status)
+                SHOW_STATUS=true
+                shift
+                ;;
+            --add-context)
+                ADD_CONTEXT="$2"
+                shift 2
+                ;;
+            --clear-context)
+                CLEAR_CONTEXT=true
                 shift
                 ;;
             --help|-h)
@@ -948,10 +978,14 @@ execute_ralph_loop() {
     local change_dir="$1"
     local ralph_dir="$2"
     local max_iterations="${3:-50}"
+    local no_commit="${4:-false}"
     
     log_info "Starting Ralph Wiggum loop with open-ralph-wiggum..."
     log_info "Max iterations: $max_iterations"
     log_info "Change directory: $change_dir"
+    if [[ "$no_commit" == true ]]; then
+        log_info "Auto-commit disabled (--no-commit)"
+    fi
     
     if ! resolve_ralph_command; then
         log_error "ralph CLI not found."
@@ -1011,13 +1045,97 @@ execute_ralph_loop() {
 }
 
 
+# ---------------------------------------------------------------------------
+# Observability and control commands
+#
+# These commands delegate to the internal mini-ralph-cli.js for status,
+# context management, and other loop controls without running the full loop.
+# ---------------------------------------------------------------------------
+
+run_observability_command() {
+    local change_name="$1"
+    local command="$2"
+    local arg="$3"
+
+    if [[ ! -f "$MINI_RALPH_CLI" ]]; then
+        log_error "Internal mini-ralph-cli.js not found: $MINI_RALPH_CLI"
+        exit 1
+    fi
+
+    if [[ ! -x "$(command -v node)" ]]; then
+        log_error "node is required but not found in PATH."
+        exit 1
+    fi
+
+    local change_dir="openspec/changes/$change_name"
+    local ralph_dir="$change_dir/.ralph"
+
+    case "$command" in
+        status)
+            local tasks_file="$change_dir/tasks.md"
+            local tasks_arg=""
+            if [[ -f "$tasks_file" ]]; then
+                tasks_arg="--tasks-file $tasks_file"
+            fi
+            # shellcheck disable=SC2086
+            node "$MINI_RALPH_CLI" --ralph-dir "$ralph_dir" --status $tasks_arg
+            ;;
+        add-context)
+            node "$MINI_RALPH_CLI" --ralph-dir "$ralph_dir" --add-context "$arg"
+            ;;
+        clear-context)
+            node "$MINI_RALPH_CLI" --ralph-dir "$ralph_dir" --clear-context
+            ;;
+        *)
+            log_error "Unknown observability command: $command"
+            exit 1
+            ;;
+    esac
+}
 
 main() {
     parse_arguments "$@"
     
     log_verbose "Starting ralph-run v$VERSION"
     log_verbose "Change name: ${CHANGE_NAME:-<auto-detect>}"
-    
+
+    # Resolve change name first for observability commands that need it
+    if [[ -z "$CHANGE_NAME" ]] && ( [[ "$SHOW_STATUS" == true ]] || [[ -n "$ADD_CONTEXT" ]] || [[ "$CLEAR_CONTEXT" == true ]] ); then
+        validate_git_repository
+        CHANGE_NAME=$(auto_detect_change)
+        log_verbose "Auto-detected change for observability: $CHANGE_NAME"
+    fi
+
+    # Handle observability commands (status, add-context, clear-context)
+    # These exit early without running the full loop.
+    if [[ "$SHOW_STATUS" == true ]]; then
+        if [[ -z "$CHANGE_NAME" ]]; then
+            validate_git_repository
+            CHANGE_NAME=$(auto_detect_change)
+        fi
+        run_observability_command "$CHANGE_NAME" "status"
+        exit $?
+    fi
+
+    if [[ -n "$ADD_CONTEXT" ]]; then
+        if [[ -z "$CHANGE_NAME" ]]; then
+            validate_git_repository
+            CHANGE_NAME=$(auto_detect_change)
+        fi
+        run_observability_command "$CHANGE_NAME" "add-context" "$ADD_CONTEXT"
+        exit $?
+    fi
+
+    if [[ "$CLEAR_CONTEXT" == true ]]; then
+        if [[ -z "$CHANGE_NAME" ]]; then
+            validate_git_repository
+            CHANGE_NAME=$(auto_detect_change)
+        fi
+        run_observability_command "$CHANGE_NAME" "clear-context"
+        exit $?
+    fi
+
+    # Normal loop execution path
     validate_git_repository
     validate_dependencies
     
@@ -1045,7 +1163,7 @@ main() {
     
     local max_iterations="${MAX_ITERATIONS:-50}"
     
-    execute_ralph_loop "$change_dir" "$ralph_dir" "$max_iterations"
+    execute_ralph_loop "$change_dir" "$ralph_dir" "$max_iterations" "$NO_COMMIT"
     
     log_info "ralph-run.sh initialized successfully"
 }
