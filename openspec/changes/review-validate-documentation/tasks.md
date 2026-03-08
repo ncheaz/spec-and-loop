@@ -8,7 +8,7 @@
 ## 2. QUICKSTART.md Rewrite
 
 - [x] 2.1 Update QUICKSTART.md prerequisites section with accurate installation commands using pinned versions
-- [ ] 2.2 Rewrite QUICKSTART.md Quick Demo section with correct OpenSpec command syntax (`openspec new change <name>`)
+- [x] 2.2 Rewrite QUICKSTART.md Quick Demo section with correct OpenSpec command syntax (`openspec new change <name>`)
 - [ ] 2.3 Remove all references to non-existent commands (e.g., `openspec ff`)
 - [ ] 2.4 Update QUICKSTART.md Common Commands section to reflect actual available commands
 - [ ] 2.5 Rewrite Real-World Example to use correct workflow steps

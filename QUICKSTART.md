@@ -48,10 +48,13 @@ git init
 openspec init
 
 # 3. Create a new change
-openspec new add-hello-world
+openspec new change add-hello-world
 
-# 4. Fast-forward through artifact creation
-openspec ff
+# 4. Review and complete the OpenSpec artifacts
+#    (openspec/changes/add-hello-world/proposal.md)
+#    (openspec/changes/add-hello-world/design.md)
+#    (openspec/changes/add-hello-world/specs/*/spec.md)
+#    (openspec/changes/add-hello-world/tasks.md)
 
 # 5. Run the ralph loop (executes tasks with opencode)
 ralph-run --change add-hello-world
