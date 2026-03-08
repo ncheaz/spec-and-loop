@@ -17,7 +17,8 @@
     "lint": "shellcheck scripts/*.sh"
   },
   "dependencies": {
-    "@fission-ai/openspec": "1.2.0"
+    "@fission-ai/openspec": "1.2.0",
+    "spec-and-loop": "^2.0.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
