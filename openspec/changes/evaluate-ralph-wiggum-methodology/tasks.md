@@ -2,7 +2,7 @@
 
 - [x] 1.1 Enumerate the Ralph Wiggum methodology principles currently claimed in `README.md`, `QUICKSTART.md`, `OPENSPEC-RALPH-WIGGUM-BOTW.md`, and `openspec/specs/`
 - [x] 1.2 Define the verdict categories, confidence model, and evidence expectations for `RALPH-METHODOLOGY-ASSESSMENT.md`
-- [ ] 1.3 Create the `RALPH-METHODOLOGY-ASSESSMENT.md` report skeleton with scope, rubric, principle matrix, findings, and follow-up sections
+- [x] 1.3 Create the `RALPH-METHODOLOGY-ASSESSMENT.md` report skeleton with scope, rubric, principle matrix, findings, and follow-up sections
 
 ## 2. Collect And Rate Evidence
 
