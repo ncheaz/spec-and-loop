@@ -269,7 +269,20 @@ repeated-error warnings to guide user intervention.
 ### P14 — OpenSpec artifact immutability during loop execution
 
 **Claim:** `proposal.md`, `design.md`, and `specs/*/spec.md` are read-only
-during loop execution; only `tasks.md` is modified by the loop.
+during loop execution by convention; only `tasks.md` is modified by the loop.
+Immutability is maintained through code path design rather than runtime
+enforcement or file-system permissions.
+
+Implementation evidence: The loop engine does not have any write paths to
+artifact files. `scripts/ralph-run.sh:371-401` — `read_openspec_artifacts()`
+reads proposal, specs, and design into variables (no writes); `ralph-run.sh:294-320`
+— `validate_openspec_artifacts()` checks for presence but does not write;
+`lib/mini-ralph/runner.js:80-82` — only `tasks.syncLink()` and state/history/context
+writes occur — no writes to proposal/design/specs; `lib/mini-ralph/prompt.js:82-87`
+— reads `tasksFile` and artifact files but never writes them. Tests confirm
+read-only access patterns (`tests/unit/bash/test-read-openspec-artifacts.bats`).
+However, immutability is not enforced by runtime guards, file-system permissions,
+or negative assertions in tests — it is maintained by convention.
 
 **Sources:**
 - `OPENSPEC-RALPH-WIGGUM-BOTW.md` — Key Invariant 2: "OpenSpec Artifacts are

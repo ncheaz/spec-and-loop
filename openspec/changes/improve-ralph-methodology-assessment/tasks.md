@@ -14,7 +14,7 @@
 
 ## 3. Update P14 Description
 
-- [ ] 3.1 Update P14 description to acknowledge convention-only artifact immutability
+- [x] 3.1 Update P14 description to acknowledge convention-only artifact immutability
 - [ ] 3.2 Add implementation details explaining lack of runtime guards or enforcement
 - [ ] 3.3 Reference the implementation evidence showing no write paths to artifact files
 - [ ] 3.4 Clarify that immutability is maintained by convention, not enforcement
