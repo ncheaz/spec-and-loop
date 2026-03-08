@@ -120,11 +120,11 @@ reflect actual progress. The invariant `iteration = completed_count + 1` holds
 on a clean first run but is maintained by state-file continuity on subsequent
 restarts rather than live task-count derivation.
 
-Restart behavior: The JS runner (`_resolveStartIteration`) returns 1 if no
+Restart behavior: The JS runner (`_resolveStartIteration` at `lib/mini-ralph/runner.js:387-403`) returns 1 if no
 existing state file exists, if the persisted iteration is invalid (not a number
 or < 1), or if in tasks mode the prior tasks file differs from the current one
 (treating this as a fresh run). Otherwise it resumes from `priorIteration + 1`.
-The bash wrapper (`restore_ralph_state_from_tasks`) preserves the existing
+The bash wrapper (`restore_ralph_state_from_tasks` at `scripts/ralph-run.sh:846-882`) preserves the existing
 iteration from the state file when restarting; it only sets iteration to 1 if
 the state file has iteration 0 or is missing. State file continuity ensures the
 iteration counter persists across restarts without drift, even if the tasks
