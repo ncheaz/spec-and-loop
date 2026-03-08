@@ -106,11 +106,9 @@ ralph-run --status
 
 ```bash
 openspec init                  # Initialize in current directory
-openspec new <name>             # Start a new change
-openspec continue <name>         # Continue working on change
-openspec ff <name>              # Fast-forward artifact creation
-openspec apply <name>           # Apply change (implementation)
-openspec archive <name>          # Archive completed change
+openspec new change <name>      # Create a new change
+openspec show <name>           # Show a change proposal
+openspec archive <name>         # Archive completed change
 ```
 
 ### Ralph Loop Commands
@@ -145,25 +143,22 @@ openspec new user-authentication
 # - Create design: Use JWT, store hashed passwords
 # - Create tasks: 15 checkboxes for implementation
 
-# 4. Fast-forward to create all artifacts
-openspec ff user-authentication
-
-# 5. Execute the implementation
+# 4. Execute the implementation
 ralph-run --change user-authentication
 
-# 6. Watch the magic happen!
+# 5. Watch the magic happen!
 # [INFO] Found 15 tasks to execute
 # [INFO] Executing task 1/15: Create User model
 # [INFO] Executing task 2/15: Implement password hashing
 # ...
 
-# 7. Add context mid-run if needed (from another terminal)
+# 6. Add context mid-run if needed (from another terminal)
 ralph-run --add-context "Prefer bcrypt over argon2 for password hashing"
 
-# 8. Check status
+# 7. Check status
 ralph-run --status
 
-# 9. Verify the implementation
+# 8. Verify the implementation
 git log --oneline      # 15 commits, one per task
 git diff HEAD~15        # See full implementation
 ```
