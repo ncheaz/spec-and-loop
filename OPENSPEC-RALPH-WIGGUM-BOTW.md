@@ -4,6 +4,8 @@
 
 This document describes the design and expected behavior of the `ralph-run.sh` script, which bridges OpenSpec's spec-driven development with Ralph Wiggum's iterative AI development approach.
 
+> Historical note: parts of this document use older terminology from the external Ralph and Cursor-skill era. The current implementation uses the internal mini-Ralph runtime, a per-change `openspec/changes/<name>/.ralph/` directory, self-contained prompt instructions, and recent-iteration feedback rather than editor-specific slash commands.
+
 ## Design Philosophy
 
 ### "Best of Both Worlds" Approach

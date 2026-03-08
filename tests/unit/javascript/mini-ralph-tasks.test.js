@@ -284,3 +284,28 @@ describe('tasks.countTasks()', () => {
     expect(counts.completed).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// tasks.taskContext()
+// ---------------------------------------------------------------------------
+
+describe('tasks.taskContext()', () => {
+  test('returns current and completed task sections', () => {
+    const file = path.join(tmpDir, 'tasks.md');
+    writeTasks(file, '- [/] 1.1 Active task\n- [x] 1.2 Done task\n');
+
+    const context = tasks.taskContext(file);
+
+    expect(context).toContain('## Current Task');
+    expect(context).toContain('1.1 Active task');
+    expect(context).toContain('## Completed Tasks for Git Commit');
+    expect(context).toContain('1.2 Done task');
+  });
+
+  test('returns empty string when no tasks exist', () => {
+    const file = path.join(tmpDir, 'tasks.md');
+    writeTasks(file, '## No tasks yet\n');
+
+    expect(tasks.taskContext(file)).toBe('');
+  });
+});

@@ -43,16 +43,6 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
       
-      - name: Get system dependencies command
-        id: sys-deps
-        run: |
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            echo "command=sudo apt-get update && sudo apt-get install -y bats-core jq shellcheck" >> $GITHUB_OUTPUT
-          else
-            echo "command=brew install bats-core jq shellcheck" >> $GITHUB_OUTPUT
-          fi
-        shell: bash
-      
       - name: Install system dependencies on Linux
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -66,10 +56,6 @@ jobs:
       
       - name: Install npm dependencies
         run: npm ci
-      
-      - name: Install global CLIs for integration tests
-        run: |
-          npm install -g openspec ralph opencode
       
       - name: Run shellcheck linting
         run: npm run lint

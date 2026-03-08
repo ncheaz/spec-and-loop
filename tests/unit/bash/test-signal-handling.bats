@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0
+
 # Test suite for signal handling
 # Tests trap configuration and cleanup behavior on signals
 
@@ -198,7 +200,11 @@ teardown() {
   local test_codes=(0 1 2 3 127 130 143)
   
   for code in "${test_codes[@]}"; do
-    run cleanup "$code"
+    if [ "$code" -eq 127 ]; then
+      run -127 cleanup "$code"
+    else
+      run cleanup "$code"
+    fi
     [ "$status" -eq "$code" ]
     unset CLEANUP_IN_PROGRESS
   done

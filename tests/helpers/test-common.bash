@@ -3,6 +3,8 @@
 # test-common.sh - Common test helper functions for Bats tests
 # This file provides reusable utilities for test setup, teardown, and assertions
 
+TEST_HELPER_NODE_BIN="${TEST_HELPER_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
+
 # Detect the OS (Linux or macOS)
 detect_os() {
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -41,6 +43,54 @@ setup_test_dir() {
   fi
 
   echo "$TEST_DIR"
+}
+
+# Run a command with a cross-platform timeout.
+# Prefer native timeout utilities when present and fall back to Node,
+# which is already required by this repository's test suite.
+run_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout_seconds" "$@"
+    return $?
+  fi
+
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$timeout_seconds" "$@"
+    return $?
+  fi
+
+  if [[ -z "$TEST_HELPER_NODE_BIN" ]]; then
+    echo "Error: no timeout utility or Node.js runtime available" >&2
+    return 127
+  fi
+
+  "$TEST_HELPER_NODE_BIN" -e '
+    const { spawnSync } = require("child_process");
+
+    const timeoutMs = Number(process.argv[1]) * 1000;
+    const command = process.argv[2];
+    const args = process.argv.slice(3);
+
+    const result = spawnSync(command, args, {
+      stdio: "inherit",
+      timeout: timeoutMs,
+      killSignal: "SIGTERM",
+    });
+
+    if (result.error) {
+      if (result.error.code === "ETIMEDOUT") {
+        process.exit(124);
+      }
+
+      console.error(result.error.message);
+      process.exit(127);
+    }
+
+    process.exit(result.status ?? 1);
+  ' "$timeout_seconds" "$@"
 }
 
 # Clean up test directory

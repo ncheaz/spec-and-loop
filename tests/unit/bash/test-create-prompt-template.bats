@@ -115,6 +115,26 @@ teardown() {
   rm -rf "$test_dir"
 }
 
+@test "create_prompt_template: includes fresh task context placeholder" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  cd "$test_dir" || return 1
+  
+  local change_dir="$test_dir/openspec/changes/test-change"
+  local template_file="$test_dir/template.txt"
+  
+  mkdir -p "$change_dir/specs"
+  
+  run create_prompt_template "$change_dir" "$template_file"
+  
+  [ "$status" -eq 0 ]
+  
+  grep -q "{{task_context}}" "$template_file"
+  
+  cd - > /dev/null
+  rm -rf "$test_dir"
+}
+
 @test "create_prompt_template: includes promise placeholders" {
   local test_dir
   test_dir=$(setup_test_dir)
@@ -211,6 +231,27 @@ teardown() {
   [ "$status" -eq 0 ]
   
   grep -q "## CRITICAL: Git Commit Format" "$template_file"
+  
+  cd - > /dev/null
+  rm -rf "$test_dir"
+}
+
+@test "create_prompt_template: does not rely on editor-specific slash commands" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  cd "$test_dir" || return 1
+  
+  local change_dir="$test_dir/openspec/changes/test-change"
+  local template_file="$test_dir/template.txt"
+  
+  mkdir -p "$change_dir/specs"
+  
+  run create_prompt_template "$change_dir" "$template_file"
+  
+  [ "$status" -eq 0 ]
+  
+  ! grep -q "/opsx-apply" "$template_file"
+  grep -q "Do not rely on editor-specific slash commands" "$template_file"
   
   cd - > /dev/null
   rm -rf "$test_dir"

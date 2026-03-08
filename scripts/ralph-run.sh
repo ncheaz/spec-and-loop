@@ -181,7 +181,7 @@ EXAMPLES:
 
 PREREQUISITES:
     - Git repository (git init)
-    - OpenSpec artifacts created (openspec init, opsx-new, opsx-ff)
+    - OpenSpec artifacts created (openspec init, openspec new, openspec ff)
     - opencode CLI installed (npm install -g opencode-ai)
 
 EOF
@@ -705,7 +705,7 @@ sync_tasks_to_ralph() {
         rm "$old_ralph_tasks_file"
     fi
     
-    # Use symlink so Ralph and openspec-apply-change work on the SAME file
+    # Use a symlink so the loop runtime always works against the OpenSpec tasks file
     # Ensure parent directory for ralph_tasks_file exists
     mkdir -p "$(dirname "$ralph_tasks_file")"
 
@@ -757,6 +757,10 @@ Include full context from openspec artifacts in {{change_dir}}:
 
 {{tasks}}
 
+## Fresh Task Context
+
+{{task_context}}
+
 ## Instructions
 
 1. **Identify** current task:
@@ -764,15 +768,15 @@ Include full context from openspec artifacts in {{change_dir}}:
    - If no task is in progress, pick the first task marked as [ ] (incomplete)
    - Mark the task as [/] in the tasks file before starting work
 
-2. **Implement** task using openspec-apply-change:
-   - Use the /opsx-apply skill to implement the current task
-   - Read the relevant openspec artifacts for context (proposal.md, design.md, specs)
-   - Follow the openspec workflow to complete the task
-   - The openspec-apply-change skill will implement changes and update task status automatically
+2. **Implement** the current task directly:
+   - Read the relevant OpenSpec artifacts for context (proposal.md, design.md, specs)
+   - Make the smallest maintainable change that fully satisfies the current task
+   - Run the most relevant validation or tests for the task before claiming completion
 
 3. **Complete** task:
    - Verify that the implementation meets the requirements
    - When the task is successfully completed, mark it as [x] in the tasks file
+   - Create a git commit using the required format below
    - Output: `<promise>{{task_promise}}</promise>`
 
 4. **Continue** to the next task:
@@ -782,7 +786,9 @@ Include full context from openspec artifacts in {{change_dir}}:
 ## Critical Rules
 
 - Work on ONE task at a time from the task list
-- Use openspec-apply-change (/opsx-apply) for implementation
+- Read the full tasks file every iteration; do not rely on memory from prior iterations
+- Do not rely on editor-specific slash commands or local-only skills; follow this prompt directly
+- Treat tasks.md as the only source of truth for task state
 - ONLY output `<promise>{{task_promise}}</promise>` when the current task is complete and marked as [x]
 - ONLY output `<promise>{{completion_promise}}</promise>` when ALL tasks are [x]
 - Output promise tags DIRECTLY - do not quote them, explain them, or say you "will" output them
@@ -989,23 +995,6 @@ execute_ralph_loop() {
     local prd_content
     prd_content=$(generate_prd "$change_dir")
     echo "$prd_content" > "$ralph_dir/PRD.md"
-    
-    # Get current task context for Ralph to use in commits
-    local task_context
-    task_context=$(get_current_task_context "$change_dir")
-    
-    # Create context injection file for Ralph
-    local context_file="$ralph_dir/.context_injection"
-    if [[ -n "$task_context" ]]; then
-        log_verbose "Writing task context injection..."
-        echo "$task_context" > "$context_file"
-    fi
-    
-    # Restore Ralph state from tasks.md before running
-    restore_ralph_state_from_tasks "$change_dir/tasks.md"
-    
-    # Initialize context injections file for Ralph to read context
-    initialize_context_injections "$ralph_dir"
     
     # Output files
     local stdout_log="$output_dir/ralph-stdout.log"

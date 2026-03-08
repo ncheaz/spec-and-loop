@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0
+
 # Test suite for cleanup() function
 # Tests cleanup behavior and exit code handling
 
@@ -99,7 +101,7 @@ teardown() {
   
   unset CLEANUP_IN_PROGRESS
   
-  run cleanup 127
+  run -127 cleanup 127
   
   [ "$status" -eq 127 ]
   [[ "$output" == *": 127"* ]] || true
@@ -135,7 +137,11 @@ teardown() {
   local exit_codes=(1 2 127 255)
   
   for code in "${exit_codes[@]}"; do
-    run cleanup "$code"
+    if [ "$code" -eq 127 ]; then
+      run -127 cleanup "$code"
+    else
+      run cleanup "$code"
+    fi
     [ "$status" -eq "$code" ]
     [[ "$output" == *"Script terminated with exit code: $code"* ]] || true
     unset CLEANUP_IN_PROGRESS

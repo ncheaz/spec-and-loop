@@ -145,7 +145,7 @@ teardown() {
   cp -r "$FIXTURES_DIR"/* openspec/changes/test-change/
   rm openspec/changes/test-change/proposal.md
   
-  run timeout 10 bash "$SCRIPT_PATH" --change test-change --max-iterations 1 2>&1
+  run run_with_timeout 10 bash "$SCRIPT_PATH" --change test-change --max-iterations 1 2>&1
   
   [ "$status" -ne 0 ]
 }

@@ -25,7 +25,9 @@ git init
 ```
 
 > **Note:** No external `ralph` CLI needed — `spec-and-loop` includes its own internal
-> mini Ralph loop engine. Just install `opencode` and you're ready to go.
+> mini Ralph loop engine. Just install `opencode` and you're ready to go. The
+> runtime prompt is self-contained and does not depend on editor-specific slash
+> commands or local-only skills.
 
 ## Installation
 
@@ -69,12 +71,12 @@ ralph-run --change add-hello-world
    - `tasks.md`: Implementation tasks as checkboxes
 
 2. **Executed tasks** with opencode via mini Ralph
-   - Each task got full context (proposal + specs + design + git history)
+   - Each task got full context (proposal + specs + design + fresh task snapshot)
    - Git commits created after each task
    - Task checkboxes marked as complete
 
 3. **Iterated** until all tasks done
-   - Errors from previous tasks inform subsequent tasks
+   - Recent failures or no-progress iterations inform subsequent tasks
    - Each task builds on the previous commit
    - Full granular git history
 
@@ -88,7 +90,7 @@ git log --oneline
 ls -la openspec/changes/add-hello-world/
 
 # View the generated PRD (internal use)
-cat .ralph/PRD.md
+cat openspec/changes/add-hello-world/.ralph/PRD.md
 
 # Check loop status
 ralph-run --status
@@ -265,7 +267,7 @@ Tests run automatically on every push and pull request via GitHub Actions on bot
 
 1. **Read the full README.md** for detailed documentation
 2. **Try a real feature** in your project
-3. **Explore the `.ralph/`** directory to see internal loop state
+3. **Explore `openspec/changes/<name>/.ralph/`** to see the per-change loop state
 4. **Review TESTING.md** for testing guidelines
 
 ## Resources

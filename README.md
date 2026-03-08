@@ -12,6 +12,8 @@ OpenSpec + Ralph Loop integration for iterative development with opencode.
 
 OpenSpec provides excellent structure for planning (proposal → specs → design → tasks) but leaves execution manual. This package provides an iterative development loop — execute → commit → repeat — driven by an internal mini Ralph implementation that works with OpenCode and eliminates the need for any external Ralph runtime.
 
+The runtime prompt is self-contained: it does not depend on Cursor-only slash commands or editor-local skills.
+
 ## Installation
 
 ```bash
@@ -184,7 +186,7 @@ ralph-run --change my-feature
 1. **Validation**: Checks for required OpenSpec artifacts and git repository
 2. **PRD Generation**: Converts proposal + specs + design → PRD format for internal use
 3. **Task Execution**: For each incomplete task:
-   - Generates context-rich prompt (task + specs + design + git history + errors)
+   - Generates context-rich prompt (full OpenSpec artifacts + a fresh task snapshot + recent loop signals)
    - Runs `opencode` with the prompt via the internal mini Ralph engine
    - Creates git commit with task description (unless `--no-commit`)
    - Marks task complete in tasks.md
@@ -234,7 +236,7 @@ git diff HEAD~15   # See full implementation
 | **Structured Planning** | OpenSpec workflow: proposal → specs → design → tasks |
 | **Agentic Execution** | opencode executes tasks with full context |
 | **Iterative Loop** | Each task builds on previous commits |
-| **Error Propagation** | Failures inform subsequent tasks |
+| **Iteration Feedback** | Recent failures and no-progress iterations inform the next pass |
 | **Granular History** | One git commit per task |
 | **Auto-Resume** | Interrupted? Run again — picks up where left off |
 | **Context Injection** | `--add-context` injects guidance into the next iteration |
@@ -249,7 +251,7 @@ git diff HEAD~15   # See full implementation
 provides the core iterative loop without any external Ralph dependency:
 
 - **Iterative execution**: Each task builds on previous commits with full context
-- **State and history**: Loop state, iteration history, and struggle indicators stored in `.ralph/`
+- **State and history**: Loop state, iteration history, and struggle indicators stored in each change's `.ralph/`
 - **Prompt templates**: Context-aware prompts generated from OpenSpec artifacts
 - **Completion promises**: Loop exits when a completion signal is detected
 - **Task progression**: Synchronized with `tasks.md` checkboxes as the source of truth
@@ -268,9 +270,9 @@ this repository's OpenSpec-first workflow (multi-agent rotation, plugin toggles,
 ### Script Features
 
 - **Auto-resume**: Interrupted? Run again — picks up where left off
-- **Context injection**: `--add-context` / `--clear-context` via `.ralph/ralph-context.md`
-- **Error recovery**: Errors propagate to guide subsequent tasks
-- **Task synchronization**: `tasks.md` and `.ralph/ralph-tasks.md` stay in sync
+- **Context injection**: `--add-context` / `--clear-context` via each change's `.ralph/ralph-context.md`
+- **Error recovery**: Recent loop signals help guide subsequent tasks
+- **Task synchronization**: `tasks.md` and the per-change `.ralph/ralph-tasks.md` symlink stay in sync
 - **Idempotent**: Run multiple times safely
 
 ## Advanced Usage
@@ -330,12 +332,9 @@ This package integrates:
 ### Context Propagation
 
 Each task execution includes:
-- **Task description**: What to implement
-- **Proposal summary**: Why this change matters
-- **Relevant specs**: Requirements to satisfy
-- **Design decisions**: Architectural constraints
-- **Git history**: Last 10 commits (what's already done)
-- **Previous errors**: What failed before (to avoid repeating)
+- **OpenSpec artifacts**: Proposal, design, and spec content from the generated PRD
+- **Fresh task snapshot**: Raw `tasks.md` content plus the current task and completed-task summary rendered each iteration
+- **Recent loop signals**: Compact reminders about prior failed or no-progress iterations
 - **Pending context**: Any `--add-context` injection
 
 ### Task Tracking
@@ -352,18 +351,18 @@ openspec/changes/<name>/
 ├── proposal.md          # Your "why"
 ├── design.md            # Your "how"
 ├── tasks.md             # Your "what" (checkboxes, source of truth)
-└── specs/               # Your requirements
-    ├── auth/
-    │   └── spec.md
-    └── api/
-        └── spec.md
-
-.ralph/                  # Internal loop state (auto-generated)
-├── PRD.md               # Generated from OpenSpec artifacts
-├── ralph-tasks.md       # Symlink → tasks.md
-├── ralph-context.md     # Pending context from --add-context
-├── ralph-history.json   # Iteration history and loop metadata
-└── prompt-template.md   # Rendered prompt template
+├── specs/               # Your requirements
+│   ├── auth/
+│   │   └── spec.md
+│   └── api/
+│       └── spec.md
+└── .ralph/              # Internal loop state (auto-generated, per change)
+    ├── PRD.md
+    ├── ralph-tasks.md
+    ├── ralph-context.md
+    ├── ralph-history.json
+    ├── ralph-loop.state.json
+    └── prompt-template.md
 ```
 
 ## Troubleshooting

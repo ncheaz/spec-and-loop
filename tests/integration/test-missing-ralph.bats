@@ -123,7 +123,7 @@ teardown() {
   mkdir -p openspec/changes
   cp -r "$FIXTURES_DIR" openspec/changes/
   
-  run timeout 10 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 2>&1
+  run run_with_timeout 10 bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 2>&1
   
   [ "$status" -ne 0 ]
 }

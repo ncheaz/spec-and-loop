@@ -16,6 +16,9 @@ const {
   _containsPromise,
   _validateOptions,
   _resolveStartIteration,
+  _completedTaskDelta,
+  _formatAutoCommitMessage,
+  _buildIterationFeedback,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -191,6 +194,109 @@ describe('_resolveStartIteration()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// _completedTaskDelta
+// ---------------------------------------------------------------------------
+
+describe('_completedTaskDelta()', () => {
+  test('returns tasks that became completed during the iteration', () => {
+    const before = [
+      { number: '1.1', description: 'First task', fullDescription: '1.1 First task', status: 'incomplete' },
+      { number: '1.2', description: 'Done already', fullDescription: '1.2 Done already', status: 'completed' },
+    ];
+    const after = [
+      { number: '1.1', description: 'First task', fullDescription: '1.1 First task', status: 'completed' },
+      { number: '1.2', description: 'Done already', fullDescription: '1.2 Done already', status: 'completed' },
+    ];
+
+    expect(_completedTaskDelta(before, after)).toEqual([
+      { number: '1.1', description: 'First task', fullDescription: '1.1 First task', status: 'completed' },
+    ]);
+  });
+
+  test('returns empty array when no new tasks were completed', () => {
+    const before = [
+      { number: '1.1', description: 'Done already', fullDescription: '1.1 Done already', status: 'completed' },
+    ];
+    const after = [
+      { number: '1.1', description: 'Done already', fullDescription: '1.1 Done already', status: 'completed' },
+    ];
+
+    expect(_completedTaskDelta(before, after)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _formatAutoCommitMessage
+// ---------------------------------------------------------------------------
+
+describe('_formatAutoCommitMessage()', () => {
+  test('formats a single-task Ralph commit message', () => {
+    const message = _formatAutoCommitMessage(7, [
+      {
+        number: '2.1',
+        description: 'Implement status dashboard',
+        fullDescription: '2.1 Implement status dashboard',
+        status: 'completed',
+      },
+    ]);
+
+    expect(message).toContain('Ralph iteration 7: Implement status dashboard');
+    expect(message).toContain('Tasks completed:');
+    expect(message).toContain('- [x] 2.1 Implement status dashboard');
+  });
+
+  test('formats a multi-task Ralph commit message', () => {
+    const message = _formatAutoCommitMessage(3, [
+      {
+        number: '1.1',
+        description: 'Implement feature A',
+        fullDescription: '1.1 Implement feature A',
+        status: 'completed',
+      },
+      {
+        number: '1.2',
+        description: 'Add tests',
+        fullDescription: '1.2 Add tests',
+        status: 'completed',
+      },
+    ]);
+
+    expect(message).toContain('Ralph iteration 3: complete 2 tasks');
+    expect(message).toContain('- [x] 1.1 Implement feature A');
+    expect(message).toContain('- [x] 1.2 Add tests');
+  });
+
+  test('returns empty string when there are no completed tasks', () => {
+    expect(_formatAutoCommitMessage(2, [])).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _buildIterationFeedback
+// ---------------------------------------------------------------------------
+
+describe('_buildIterationFeedback()', () => {
+  test('summarizes recent failed or no-progress iterations', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 2, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 3, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false },
+    ]);
+
+    expect(feedback).toContain('Use these signals to avoid repeating the same failed approach');
+    expect(feedback).toContain('Iteration 2: opencode exited with code 1');
+    expect(feedback).toContain('Iteration 3: no files changed');
+  });
+
+  test('returns empty string when recent history looks healthy', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 1, exitCode: 0, filesChanged: ['file.js'], completionDetected: false, taskDetected: true },
+    ]);
+
+    expect(feedback).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // run() — with mocked invoker
 // ---------------------------------------------------------------------------
 
@@ -297,6 +403,27 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('syncs the managed tasks symlink in tasks mode', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const linkPath = path.join(ralphDir, 'ralph-tasks.md');
+      expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(linkPath)).toBe(fs.realpathSync(tasksFile));
+    } finally {
+      restore();
+    }
+  });
+
   test('appends history entries for each iteration', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     let iter = 0;
@@ -309,6 +436,30 @@ describe('run() with mocked invoker', () => {
       await run(makeOptions({ ralphDir, maxIterations: 3 }));
       const entries = history.recent(ralphDir, 10);
       expect(entries.length).toBe(3);
+    } finally {
+      restore();
+    }
+  });
+
+  test('records completed task descriptions in history entries', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].completedTasks).toEqual(['1.1 Task one']);
     } finally {
       restore();
     }
@@ -356,6 +507,69 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('continues to the next iteration on task promise in tasks mode', async () => {
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n- [ ] 1.2 Task two\n', 'utf8');
+
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      return {
+        stdout: callCount === 1
+          ? '<promise>READY_FOR_NEXT_TASK</promise>'
+          : '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({
+        tasksMode: true,
+        tasksFile,
+        maxIterations: 2,
+      }));
+      expect(result.completed).toBe(true);
+      expect(result.iterations).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('injects recent loop signals into follow-up iterations', async () => {
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+
+      if (callCount === 1) {
+        return {
+          stdout: 'no promise yet',
+          exitCode: 1,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ maxIterations: 2, noCommit: true }));
+      expect(prompts[1]).toContain('## Recent Loop Signals');
+      expect(prompts[1]).toContain('Iteration 1: opencode exited with code 1');
+    } finally {
+      restore();
+    }
+  });
+
   test('sets resumedAt in state when resuming from prior iteration', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     // Seed a prior state simulating iteration 2 having completed
@@ -376,6 +590,28 @@ describe('run() with mocked invoker', () => {
       expect(s.resumedAt).toBeDefined();
     } finally {
       restore();
+    }
+  });
+
+  test('logs a resume message in verbose mode', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    state.init(ralphDir, { active: false, iteration: 2 });
+
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 3, verbose: true }));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('resuming from iteration 3'));
+    } finally {
+      restore();
+      stderrSpy.mockRestore();
     }
   });
 });
