@@ -167,7 +167,7 @@ This creates:
 - **design.md**: Technical decisions and architecture
 - **tasks.md**: Implementation tasks as checkboxes
 
-After creating the change, manually complete the OpenSpec artifacts or use the `/opsx-continue` workflow with opencode skills to progress through artifact creation.
+After creating the change, manually complete the OpenSpec artifacts by filling in proposal.md, design.md, specs/*/spec.md, and tasks.md.
 
 **Example tasks.md:**
 ```markdown
