@@ -4,7 +4,9 @@ OpenSpec + Ralph Loop integration for iterative development with opencode.
 
 ![CI Status](https://img.shields.io/github/actions/workflow/status/ncheaz/spec-and-loop/test.yml)
 ![Coverage](https://img.shields.io/badge/coverage-0%25-red)
-[![npm version](https://badge.fury.io/js/spec-and-loop.svg)](https://badge.fury.io/js/spec-and-loop)
+[![npm version](https://badge.fury.io/js/spec-and-loop.svg)](https://badge.fury.io/js/spec-and-loop.svg)
+
+**Version:** spec-and-loop 2.0.0 + OpenSpec 1.2.0
 
 **[Quick Start Guide](./QUICKSTART.md)** - Get up and running in 5 minutes!
 
@@ -61,6 +63,8 @@ For detailed step-by-step instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 ## Testing
 
+*Testing suite for spec-and-loop 2.0.0*
+
 Spec-and-loop includes a comprehensive test suite to ensure reliability and cross-platform compatibility.
 
 **[Testing Guide](./TESTING.md)** - Detailed instructions for running tests
@@ -93,6 +97,8 @@ npm run lint
 All tests are run automatically via GitHub Actions on every push and pull request.
 
 ## Prerequisites
+
+*Required for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
 
 Before using spec-and-loop, ensure you have:
 
@@ -129,6 +135,8 @@ For complete installation instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 ## Commands
 
+*Documentation applies to OpenSpec 1.2.0 and spec-and-loop 2.0.0*
+
 ### OpenSpec Commands
 
 - `openspec init` - Initialize OpenSpec in current directory
@@ -154,6 +162,8 @@ OBSERVABILITY AND CONTROL:
 ```
 
 ## How It Works
+
+*Workflow for OpenSpec 1.2.0 + spec-and-loop 2.0.0*
 
 ### Step 1: Create Spec with OpenSpec
 
@@ -218,6 +228,8 @@ ralph-run --add-context "Prefer async/await over callbacks"
 
 ## Example Workflow
 
+*Example workflow for OpenSpec 1.2.0 and spec-and-loop 2.0.0*
+
 ```bash
 # 1. Initialize OpenSpec in your project
 cd my-web-app
@@ -263,6 +275,8 @@ git diff HEAD~15   # See full implementation
 
 ## Features
 
+*Features available in spec-and-loop 2.0.0 with OpenSpec 1.2.0*
+
 ### Mini Ralph Loop Engine
 
 `spec-and-loop` includes a first-party mini Ralph implementation (`lib/mini-ralph/`) that
@@ -298,6 +312,8 @@ this repository's OpenSpec-first workflow (multi-agent rotation, plugin toggles,
 - **Idempotent**: Run multiple times safely
 
 ## Advanced Usage
+
+*Advanced features for spec-and-loop 2.0.0*
 
 ### Context Injection
 
@@ -369,6 +385,8 @@ ls openspec/changes/my-feature/.ralph/errors_*.md
 
 ## Architecture
 
+*Architecture for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
+
 This package integrates:
 - **OpenSpec**: Structured specification workflow
 - **opencode**: Agentic coding assistant for task execution
@@ -415,6 +433,8 @@ openspec/changes/<name>/
 
 ### Cross-Platform Support
 
+*Cross-platform support verified for spec-and-loop 2.0.0*
+
 `spec-and-loop` is designed to work seamlessly on both Linux and macOS. The script includes portable implementations for:
 
 - **File modification times**: Uses `stat -f %m` on macOS and `stat -c %Y` on Linux
@@ -426,6 +446,8 @@ openspec/changes/<name>/
 All features work identically on both platforms without requiring platform-specific configuration.
 
 ## Troubleshooting
+
+*Troubleshooting guide for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
 
 For common issues and solutions, see [QUICKSTART.md#troubleshooting](./QUICKSTART.md#troubleshooting).
 
