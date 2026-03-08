@@ -7,8 +7,8 @@ Get up and running with **spec-and-loop** in 5 minutes!
 Install these tools (one-time setup):
 
 ```bash
-# 1. Install openspec (OpenSpec CLI)
-npm install -g @fission-ai/openspec@latest
+# 1. Install openspec (OpenSpec CLI) - pinned to version 1.2.0
+npm install -g @fission-ai/openspec@1.2.0
 
 # 2. Install opencode (agentic coding assistant)
 npm install -g opencode-ai
@@ -24,7 +24,8 @@ brew install jq
 git init
 ```
 
-> **Note:** No external `ralph` CLI needed — `spec-and-loop` includes its own internal
+> **Note:** This guide is for OpenSpec 1.2.0 and spec-and-loop 2.0.0.
+> No external `ralph` CLI needed — `spec-and-loop` includes its own internal
 > mini Ralph loop engine. Just install `opencode` and you're ready to go. The
 > runtime prompt is self-contained and does not depend on editor-specific slash
 > commands or local-only skills.
