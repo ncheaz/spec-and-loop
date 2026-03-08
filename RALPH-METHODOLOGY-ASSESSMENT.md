@@ -3,7 +3,7 @@
 **Repository:** `spec-and-loop`
 **Change:** `evaluate-ralph-wiggum-methodology`
 **Assessment date:** 2026-03-08
-**Status:** In progress — evidence collection pending (tasks 2.1–2.3)
+**Status:** In progress — implementation evidence collected (task 2.1 complete); test evidence and verdicts pending (tasks 2.2–2.3)
 
 ---
 
@@ -110,10 +110,10 @@ Bun runtime.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `scripts/ralph-run.sh:100-105` — `resolve_ralph_command()` checks only for `node` + `$MINI_RALPH_CLI` (no external ralph binary); `scripts/ralph-run.sh:268-292` — `validate_dependencies()` requires only `node`, `opencode`, and `jq`; `lib/mini-ralph/index.js:1-91` — entire runtime is a self-contained Node.js module; `lib/mini-ralph/invoker.js:39-43` — invokes `opencode` (not an external `ralph` CLI) |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, BOTW §7, embedded-loop-engine spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | No Bun runtime is used anywhere; zero references to `@th0rgal/ralph-wiggum` in scripts or lib |
 
 ---
 
@@ -125,10 +125,10 @@ is detected or the maximum iteration count is reached.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/runner.js:88-175` — `while (iterationCount < maxIterations)` loop; `runner.js:130-131` — `_containsPromise()` detects `<promise>COMPLETE</promise>` in output; `runner.js:164-168` — breaks on completion with `exitReason = 'completion_promise'`; `runner.js:86` — `exitReason = 'max_iterations'` default; `scripts/mini-ralph-cli.js:89-90` — `--max-iterations` flag parsed and forwarded; `scripts/ralph-run.sh:195-204` — `--max-iterations` flag accepted, default 50 |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, BOTW §5, embedded-loop-engine spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None identified in implementation |
 
 ---
 
@@ -141,10 +141,10 @@ is maintained.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/tasks.js:72-98` — `parseTasks()` reads `tasks.md` directly on every call (no in-memory cache); `lib/mini-ralph/runner.js:113-115` — `tasksBefore` snapshot read fresh from disk; `runner.js:132-134` — `tasksAfter` read fresh from disk after each invocation; `scripts/ralph-run.sh:446-477` — `parse_tasks()` reads `tasks.md` via file I/O each time; `lib/mini-ralph/tasks.js:106-113` — `currentTask()` derives state from file on each call |
 | Test evidence | — |
 | Doc/spec alignment | README.md, BOTW Key Invariant 1, openspec-native-ralph-flow spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | No in-memory state duplication found; every task-state read goes to disk |
 
 ---
 
@@ -157,10 +157,10 @@ same file.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/tasks.js:39-55` — `syncLink()` creates absolute-path symlink via `fs.symlinkSync(absTasksFile, linkPath)`; `lib/mini-ralph/runner.js:80-82` — calls `tasks.syncLink(ralphDir, options.tasksFile)` when in tasks mode; `scripts/ralph-run.sh:679-733` — `sync_tasks_to_ralph()` establishes symlink using `ln -sf` on both macOS and Linux; `ralph-run.sh:991` — `sync_tasks_to_ralph` called from `execute_ralph_loop()` before each run |
 | Test evidence | — |
 | Doc/spec alignment | README.md, BOTW §4, openspec-native-ralph-flow spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | Both shell and Node layers independently establish the symlink, which is redundant but not contradictory |
 
 ---
 
@@ -173,10 +173,10 @@ artifacts with no stale information.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `scripts/ralph-run.sh:404-433` — `generate_prd()` reads proposal, specs, and design fresh; `ralph-run.sh:994-997` — PRD written to `$ralph_dir/PRD.md` before loop starts; `lib/mini-ralph/prompt.js:82-87` — `render()` reads `tasksFile` content and `taskContext` fresh on every iteration call; `lib/mini-ralph/tasks.js:152-180` — `taskContext()` always reads live `tasks.md`; `lib/mini-ralph/runner.js:95` — `prompt.render(options, iterationCount)` called inside the while loop |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, BOTW Key Invariant 5, openspec-native-ralph-flow spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | PRD file (proposal+specs+design) is written once before the loop, not re-written each iteration; however `tasks` and `task_context` template variables are rendered fresh per iteration. This means OpenSpec artifacts are static-per-run while task state is live. |
 
 ---
 
@@ -189,10 +189,10 @@ reflect actual progress and survive restarts.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/runner.js:387-403` — `_resolveStartIteration()` resumes from `priorIteration + 1` when a prior state file exists; `runner.js:50-58` — reads existing state and passes to `_resolveStartIteration`; `scripts/ralph-run.sh:846-882` — `restore_ralph_state_from_tasks()` reads current iteration from state JSON (does NOT recalculate from completed-task count); `ralph-run.sh:855-861` — comment explicitly says "don't use completed task count" |
 | Test evidence | — |
 | Doc/spec alignment | BOTW §5 and §6, openspec-native-ralph-flow spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | **Partial mismatch:** BOTW §6 and the spec claim `iteration = completed_tasks_count + 1`. The shell-side `restore_ralph_state_from_tasks()` explicitly does NOT derive iteration from task count — it preserves the state-file value. The Node runner resumes from `priorIteration + 1` (state-file-based), not `completedCount + 1`. After an interruption mid-iteration the iteration number may not equal `completedCount + 1`. |
 
 ---
 
@@ -204,10 +204,10 @@ completed:\n- [x] <task.number> <description>` format.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/runner.js:302-315` — `_formatAutoCommitMessage()` produces `Ralph iteration ${iteration}: ${summary}\n\nTasks completed:\n${taskLines}`; `runner.js:310-312` — each task line formatted as `- [x] ${task.fullDescription \|\| task.description}`; `runner.js:149-161` — auto-commit only fires when `hasCompletion \|\| hasTask` is true, `filesChanged.length > 0`, and `exitCode === 0`; `scripts/ralph-run.sh:799-833` — prompt template instructs the AI agent on the same commit format |
 | Test evidence | — |
 | Doc/spec alignment | README.md, BOTW §5 and §4 |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; format is consistent between implementation and docs |
 
 ---
 
@@ -220,10 +220,10 @@ progress or duplicating completed tasks.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/runner.js:50-51` — `state.read(ralphDir)` retrieves existing state on startup; `runner.js:387-403` — `_resolveStartIteration()`: if prior state exists and `tasksFile` matches, resumes at `priorIteration + 1`; `runner.js:394-399` — if tasks file differs, treats as fresh run; `scripts/ralph-run.sh:846-882` — `restore_ralph_state_from_tasks()` preserves existing state-file iteration on restart |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, BOTW §3, openspec-native-ralph-flow spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | Resume is state-file-based (not task-count-based); the loop resumes from the last recorded iteration + 1, which correctly skips already-counted iterations. If the state file is absent or the process is killed before the state file is written, the loop restarts at iteration 1 — correct for a clean start but could repeat an iteration if interrupted mid-write. |
 
 ---
 
@@ -236,10 +236,10 @@ and completion across runs.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/state.js:33-36` — `init()` writes `ralph-loop.state.json`; `state.js:61-64` — `update()` merges fields into state file; `lib/mini-ralph/history.js:56-61` — `append()` pushes iteration entry to `ralph-history.json`; `history.js:43-49` — each entry includes `duration`, `completionDetected`, `taskDetected`, `toolUsage`, `filesChanged`, `exitCode`; `lib/mini-ralph/runner.js:138-147` — `history.append()` called after every iteration; `runner.js:91-92` — `state.update()` called at start of each iteration |
 | Test evidence | — |
 | Doc/spec alignment | README.md, BOTW §5, embedded-loop-engine spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | State file is named `ralph-loop.state.json` (matches spec); history file is `ralph-history.json` (spec says "appends iteration history" — consistent). No discrepancy found. |
 
 ---
 
@@ -252,10 +252,10 @@ iteration and can clear it afterward; context is persisted in
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/context.js:14` — `CONTEXT_FILE = 'ralph-context.md'`; `context.js:44-51` — `add()` appends text to `ralph-context.md`; `context.js:58-63` — `clear()` deletes the file; `context.js:72-77` — `consume()` reads then clears (one-shot injection); `lib/mini-ralph/runner.js:99` — `context.consume(ralphDir)` called each iteration; `scripts/mini-ralph-cli.js:109-113` — `--add-context` and `--clear-context` flags parsed; `scripts/ralph-run.sh:1106-1122` — `--add-context` / `--clear-context` routed to `run_observability_command()` |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, BOTW §4, loop-observability-controls spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; context file name, add/clear/consume behavior all align with claims |
 
 ---
 
@@ -268,10 +268,10 @@ indicators.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/status.js:23-115` — `render()` outputs: loop state (active/inactive, iteration, started time); prompt summary; pending context; task progress (via `tasks.countTasks()` and `tasks.currentTask()`); recent history (last 5 entries); struggle indicators; `scripts/ralph-run.sh:1097-1104` — `--status` routes to `run_observability_command("status")`; `scripts/mini-ralph-cli.js:171-175` — `--status` calls `miniRalph.getStatus()` |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, BOTW §4, loop-observability-controls spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; all four claimed display elements (state, task progress, pending context, history) are implemented |
 
 ---
 
@@ -283,10 +283,10 @@ no-progress and repeated-error warnings to guide user intervention.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/status.js:185-208` — `_detectStruggles()`: no-progress warning when `noProgressCount >= 2 && noProgressCount === recentHistory.length`; repeated-error warning when `errorCount >= 2`; `status.js:102-112` — struggles surfaced in `render()` output with `--- Struggle Indicators ---` header and `--add-context` tip; `lib/mini-ralph/runner.js:96` — `_buildIterationFeedback()` (separate from status) surfaces recent problem signals into the next iteration prompt |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, loop-observability-controls spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; both no-progress and repeated-error paths are implemented |
 
 ---
 
@@ -298,10 +298,10 @@ unless `--no-commit` is passed.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/runner.js:150-161` — auto-commit conditional: `!options.noCommit && exitCode === 0 && filesChanged.length > 0 && (hasCompletion \|\| hasTask)`; `runner.js:231-274` — `_autoCommit()` runs `git add -A` then `git commit -m <message>`; `scripts/mini-ralph-cli.js:97-99` — `--no-commit` flag parsed and forwarded via `noCommit: true`; `scripts/ralph-run.sh:203-206` — `--no-commit` sets `NO_COMMIT=true` and passed to `execute_ralph_loop()` |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, BOTW §4, embedded-loop-engine spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; auto-commit and `--no-commit` both clearly implemented |
 
 ---
 
@@ -313,10 +313,10 @@ during loop execution; only `tasks.md` is modified by the loop.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `scripts/ralph-run.sh:371-401` — `read_openspec_artifacts()` reads proposal, specs, and design into variables (no writes); `ralph-run.sh:294-320` — `validate_openspec_artifacts()` checks for presence but does not write; `lib/mini-ralph/runner.js:80-82` — only `tasks.syncLink()` and `state`/`history`/`context` writes occur — no writes to proposal/design/specs; `lib/mini-ralph/prompt.js:82-87` — reads `tasksFile` and artifact files but never writes them |
 | Test evidence | — |
 | Doc/spec alignment | BOTW Key Invariant 2 |
-| Gaps or contradictions | — |
+| Gaps or contradictions | No enforcement mechanism (file permissions, read-only flags) prevents writes — immutability is behavioral rather than enforced. The loop engine does not attempt writes to artifact files, but nothing technically prevents the AI agent from doing so. |
 
 ---
 
@@ -329,10 +329,10 @@ the context input for every iteration.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `scripts/ralph-run.sh:371-401` — `read_openspec_artifacts()` reads `proposal.md`, `design.md`, and all `specs/*/spec.md` via `find … -name "spec.md"`; `ralph-run.sh:404-432` — `generate_prd()` assembles content into `# Product Requirements Document` with Proposal/Specifications/Design sections; `ralph-run.sh:435-444` — `write_prd()` writes to `$ralph_dir/PRD.md`; `ralph-run.sh:994-997` — `generate_prd` + `write_prd` called before loop; `scripts/mini-ralph-cli.js:192-194` — `--prompt-file` passed as `PRD.md` path to mini-ralph runner |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, BOTW §1 and §6, openspec-native-ralph-flow spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; all three artifact types are read and assembled into the PRD |
 
 ---
 
@@ -344,14 +344,14 @@ state files, history, task sync, temp paths, and cleanup.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `scripts/ralph-run.sh:6-12` — `detect_os()` distinguishes `Linux` and `macOS` via `uname -s`; `ralph-run.sh:17-24` — `get_file_mtime()` uses `stat -f %m` (macOS) vs `stat -c %Y` (Linux); `ralph-run.sh:69-98` — `get_temp_root()` and `make_temp_dir()` use `TMPDIR` with fallback to `/tmp`, `mktemp -d` with macOS `-t` fallback; `ralph-run.sh:39-55` — `get_realpath()` uses `realpath` with `readlink -f` fallback; `lib/mini-ralph/` — pure Node.js `fs`/`path`/`crypto` (platform-agnostic by design) |
 | Test evidence | — |
 | Doc/spec alignment | README.md CI/CD section, embedded-loop-engine spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; explicit cross-platform guards present in shell layer; Node layer is platform-agnostic |
 
 ---
 
-### P17 — Prompt sources and templating
+### P17 — Prompt sources and templating (prompt file + template rendering)
 
 **Full claim:** The loop runtime supports prompt-file input and prompt-template
 rendering that injects iteration-specific values before invoking OpenCode.
@@ -359,10 +359,10 @@ rendering that injects iteration-specific values before invoking OpenCode.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `lib/mini-ralph/prompt.js:33-53` — `loadBase()` supports both `promptText` (inline) and `promptFile` (file read); `prompt.js:64-101` — `render()` applies `promptTemplate` when present, replacing `{{iteration}}`, `{{max_iterations}}`, `{{tasks}}`, `{{task_context}}`, `{{task_promise}}`, `{{completion_promise}}`, `{{context}}`; `prompt.js:110-113` — `_renderTemplate()` does `{{key}}` replacement; `scripts/ralph-run.sh:735-843` — `create_prompt_template()` writes `prompt-template.md` with all template variables; `ralph-run.sh:1007-1013` — `--prompt-file PRD.md --prompt-template prompt-template.md` passed to mini-ralph |
 | Test evidence | — |
 | Doc/spec alignment | README.md, embedded-loop-engine spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; prompt file + template rendering fully implemented |
 
 ---
 
@@ -374,10 +374,10 @@ no separate end-user CLI is introduced.
 | Field | Value |
 |-------|-------|
 | Verdict | — |
-| Implementation evidence | — |
+| Implementation evidence | `scripts/mini-ralph-cli.js:5-10` — explicit comment: "This script is invoked by scripts/ralph-run.sh … It is NOT a documented end-user interface. Users should use ralph-run."; `mini-ralph-cli.js:130-153` — help text states "This is an internal script. Use ralph-run as the documented interface."; `scripts/ralph-run.sh:153-187` — `usage()` is the only public-facing help; all flags (`--status`, `--add-context`, `--clear-context`, `--no-commit`, `--max-iterations`) exposed through `ralph-run` |
 | Test evidence | — |
 | Doc/spec alignment | README.md, QUICKSTART.md, openspec-native-ralph-flow spec |
-| Gaps or contradictions | — |
+| Gaps or contradictions | None; `mini-ralph-cli.js` is clearly marked as internal in both its header and help output |
 
 ---
 
