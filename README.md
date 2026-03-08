@@ -132,11 +132,8 @@ For complete installation instructions, see [QUICKSTART.md](./QUICKSTART.md).
 ### OpenSpec Commands
 
 - `openspec init` - Initialize OpenSpec in current directory
-- `openspec new <name>` - Start a new change
-- `openspec ff <name>` - Fast-forward artifact creation
-- `openspec continue <name>` - Continue working on change
-- `openspec apply <name>` - Apply change (implementation)
-- `openspec archive <name>` - Archive a completed change
+- `openspec new change <name>` - Create a new change with artifact templates
+- `openspec --help` - View all available commands and their syntax
 
 ### Ralph Loop Commands
 
@@ -160,8 +157,7 @@ OBSERVABILITY AND CONTROL:
 ### Step 1: Create Spec with OpenSpec
 
 ```bash
-openspec new my-feature
-openspec ff my-feature
+openspec new change my-feature
 ```
 
 This creates:
@@ -169,6 +165,8 @@ This creates:
 - **specs/<capability>/spec.md**: Detailed requirements for each capability
 - **design.md**: Technical decisions and architecture
 - **tasks.md**: Implementation tasks as checkboxes
+
+After creating the change, manually complete the OpenSpec artifacts or use the `/opsx-continue` workflow with opencode skills to progress through artifact creation.
 
 **Example tasks.md:**
 ```markdown
@@ -217,10 +215,12 @@ ralph-run --add-context "Prefer async/await over callbacks"
 
 ```bash
 # 1. Plan feature with OpenSpec
-openspec new user-auth
-openspec ff user-auth
+openspec new change user-auth
 
-# 2. Execute with Ralph
+# 2. Complete OpenSpec artifacts manually or use opencode skills
+#    (review and fill in proposal.md, design.md, specs/*/spec.md, tasks.md)
+
+# 3. Execute with Ralph
 ralph-run --change user-auth
 
 # Output:
@@ -229,7 +229,7 @@ ralph-run --change user-auth
 # [INFO] Executing task 2/15: Implement password hashing
 # ...
 
-# 3. Verify implementation
+# 4. Verify implementation
 git log --oneline  # 15 commits, one per task
 git diff HEAD~15   # See full implementation
 ```
