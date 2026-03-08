@@ -158,8 +158,11 @@ teardown() {
   local tasks_file="openspec/changes/simple-feature/tasks.md"
   local symlink_file="openspec/changes/simple-feature/tasks-link.md"
   
-  # Create symlink
-  ln -s "$tasks_file" "$symlink_file"
+  # Create symlink using absolute path as target so it resolves correctly
+  # regardless of the symlink's own directory location
+  local tasks_absolute
+  tasks_absolute=$(realpath "$tasks_file")
+  ln -s "$tasks_absolute" "$symlink_file"
   
   # Source the script to access the function
   source "$SCRIPT_PATH"
@@ -168,12 +171,10 @@ teardown() {
   local resolved
   resolved=$(get_realpath "$symlink_file")
   
-  # Verify resolved path is not the symlink
-  [ "$resolved" != "$symlink_file" ]
+  # Verify resolved path is absolute
+  [[ "$resolved" == /* ]]
   
   # Verify resolved path points to the original file
-  local tasks_absolute
-  tasks_absolute=$(realpath "$tasks_file")
   [ "$resolved" = "$tasks_absolute" ]
 }
 
@@ -192,8 +193,11 @@ teardown() {
   local tasks_file="openspec/changes/simple-feature/tasks.md"
   local symlink_file="openspec/changes/simple-feature/tasks-link.md"
   
-  # Create symlink
-  ln -s "$tasks_file" "$symlink_file"
+  # Create symlink using absolute path as target so it resolves correctly
+  # regardless of the symlink's own directory location
+  local tasks_absolute
+  tasks_absolute=$(realpath "$tasks_file")
+  ln -s "$tasks_absolute" "$symlink_file"
   
   # Source the script to access the function
   source "$SCRIPT_PATH"
@@ -202,12 +206,10 @@ teardown() {
   local resolved
   resolved=$(get_realpath "$symlink_file")
   
-  # Verify resolved path is not the symlink
-  [ "$resolved" != "$symlink_file" ]
+  # Verify resolved path is absolute
+  [[ "$resolved" == /* ]]
   
   # Verify resolved path points to the original file
-  local tasks_absolute
-  tasks_absolute=$(realpath "$tasks_file")
   [ "$resolved" = "$tasks_absolute" ]
 }
 

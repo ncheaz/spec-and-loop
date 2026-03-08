@@ -30,6 +30,14 @@ echo "Mock ralph CLI - would normally execute Ralph loop"
 exit 0
 EOF
   chmod +x "$MOCK_BIN_DIR/ralph"
+
+  # Create mock mini-ralph-cli.js so execute_ralph_loop exits immediately
+  cat > "$MOCK_BIN_DIR/mini-ralph-cli.js" <<'EOF'
+#!/usr/bin/env node
+console.log("Mock mini-ralph-cli.js - would normally execute Ralph loop");
+process.exit(0);
+EOF
+  export MINI_RALPH_CLI_OVERRIDE="$MOCK_BIN_DIR/mini-ralph-cli.js"
   
   # Add mock bin to PATH
   export PATH="$MOCK_BIN_DIR:$PATH"
@@ -38,11 +46,12 @@ EOF
 }
 
 teardown() {
+  unset MINI_RALPH_CLI_OVERRIDE
   cd / || true
   cleanup_test_dir
 }
 
-@test "complex workflow: validates git repository" {
+@test "complex workflow: requires git repository" {
   create_git_repo
   
   local change_dir="openspec/changes/complex-feature"

@@ -364,5 +364,5 @@ teardown() {
   hash=$(get_file_md5 "$tasks_file")
   
   # Verify hash is valid
-  [[ "$hash" =~ ^[a-f0-9]{32}$ ]}
+  [[ "$hash" =~ ^[a-f0-9]{32}$ ]]
 }

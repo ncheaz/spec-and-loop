@@ -132,7 +132,7 @@ teardown() {
   local os
   os=$(detect_os)
   if [[ "$os" != "macOS" ]]; then
-    skip "Test is macOS-specific, running on $os"
+    skip "Test is Linux-specific, running on $os"
   fi
   
   create_git_repo
@@ -149,9 +149,11 @@ teardown() {
   local initial_mtime
   initial_mtime=$(get_file_mtime "$tasks_file")
   
-  # Wait briefly and modify the file
-  sleep 0.1
-  echo "[TEST] Modified content" >> "$tasks_file"
+  # Use touch with a future timestamp to guarantee mtime changes
+  # (macOS stat -f %m returns integer seconds; sub-second sleep is unreliable)
+  local future_time
+  future_time=$(date -v+2S "+%Y%m%d%H%M.%S")
+  touch -t "$future_time" "$tasks_file"
   
   # Get new mtime
   local new_mtime

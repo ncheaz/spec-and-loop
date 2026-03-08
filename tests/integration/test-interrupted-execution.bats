@@ -33,6 +33,14 @@ sleep 1000
 echo "Mock ralph CLI - this should not be reached"
 EOF
   chmod +x "$MOCK_BIN_DIR/ralph"
+
+  # Create mock mini-ralph-cli.js that sleeps (to test interruption)
+  cat > "$MOCK_BIN_DIR/mini-ralph-cli.js" <<'JSEOF'
+#!/usr/bin/env node
+// Sleep long enough to be interrupted
+setTimeout(() => { process.exit(0); }, 1000000);
+JSEOF
+  export MINI_RALPH_CLI_OVERRIDE="$MOCK_BIN_DIR/mini-ralph-cli.js"
   
   # Add mock bin to PATH
   export PATH="$MOCK_BIN_DIR:$PATH"
@@ -43,6 +51,7 @@ EOF
 }
 
 teardown() {
+  unset MINI_RALPH_CLI_OVERRIDE
   cd / || true
   cleanup_test_dir
 }
@@ -190,12 +199,19 @@ PY
   
   run_interrupted_script INT
   
+  # Replace both the ralph mock and mini-ralph-cli.js mock with fast-exit versions
   cat > "$MOCK_BIN_DIR/ralph" <<'EOF'
 #!/bin/bash
 echo "Mock ralph CLI"
 exit 0
 EOF
   chmod +x "$MOCK_BIN_DIR/ralph"
+  
+  cat > "$MOCK_BIN_DIR/mini-ralph-cli.js" <<'JSEOF'
+#!/usr/bin/env node
+console.log("Mock mini-ralph-cli.js restart");
+process.exit(0);
+JSEOF
   
   run bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 2>&1 || true
   
