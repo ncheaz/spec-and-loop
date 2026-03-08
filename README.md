@@ -215,13 +215,18 @@ ralph-run --add-context "Prefer async/await over callbacks"
 ## Example Workflow
 
 ```bash
-# 1. Plan feature with OpenSpec
+# 1. Initialize OpenSpec in your project
+cd my-web-app
+git init
+openspec init
+
+# 2. Create a new change
 openspec new change user-auth
 
-# 2. Complete OpenSpec artifacts manually or use opencode skills
+# 3. Complete OpenSpec artifacts manually or use opencode skills
 #    (review and fill in proposal.md, design.md, specs/*/spec.md, tasks.md)
 
-# 3. Execute with Ralph
+# 4. Execute with Ralph
 ralph-run --change user-auth
 
 # Output:
@@ -230,7 +235,7 @@ ralph-run --change user-auth
 # [INFO] Executing task 2/15: Implement password hashing
 # ...
 
-# 4. Verify implementation
+# 5. Verify implementation
 git log --oneline  # 15 commits, one per task
 git diff HEAD~15   # See full implementation
 ```
