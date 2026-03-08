@@ -281,8 +281,16 @@ reads proposal, specs, and design into variables (no writes); `ralph-run.sh:294-
 writes occur — no writes to proposal/design/specs; `lib/mini-ralph/prompt.js:82-87`
 — reads `tasksFile` and artifact files but never writes them. Tests confirm
 read-only access patterns (`tests/unit/bash/test-read-openspec-artifacts.bats`).
-However, immutability is not enforced by runtime guards, file-system permissions,
-or negative assertions in tests — it is maintained by convention.
+
+Lack of runtime enforcement: Immutability is maintained by convention rather than
+mechanical enforcement. No runtime guards or checks exist to prevent or detect
+artifact modifications: there is no validation in `_autoCommit` or
+`execute_ralph_loop` that would warn if artifact files appear in staged changes,
+no file-system permissions are set on artifact files to restrict writes, and no
+negative test assertions confirm that artifact files remain unmodified after loop
+execution. The only protection is code path design—the code never writes to these
+files—but if a tool, user, or future code path were to modify an artifact, the
+system would not detect or prevent it.
 
 **Sources:**
 - `OPENSPEC-RALPH-WIGGUM-BOTW.md` — Key Invariant 2: "OpenSpec Artifacts are
