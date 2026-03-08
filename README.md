@@ -421,15 +421,21 @@ openspec/changes/<name>/
 │       └── spec.md
 └── .ralph/              # Internal loop state (auto-generated, per change)
     ├── PRD.md                    # Generated product requirements document
-    ├── ralph-tasks.md           # Symlink to ../tasks.md (syncs task state)
-    ├── ralph-context.md         # Pending context for next iteration
+    ├── prompt-template.md       # Template used for generating prompts
     ├── ralph-history.json       # Iteration history and state
     ├── ralph-loop.state.json    # Current loop state and iteration count
-    ├── prompt-template.md       # Template used for generating prompts
-    ├── errors.md                # Error logs with timestamps
-    ├── errors_*.md              # Archived error logs
-    └── .output_dir             # Path to latest output capture directory
+    ├── ralph-tasks.md           # Symlink to ../tasks.md (syncs task state)
+    ├── .output_dir              # Path to latest output capture directory
+    ├── ralph-context.md         # (Optional) Pending context for next iteration
+    ├── errors.md                # (Optional) Error logs with timestamps
+    ├── errors_*.md              # (Optional) Archived error logs
+    └── *.md                     # (Optional) Research artifacts created during task execution
 ```
+
+**Note:** Files marked as (Optional) are created only when needed:
+- `ralph-context.md`: Created when you use `--add-context`
+- `errors.md` and `errors_*.md`: Created when errors occur during loop execution
+- Additional `*.md` files: Research artifacts created by opencode during task execution (e.g., verification outputs, analysis documents)
 
 ### Cross-Platform Support
 
