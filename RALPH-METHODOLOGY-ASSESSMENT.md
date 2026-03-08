@@ -3,7 +3,7 @@
 **Repository:** `spec-and-loop`
 **Change:** `evaluate-ralph-wiggum-methodology`
 **Assessment date:** 2026-03-08
-**Status:** In progress — confirmed-alignment section written (task 3.1 complete); mismatches narrative pending (task 3.2)
+**Status:** In progress — confirmed-alignment section written (task 3.1 complete); mismatches section written (task 3.2 complete); final review pending (task 3.3)
 
 ---
 
@@ -290,6 +290,89 @@ RALPH_CMD in output" confirms no external Ralph interface is surfaced.
 implementation, or where evidence is contradictory.*
 
 <!-- BEGIN mismatches-and-stale-claims -->
+
+Two principles received a `partially-verified` verdict because documented claims
+outrun what the implementation or test suite can fully substantiate: **P6**
+(iteration numbering) and **P14** (OpenSpec artifact immutability).  No principle
+was assessed as `contradicted` or `unverified`.
+
+---
+
+#### P6 — Iteration numbering aligned with task progress (`partially-verified`)
+
+**Documented claim (stale):**
+Documentation and the methodology enumeration state that the iteration counter is
+derived at runtime from the count of completed tasks (`iteration = completed_count + 1`),
+ensuring that numbers always reflect actual progress and survive restarts without
+drift.
+
+**What the implementation actually does:**
+The JS runner persists the last iteration number in `.ralph/ralph-loop.state.json`
+and resumes from `priorIteration + 1` on restart (`lib/mini-ralph/runner.js:387-403`).
+The bash wrapper (`scripts/ralph-run.sh:846-882` — `restore_ralph_state_from_tasks()`)
+reads the iteration from the state file rather than recalculating from the
+completed-task count; a comment at `ralph-run.sh:855-861` explicitly confirms
+this: _"don't use completed task count"_.
+
+As a result, the `iteration = completed_count + 1` invariant holds only on a
+clean first run.  On any restart it is maintained by state-file continuity, not
+by recounting tasks.  If the state file is deleted or becomes inconsistent with
+`tasks.md`, the counter resets to 1 even if tasks are already marked complete.
+
+**Affected files:**
+- `openspec/changes/evaluate-ralph-wiggum-methodology/methodology-principles-enumeration.md`
+  — P6 description should be updated to reflect state-file-based resumption rather
+  than live task-count derivation.
+- `scripts/ralph-run.sh:846-882` — `restore_ralph_state_from_tasks()` does not
+  derive iteration from completed-task count.
+- `lib/mini-ralph/runner.js:387-403` — `_resolveStartIteration()` resumes from
+  `priorIteration + 1` (state file) not from a live task count.
+
+**Gap / follow-up needed:**
+Either (a) update the documented claim to match the state-file-persistence model
+that is actually implemented, or (b) add a fallback in `_resolveStartIteration()`
+that cross-checks the persisted iteration against the live completed-task count
+and emits a warning when they diverge.  No test currently asserts that
+`iteration === completedCount + 1` holds at any point in a run.
+
+---
+
+#### P14 — OpenSpec artifact immutability during loop execution (`partially-verified`)
+
+**Documented claim (stale):**
+`proposal.md`, `design.md`, and `specs/*/spec.md` are read-only during loop
+execution; only `tasks.md` is modified.  The implication is that the runtime
+actively enforces or validates this constraint.
+
+**What the implementation actually does:**
+Immutability is enforced solely by convention — no write paths to artifact files
+exist in the traced code (`scripts/ralph-run.sh:371-401` reads only;
+`lib/mini-ralph/runner.js` writes only to `tasks.md`, state, history, and context
+files).  There are no `chmod`, file-lock, or explicit guard mechanisms preventing
+a write, and no test asserts that writing to `proposal.md`, `design.md`, or a
+spec file is rejected or even absent after a loop run.
+
+**Affected files:**
+- `scripts/ralph-run.sh:371-401` (`read_openspec_artifacts`) — reads only, no
+  write guard.
+- `lib/mini-ralph/runner.js:80-161` — write calls are limited to `tasks.syncLink`,
+  `state.update`, `history.append`, `context.consume`, and `_autoCommit`; no
+  explicit assertion that artifact paths are excluded.
+- `tests/unit/bash/test-read-openspec-artifacts.bats` — tests confirm read access
+  but include no negative assertion that artifact files remain unmodified after
+  execution.
+- `tests/unit/javascript/mini-ralph-runner.test.js` — auto-commit and file-change
+  detection tests do not assert that artifact file paths are excluded from the
+  staged changeset.
+
+**Gap / follow-up needed:**
+Either (a) acknowledge in documentation that immutability is by convention and
+not enforced, or (b) add a post-execution assertion (or a `git diff --name-only`
+check in `_autoCommit`) that warns when artifact files appear in the staged
+changeset.  A dedicated negative test in `test-read-openspec-artifacts.bats` (or
+a new `test-artifact-immutability.bats`) that verifies artifact files are
+unmodified after a loop run would also raise confidence to `verified`.
+
 <!-- END mismatches-and-stale-claims -->
 
 ---
@@ -547,6 +630,22 @@ no separate end-user CLI is introduced.
 *Populated during task 3.2 and reviewed in task 3.3.*
 
 <!-- BEGIN follow-up-recommendations -->
+
+The two `partially-verified` principles each surface a concrete action item:
+
+**REC-1 (P6 — iteration numbering):** Update `methodology-principles-enumeration.md`
+to document that iteration numbering is maintained via state-file persistence
+(`ralph-loop.state.json`) rather than live task-count derivation.  Optionally, add
+a cross-check in `lib/mini-ralph/runner.js:_resolveStartIteration()` that warns
+when the persisted iteration and the live completed-task count diverge.
+
+**REC-2 (P14 — artifact immutability):** Document that immutability of
+`proposal.md`, `design.md`, and `specs/*/spec.md` is enforced by convention.
+To raise confidence to `verified`, add either (a) a post-run negative assertion
+in `tests/unit/bash/test-read-openspec-artifacts.bats` confirming artifact files
+are unmodified, or (b) a guard in `_autoCommit` (or `execute_ralph_loop`) that
+emits a warning when an artifact file appears in the staged changeset.
+
 <!-- END follow-up-recommendations -->
 
 ---
