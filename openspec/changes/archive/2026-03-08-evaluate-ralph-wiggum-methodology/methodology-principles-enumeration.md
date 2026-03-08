@@ -115,21 +115,18 @@ artifacts with no stale information.
 ### P6 — Iteration numbering aligned with task progress
 
 **Claim:** The loop iteration counter is persisted in `.ralph/ralph-loop.state.json`
-and resumes from `priorIteration + 1` on restart, ensuring iteration numbers
-reflect actual progress. On a clean first run, the iteration starts at 1 while the
-completed count starts at 0, so the relationship `iteration = completed_count + 1`
-emerges from initial conditions. On subsequent restarts, this relationship is
-maintained by state-file continuity rather than live task-count derivation.
+and resumes from `priorIteration + 1` on restart. On clean first runs, iteration=1
+and completed_count=0, so `iteration = completed_count + 1` emerges from initial
+conditions. Subsequent restarts maintain this relationship via state-file
+continuity, not live task-count derivation.
 
-Restart behavior: The JS runner (`_resolveStartIteration` at `lib/mini-ralph/runner.js:387-403`) returns 1 if no
-existing state file exists, if the persisted iteration is invalid (not a number
-or < 1), or if in tasks mode the prior tasks file differs from the current one
-(treating this as a fresh run). Otherwise it resumes from `priorIteration + 1`.
-The bash wrapper (`restore_ralph_state_from_tasks` at `scripts/ralph-run.sh:846-882`) preserves the existing
-iteration from the state file when restarting; it only sets iteration to 1 if
-the state file has iteration 0 or is missing. State file continuity ensures the
-iteration counter persists across restarts without drift, even if the tasks
-file has been modified, except in the explicit case of a different tasks file.
+Implementation: The JS runner (`_resolveStartIteration` at `lib/mini-ralph/runner.js:387-403`) returns 1 for
+fresh runs (no state file, invalid iteration, or different tasks file in tasks
+mode), otherwise resumes from `priorIteration + 1`. The bash wrapper
+(`restore_ralph_state_from_tasks` at `scripts/ralph-run.sh:846-882`) preserves the
+state file iteration, only resetting to 1 if iteration is 0 or missing. State
+file continuity persists the counter across restarts without drift, even with
+tasks file modifications (unless the tasks file itself changes).
 
 **Sources:**
 - `OPENSPEC-RALPH-WIGGUM-BOTW.md` — §6 State Synchronization;
@@ -270,27 +267,22 @@ repeated-error warnings to guide user intervention.
 
 **Claim:** `proposal.md`, `design.md`, and `specs/*/spec.md` are read-only
 during loop execution by convention, not enforcement; only `tasks.md` is
-modified by the loop. Immutability is maintained through code path design
-rather than runtime enforcement or file-system permissions.
+modified. Immutability is maintained through code path design, not runtime
+enforcement.
 
-Implementation evidence: The loop engine does not have any write paths to
-artifact files. `scripts/ralph-run.sh:371-401` — `read_openspec_artifacts()`
-reads proposal, specs, and design into variables (no writes); `ralph-run.sh:294-320`
-— `validate_openspec_artifacts()` checks for presence but does not write;
-`lib/mini-ralph/runner.js:80-82` — only `tasks.syncLink()` and state/history/context
-writes occur — no writes to proposal/design/specs; `lib/mini-ralph/prompt.js:82-87`
-— reads `tasksFile` and artifact files but never writes them. Tests confirm
+Implementation evidence: No write paths exist to artifact files.
+`scripts/ralph-run.sh:371-401` `read_openspec_artifacts()` reads artifacts into
+variables (no writes); `scripts/ralph-run.sh:294-320`
+`validate_openspec_artifacts()` checks presence only (no writes);
+`lib/mini-ralph/runner.js:80-82` writes only tasks, state, history, and context;
+`lib/mini-ralph/prompt.js:82-87` reads artifacts but never writes. Tests confirm
 read-only access patterns (`tests/unit/bash/test-read-openspec-artifacts.bats`).
 
-Lack of runtime enforcement: Immutability is maintained by convention rather than
-mechanical enforcement. No runtime guards or checks exist to prevent or detect
-artifact modifications: there is no validation in `_autoCommit` or
-`execute_ralph_loop` that would warn if artifact files appear in staged changes,
-no file-system permissions are set on artifact files to restrict writes, and no
-negative test assertions confirm that artifact files remain unmodified after loop
-execution. The only protection is code path design—the code never writes to these
-files—but if a tool, user, or future code path were to modify an artifact, the
-system would not detect or prevent it.
+Lack of runtime enforcement: No guards exist to prevent or detect artifact
+modifications. No validation checks staged changes for artifacts, no file-system
+permissions restrict writes, and no tests confirm artifacts remain unmodified.
+Protection is purely code path design—the code never writes to these files—but
+external modifications would not be detected or prevented.
 
 **Sources:**
 - `OPENSPEC-RALPH-WIGGUM-BOTW.md` — Key Invariant 2: "OpenSpec Artifacts are
