@@ -105,10 +105,27 @@ ralph-run --status
 ### OpenSpec Commands
 
 ```bash
-openspec init                  # Initialize in current directory
-openspec new change <name>      # Create a new change
-openspec show <name>           # Show a change proposal
-openspec archive <name>         # Archive completed change
+# Core workflow
+openspec init                  # Initialize OpenSpec in current directory
+openspec new change <name>      # Create a new change directory
+openspec show <item-name>      # Show a change or spec in detail
+openspec archive <change-name> # Archive a completed change
+
+# Information and status
+openspec list                  # List all active changes (use --specs to list specs)
+openspec status                # Display artifact completion status for a change
+openspec validate <item-name> # Validate changes and specs
+
+# View and manage
+openspec view                  # Display interactive dashboard of specs and changes
+openspec update                # Update OpenSpec instruction files
+openspec config                # View and modify global OpenSpec configuration
+
+# Advanced
+openspec spec                  # Manage and view OpenSpec specifications
+openspec instructions         # Output enriched instructions for creating artifacts
+openspec templates             # Show resolved template paths for artifacts
+openspec schemas               # List available workflow schemas
 ```
 
 ### Ralph Loop Commands
