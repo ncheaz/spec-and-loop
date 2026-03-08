@@ -45,22 +45,21 @@ Before running tests, ensure you have the following installed:
    brew install jq
    ```
 
-### Optional Tools (for integration tests)
+### Optional Tools
 
-- **openspec** CLI
+- **openspec** CLI (used for workflow demos, not required to run tests)
   ```bash
   npm install -g @fission-ai/openspec
   ```
 
-- **ralph** CLI
-  ```bash
-  npm install -g @th0rgal/ralph-wiggum
-  ```
-
-- **opencode** CLI
+- **opencode** CLI (used for workflow demos, not required to run tests)
   ```bash
   npm install -g opencode-ai
   ```
+
+> **Note:** The integration tests use mock implementations of `mini-ralph-cli.js` and
+> inject them via `MINI_RALPH_CLI_OVERRIDE`. No external `ralph` CLI and no live
+> `opencode` invocations are required to run the test suite.
 
 ## Running Tests
 
@@ -72,7 +71,7 @@ Execute the complete test suite:
 npm test
 ```
 
-This runs both unit tests and integration tests.
+This runs unit tests (bash + JavaScript) followed by integration tests.
 
 ### Run Unit Tests Only
 
@@ -83,8 +82,8 @@ npm run test:unit
 ```
 
 This includes:
-- Bash unit tests (tests/unit/bash/*.bats)
-- JavaScript unit tests (tests/unit/javascript/*.test.js)
+- Bash unit tests (`tests/unit/bash/*.bats`)
+- JavaScript unit tests (`tests/unit/javascript/*.test.js`)
 
 ### Run JavaScript Tests Only
 
@@ -96,7 +95,7 @@ npm run test:js
 
 ### Run Integration Tests Only
 
-Run only the integration tests (slower, requires all dependencies):
+Run only the integration tests (slower, ~5 minutes):
 
 ```bash
 npm run test:integration
@@ -142,87 +141,128 @@ tests/
 │   └── javascript/     # JavaScript unit tests (*.test.js)
 ├── integration/        # Full workflow integration tests (*.bats)
 ├── fixtures/           # Reusable test data
-│   ├── changes/        # Sample OpenSpec changes
-│   └── git-repos/      # Test git repositories
+│   ├── simple-feature/       # Minimal valid OpenSpec change
+│   ├── complex-feature/      # Multi-spec OpenSpec change
+│   └── incomplete-change/    # Missing artifacts (for error testing)
 └── helpers/
-    └── test-common.sh  # Reusable test helper functions
+    ├── test-common.bash       # Reusable Bats helper functions
+    └── test-functions.sh      # Additional helper utilities
 ```
 
 ## Test Categories
 
-### Unit Tests
+### Unit Tests — Bash
 
-Unit tests test individual functions in isolation:
+Unit tests test individual functions from `scripts/ralph-run.sh` in isolation:
 
-- **Bash unit tests** (tests/unit/bash/*.bats)
-  - File utilities (detect_os, get_file_mtime, get_file_md5, get_realpath)
-  - Task management (parse_tasks, get_current_task_context)
-  - Validation functions (validate_git_repository, validate_dependencies)
-  - PRD generation (read_openspec_artifacts, generate_prd)
-  - Ralph integration (sync_tasks_to_ralph, restore_ralph_state_from_tasks)
-  - Error handling (cleanup, handle_error, format_error_entry)
+- **`test-detect-os.bats`** — `detect_os()` on macOS and Linux
+- **`test-get-file-mtime.bats`** — `get_file_mtime()` with `stat -f %m` / `stat -c %Y`
+- **`test-get-file-md5.bats`** — `get_file_md5()` with `md5 -q` / `md5sum`
+- **`test-get-realpath.bats`** — `get_realpath()` across platforms and symlinks
+- **`test-parse-tasks.bats`** — `parse_tasks()` and task checkbox parsing
+- **`test-get-current-task-context.bats`** — `get_current_task_context()` context building
+- **`test-validate-git-repository.bats`** — `validate_git_repository()` checks
+- **`test-validate-dependencies.bats`** — `validate_dependencies()` checks
+- **`test-read-openspec-artifacts.bats`** — `read_openspec_artifacts()` and PRD generation
+- **`test-execute-ralph-loop.bats`** — `execute_ralph_loop()` invocation behavior
+- **`test-cleanup.bats`** — `cleanup()` and `handle_error()` functions
+- **`test-signal-handling.bats`** — Signal trap behavior (SIGINT, SIGTERM)
+- **`test-symlink-architecture.bats`** — `.ralph/ralph-tasks.md` symlink creation
+- **`test-task-state-synchronization.bats`** — Task completion state tracking
 
-- **JavaScript unit tests** (tests/unit/javascript/*.test.js)
-  - bin/ralph-run wrapper
-  - Argument passing
-  - Error handling
-  - stdio inheritance
-  - setup.js post-install script
+### Unit Tests — JavaScript
+
+JavaScript unit tests cover the mini Ralph module and wrapper:
+
+- **`mini-ralph-runner.test.js`** — Internal loop execution and iteration behavior
+- **`mini-ralph-state.test.js`** — State and history persistence under `.ralph/`
+- **`mini-ralph-status.test.js`** — Status dashboard rendering and struggle indicators
+- **`mini-ralph-context.test.js`** — `--add-context` / `--clear-context` operations
+- **`mini-ralph-prompt.test.js`** — Prompt template loading and rendering
+- **`ralph-run-wrapper.test.js`** — `bin/ralph-run` wrapper behavior
+- **`argument-passing.test.js`** — Flag forwarding to the mini Ralph engine
+- **`error-handling.test.js`** — Error propagation and exit codes
+- **`stdio-inheritance.test.js`** — stdin/stdout/stderr inheritance
+- **`setup-script.test.js`** — `scripts/setup.js` post-install script
+- **`test-bin-wrapper.test.js`** — `bin/ralph-run` binary path resolution
 
 ### Integration Tests
 
-Integration tests validate the complete ralph-run workflow:
+Integration tests validate the complete `ralph-run` workflow using mock
+implementations of `mini-ralph-cli.js` injected via `MINI_RALPH_CLI_OVERRIDE`:
 
-- Full workflow execution (simple and complex changes)
-- Auto-detect functionality
-- Max-iterations flag
-- Verbose mode
-- Error handling scenarios
-- Cross-platform validation (Linux and macOS)
+- **`test-simple-workflow.bats`** — Full workflow with a minimal single-spec change
+- **`test-complex-workflow.bats`** — Multi-spec change with multiple task files
+- **`test-auto-detect.bats`** — Auto-detection of the most recent change
+- **`test-max-iterations.bats`** — `--max-iterations` flag behavior
+- **`test-verbose.bats`** — `--verbose` flag and debug output
+- **`test-invalid-git.bats`** — Validation failure when not in a git repo
+- **`test-malformed-artifacts.bats`** — Validation failure for missing OpenSpec artifacts
+- **`test-missing-opencode.bats`** — Validation failure when opencode is not found
+- **`test-missing-ralph.bats`** — Dependency validation behavior
+- **`test-interrupted-execution.bats`** — SIGINT/SIGTERM cleanup and restart behavior
+- **`test-symlink-macos.bats`** — `.ralph/ralph-tasks.md` symlink on macOS
+- **`test-symlink-linux.bats`** — `.ralph/ralph-tasks.md` symlink on Linux
+- **`test-path-resolution.bats`** — `get_realpath()` with relative paths, symlinks, and `..`
+- **`test-file-stat-operations.bats`** — `get_file_mtime()` on macOS and Linux
+- **`test-md5-hashing.bats`** — `get_file_md5()` on macOS and Linux
 
 ## Cross-Platform Testing
 
-The test suite is designed to run on both Linux and macOS. Some tests are platform-specific and will be skipped on other platforms.
+The test suite runs on both Linux and macOS. Platform-specific tests use `detect_os`
+to skip automatically on non-matching platforms.
 
 ### Platform-Specific Tests
 
 - **Symlink tests** (`test-symlink-linux.bats`, `test-symlink-macos.bats`)
-  - Test symlink creation and behavior on each platform
+  - Test symlink creation using platform-specific `ln` behavior
   - Automatically skipped on non-matching platforms
 
 - **File stat tests** (`test-file-stat-operations.bats`)
-  - Test `stat` command variations between Linux (GNU) and macOS (BSD)
-  - Tests are platform-specific
+  - Tests `stat -c %Y` (Linux GNU) and `stat -f %m` (macOS BSD)
+  - Each test is skipped on the non-target platform
 
 - **MD5 hashing tests** (`test-md5-hashing.bats`)
-  - Test `md5sum` (Linux) vs `md5 -q` (macOS)
-  - Tests are platform-specific
+  - Tests `md5sum` (Linux) and `md5 -q` (macOS)
+  - Each test is skipped on the non-target platform
 
 - **Path resolution tests** (`test-path-resolution.bats`)
-  - Test `realpath` and fallback mechanisms
-  - Tests are platform-specific
+  - Tests `realpath` behavior including symlink resolution
+  - Uses absolute symlink targets to ensure cross-platform correctness
+
+## How Integration Tests Mock the Loop Engine
+
+Integration tests set `MINI_RALPH_CLI_OVERRIDE` to point to a mock
+`mini-ralph-cli.js` script that exits immediately. This prevents tests from
+invoking the real mini Ralph engine or a live `opencode` session while still
+exercising all of `ralph-run.sh`'s validation, PRD generation, symlink
+creation, and argument handling code paths.
+
+```bash
+# From test setup:
+export MINI_RALPH_CLI_OVERRIDE="$MOCK_BIN_DIR/mini-ralph-cli.js"
+
+# Teardown:
+unset MINI_RALPH_CLI_OVERRIDE
+```
+
+Tests that need to exercise interruption behavior use a mock that sleeps
+indefinitely until a signal is received.
 
 ## Test Fixtures
 
-Test fixtures provide reusable test data for integration tests:
+Test fixtures provide reusable OpenSpec change structures for integration tests:
 
-### Sample OpenSpec Changes
-
-- **simple-feature**: Minimal valid change (proposal, design, tasks, 1 spec)
-- **complex-feature**: Multi-spec change (proposal, design, tasks, 3 specs)
-- **incomplete-change**: Missing artifacts (for error testing)
-
-### Test Git Repositories
-
-- **git-repo**: Initialized git repository with .git directory
-- **invalid-git**: Non-git directory (for validation testing)
+- **`simple-feature`**: Minimal valid change — proposal, design, tasks, 1 spec
+- **`complex-feature`**: Multi-spec change — proposal, design, tasks, 3 specs
+- **`incomplete-change`**: Missing artifacts (for error path testing)
 
 ### Adding New Fixtures
 
 To add a new test fixture:
 
 1. Create a directory in `tests/fixtures/`
-2. Add the necessary OpenSpec artifacts (proposal.md, design.md, tasks.md, specs/)
+2. Add the required OpenSpec artifacts: `proposal.md`, `design.md`, `tasks.md`, `specs/`
 3. Reference the fixture in your integration tests
 
 Example:
@@ -288,29 +328,29 @@ describe('Feature being tested', () => {
 
 ## Coverage Requirements
 
-Critical functions in `scripts/ralph-run.sh` must have **>80% test coverage**:
+Critical functions in `scripts/ralph-run.sh` and `lib/mini-ralph/` must maintain
+**>80% test coverage**:
 
-- detect_os()
-- get_file_mtime()
-- get_file_md5()
-- get_realpath()
-- parse_tasks()
-- get_current_task_context()
-- validate_git_repository()
-- validate_dependencies()
-- validate_openspec_artifacts()
-- generate_prd()
-- sync_tasks_to_ralph()
-- restore_ralph_state_from_tasks()
-- cleanup()
-- handle_error()
+**Bash functions** (`scripts/ralph-run.sh`):
+- `detect_os()`, `get_file_mtime()`, `get_file_md5()`, `get_realpath()`
+- `parse_tasks()`, `get_current_task_context()`
+- `validate_git_repository()`, `validate_dependencies()`, `validate_openspec_artifacts()`
+- `generate_prd()`, `sync_tasks_to_ralph()`, `restore_ralph_state_from_tasks()`
+- `cleanup()`, `handle_error()`
+
+**JavaScript modules** (`lib/mini-ralph/`):
+- `runner.js` — Loop execution and iteration control
+- `state.js` — State and history persistence
+- `status.js` — Status dashboard rendering
+- `context.js` — Context injection management
+- `prompt.js` — Prompt template loading and rendering
+- `tasks.js` — Task file synchronization
 
 To check coverage:
 ```bash
 npm run test:coverage
+open coverage/index.html
 ```
-
-Then open `coverage/index.html` in your browser to view the detailed report.
 
 ## CI/CD
 
@@ -322,7 +362,7 @@ Tests are automatically run on GitHub Actions for:
 The CI pipeline runs on:
 - Ubuntu Linux (latest)
 - macOS (latest)
-- Node.js versions: 24
+- Node.js version: 24
 
 View test status:
 - Check the GitHub Actions tab in the repository
@@ -341,6 +381,9 @@ sudo apt-get install bats-core
 brew install bats-core
 ```
 
+Note: `bats` is also bundled as a dev dependency — you can use `npx bats` as an
+alternative if the system-installed version is not available.
+
 ### Tests Failing with "command not found: shellcheck"
 
 Shellcheck is not installed. Install it:
@@ -354,19 +397,16 @@ brew install shellcheck
 
 ### Integration Tests Failing
 
-Integration tests may fail if:
-1. openspec, ralph, or opencode CLIs are not installed globally
+Integration tests are self-contained and use mocks for the loop engine. If they fail:
+
+1. Check that `MINI_RALPH_CLI_OVERRIDE` is not set in your environment before running tests
+2. Verify `jq` is installed:
    ```bash
-   npm install -g openspec ralph opencode
+   jq --version
    ```
-2. Git is not initialized in the test directory (handled by test fixtures)
-3. Required dependencies (jq) are missing
+3. Verify git is available:
    ```bash
-   # Ubuntu/Debian
-   sudo apt-get install jq
-   
-   # macOS
-   brew install jq
+   git --version
    ```
 
 ### Coverage Below Threshold
@@ -379,10 +419,11 @@ If coverage is below 80% for critical functions:
 
 ### Platform-Specific Test Failures
 
-Some tests are platform-specific and will be skipped on non-matching platforms. This is expected behavior.
+Some tests are platform-specific and will be skipped on non-matching platforms.
+This is expected behavior.
 
 If a platform-specific test is failing on the correct platform:
-1. Ensure you're running on the expected platform: `uname -s`
+1. Confirm the OS: `uname -s`
 2. Check for platform-specific command differences (GNU vs BSD tools)
 3. Verify the test logic is correct for that platform
 
@@ -392,9 +433,11 @@ If a platform-specific test is failing on the correct platform:
 2. **Write tests first**: Follow test-driven development when possible
 3. **Keep tests isolated**: Each test should be independent
 4. **Use descriptive names**: Test names should clearly describe what they test
-5. **Mock external dependencies**: Unit tests should not call external CLIs
+5. **Mock external dependencies**: Unit and integration tests must not call live CLIs
 6. **Use fixtures**: Reuse test fixtures instead of creating test data inline
 7. **Clean up after tests**: Always use teardown functions to clean up test directories
+8. **Unset MINI_RALPH_CLI_OVERRIDE in teardown**: Every integration test that sets
+   this override must unset it in its `teardown()` function
 
 ## Contributing
 

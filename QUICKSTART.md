@@ -24,15 +24,13 @@ brew install jq
 git init
 ```
 
+> **Note:** No external `ralph` CLI needed — `spec-and-loop` includes its own internal
+> mini Ralph loop engine. Just install `opencode` and you're ready to go.
+
 ## Installation
 
 ```bash
 npm install -g spec-and-loop
-```
-
-**Prerequisites:** Install openspec and opencode:
-```bash
-npm install -g @fission-ai/openspec@latest opencode-ai
 ```
 
 ## Quick Demo (5 Minutes)
@@ -58,8 +56,8 @@ ralph-run --change add-hello-world
 
 **That's it!** The script will:
 - Read your OpenSpec artifacts (proposal, specs, design, tasks)
-- Execute each task with full context using opencode
-- Create a git commit after each task
+- Execute each task with full context using the internal mini Ralph engine
+- Create a git commit after each task (unless `--no-commit` is passed)
 - Track progress in tasks.md
 
 ## What Just Happened?
@@ -70,7 +68,7 @@ ralph-run --change add-hello-world
    - `design.md`: Technical decisions
    - `tasks.md`: Implementation tasks as checkboxes
 
-2. **Executed tasks** with opencode
+2. **Executed tasks** with opencode via mini Ralph
    - Each task got full context (proposal + specs + design + git history)
    - Git commits created after each task
    - Task checkboxes marked as complete
@@ -90,7 +88,10 @@ git log --oneline
 ls -la openspec/changes/add-hello-world/
 
 # View the generated PRD (internal use)
-cat openspec/changes/add-hello-world/.ralph/PRD.md
+cat .ralph/PRD.md
+
+# Check loop status
+ralph-run --status
 ```
 
 ## Common Commands
@@ -109,10 +110,16 @@ openspec archive <name>          # Archive completed change
 ### Ralph Loop Commands
 
 ```bash
-ralph-run                      # Auto-detect most recent change and run
-ralph-run --change <name>      # Run for specific change
-ralph-run --verbose            # Run with debug output
-ralph-run --help                # Show help message
+ralph-run                                    # Auto-detect most recent change and run
+ralph-run --change <name>                    # Run for specific change
+ralph-run --verbose                          # Run with debug output
+ralph-run --no-commit                        # Run without auto-committing
+ralph-run --help                             # Show help message
+
+# Observability and control
+ralph-run --status                           # Show loop status dashboard
+ralph-run --add-context "guidance text"      # Inject context into next iteration
+ralph-run --clear-context                    # Remove pending context
 ```
 
 ## Real-World Example
@@ -141,12 +148,16 @@ ralph-run --change user-authentication
 # 6. Watch the magic happen!
 # [INFO] Found 15 tasks to execute
 # [INFO] Executing task 1/15: Create User model
-# ✓ Complete
 # [INFO] Executing task 2/15: Implement password hashing
-# ✓ Complete
 # ...
 
-# 7. Verify the implementation
+# 7. Add context mid-run if needed (from another terminal)
+ralph-run --add-context "Prefer bcrypt over argon2 for password hashing"
+
+# 8. Check status
+ralph-run --status
+
+# 9. Verify the implementation
 git log --oneline      # 15 commits, one per task
 git diff HEAD~15        # See full implementation
 ```
@@ -190,12 +201,12 @@ source ~/.bashrc
 
 ### "No tasks to execute"
 
-**Problem:** All tasks already complete!
+**Problem:** All tasks already complete (or tasks.md has no unchecked items)
 
 **Solution:**
 ```bash
 # Check tasks.md
-grep "^\- \[x\]" openspec/changes/my-feature/tasks.md
+grep "^\- \[ \]" openspec/changes/my-feature/tasks.md
 
 # Or create a new change
 openspec new another-feature
@@ -210,8 +221,9 @@ openspec new another-feature
 | **Iterative Loop** | Each task builds on previous commits |
 | **Error Propagation** | Failures inform subsequent tasks |
 | **Granular History** | One git commit per task |
-| **Auto-Resume** | Interrupted? Run again—picks up where left off |
-| **Context Injection** | Inject custom instructions during execution |
+| **Auto-Resume** | Interrupted? Run again — picks up where left off |
+| **Context Injection** | `--add-context` injects guidance into the next iteration |
+| **No External Ralph** | Self-contained mini Ralph engine — no `ralph` CLI needed |
 
 ## Testing
 
@@ -253,21 +265,18 @@ Tests run automatically on every push and pull request via GitHub Actions on bot
 
 1. **Read the full README.md** for detailed documentation
 2. **Try a real feature** in your project
-3. **Explore the .ralph/** directory to see internal state
-4. **Check out .hidden/** directory for advanced guides
-5. **Review TESTING.md** for testing guidelines
+3. **Explore the `.ralph/`** directory to see internal loop state
+4. **Review TESTING.md** for testing guidelines
 
 ## Resources
 
 - [Full README](./README.md) - Comprehensive documentation
 - [OpenSpec](https://openspec.ai) - Specification workflow
 - [opencode](https://opencode.ai) - Agentic coding assistant
-- [open-ralph-wiggum](https://github.com/Th0rgal/open-ralph-wiggum) - Iterative execution loop
 
 ## Need Help?
 
 - Check the **Troubleshooting** section above
 - Review the **Full README.md** for detailed info
-- Check **.hidden/** directory for advanced guides
 
-Happy coding! 🚀
+Happy coding!

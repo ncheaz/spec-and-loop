@@ -27,4 +27,4 @@
 - [x] 5.1 Add JavaScript unit tests for internal loop execution, state/history persistence, status rendering, context controls, and task-progress reporting
 - [x] 5.2 Update Bats integration tests to exercise the internal runtime deterministically without invoking the real external Ralph package or live OpenCode
 - [x] 5.3 Validate and fix platform-specific behavior on the current OS only (macOS when running on Darwin, Linux when running on Linux), including temp paths, symlinks, hashing/stat helpers, and signal cleanup
-- [ ] 5.4 Update `README.md`, `QUICKSTART.md`, `TESTING.md`, and related markdown to document the supported mini Ralph subset, the `ralph-run`-first interface, and migration away from the external dependency
+- [x] 5.4 Update `README.md`, `QUICKSTART.md`, `TESTING.md`, and related markdown to document the supported mini Ralph subset, the `ralph-run`-first interface, and migration away from the external dependency

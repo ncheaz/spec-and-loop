@@ -6,11 +6,11 @@ OpenSpec + Ralph Loop integration for iterative development with opencode.
 ![Coverage](https://img.shields.io/badge/coverage-0%25-red)
 [![npm version](https://badge.fury.io/js/spec-and-loop.svg)](https://badge.fury.io/js/spec-and-loop)
 
-**[🚀 Quick Start Guide](./QUICKSTART.md)** - Get up and running in 5 minutes!
+**[Quick Start Guide](./QUICKSTART.md)** - Get up and running in 5 minutes!
 
 ## Why This Exists
 
-OpenSpec provides excellent structure for planning (proposal → specs → design → tasks) but leaves execution manual. Ralph Wiggum's iterative development loop (execute → commit → repeat) is powerful but requires PRD format instead of OpenSpec specs.
+OpenSpec provides excellent structure for planning (proposal → specs → design → tasks) but leaves execution manual. This package provides an iterative development loop — execute → commit → repeat — driven by an internal mini Ralph implementation that works with OpenCode and eliminates the need for any external Ralph runtime.
 
 ## Installation
 
@@ -21,26 +21,20 @@ npm install -g spec-and-loop
 **Prerequisites:** You need OpenSpec and the OpenCode AI agent installed:
 
 ```bash
-# Install OpenSpec and OpenCode (recommended)
 npm install -g @fission-ai/openspec@latest opencode-ai
 ```
 
-Alternative OpenCode install methods (if you prefer):
+Alternative OpenCode install methods:
 
 ```bash
-# npm (recommended)
-npm install -g opencode-ai
-
 # Install script (general use)
 curl -fsSL https://opencode.ai/install | bash
 
 # Homebrew (macOS / Linux)
 brew install anomalyco/tap/opencode
-
-# Windows: use WSL and install via one of the Linux methods above
 ```
 
-**[🚀 Get Started in 5 Minutes](./QUICKSTART.md)**
+**[Get Started in 5 Minutes](./QUICKSTART.md)**
 
 ```bash
 # 1. Initialize OpenSpec in your project
@@ -58,13 +52,11 @@ ralph-run --change add-user-auth
 
 For detailed step-by-step instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
-<!-- Duplicate Quick Start removed; see QUICKSTART.md for full instructions -->
-
 ## Testing
 
 Spec-and-loop includes a comprehensive test suite to ensure reliability and cross-platform compatibility.
 
-**[📋 Testing Guide](./TESTING.md)** - Detailed instructions for running tests
+**[Testing Guide](./TESTING.md)** - Detailed instructions for running tests
 
 ### Quick Test Commands
 
@@ -93,81 +85,6 @@ npm run lint
 
 All tests are run automatically via GitHub Actions on every push and pull request.
 
-### CI/CD Workflow
-
-The CI/CD pipeline is defined in `.github/workflows/test.yml` and performs the following steps:
-
-1. **Checkout Code**: Pulls the latest code from the repository
-2. **Setup Node.js**: Installs Node.js version 24 with npm caching
-3. **Install System Dependencies**:
-   - Linux: `apt-get install bats-core jq shellcheck`
-   - macOS: `brew install bats-core jq shellcheck`
-4. **Install npm Dependencies**: Runs `npm ci` to install dependencies
-5. **Install Global CLIs**: Installs openspec, ralph, and opencode globally
-6. **Run Shellcheck Linting**: Checks bash scripts for errors and best practices
-7. **Run Unit Tests**: Executes bash and JavaScript unit tests
-8. **Run Integration Tests**: Validates full workflow end-to-end
-9. **Upload Artifacts**: Uploads test logs and coverage reports
-
-### Triggering CI/CD
-
-The workflow runs automatically on:
-- Push to `main` or `develop` branches
-- Pull requests to `main` or `develop` branches
-- Manual trigger via GitHub Actions UI
-
-To manually trigger:
-1. Go to Actions tab in GitHub
-2. Select "Test Suite" workflow
-3. Click "Run workflow"
-4. Select branch and test suite (all/unit/integration)
-
-### Troubleshooting CI/CD
-
-**Tests Failing on One Platform**
-
-If tests pass on Linux but fail on macOS (or vice versa):
-- Check for platform-specific command differences (GNU vs BSD tools)
-- Review platform-specific tests in `test-symlink-linux.bats`, `test-symlink-macos.bats`, etc.
-- Verify stat, md5sum/md5, and other commands use correct flags
-
-**Coverage Below Threshold**
-
-If coverage drops below 80%:
-- Review coverage reports uploaded as artifacts
-- Identify which functions lost coverage
-- Add tests to cover the missing code paths
-
-**Linting Failures**
-
-If shellcheck finds issues:
-- Review the warnings in the CI logs
-- Fix the issues locally: `npm run lint`
-- Commit the fixes
-
-**Timeout Issues**
-
-If tests timeout:
-- Integration tests may take longer than expected
-- Check for infinite loops or hanging processes
-- Review test fixture setup/teardown
-
-**Artifact Access**
-
-Download test logs and coverage reports:
-1. Go to the failed workflow run
-2. Scroll to "Artifacts" section
-3. Download relevant artifacts (test logs, coverage reports)
-4. Analyze locally to identify issues
-
-### Test Coverage
-
-Critical functions have >80% test coverage. View detailed coverage reports:
-```bash
-npm run test:coverage
-open coverage/index.html
-```
-
 ## Prerequisites
 
 Before using spec-and-loop, ensure you have:
@@ -184,7 +101,6 @@ Before using spec-and-loop, ensure you have:
 
 3. **opencode** - Agentic coding assistant
    ```bash
-   # Install via npm
    npm install -g opencode-ai
    ```
 
@@ -217,8 +133,20 @@ For complete installation instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 ### Ralph Loop Commands
 
-- `ralph-run --change <name>` - Run the ralph loop for a specific change
-- `ralph-run` - Auto-detect most recent change and run
+```
+ralph-run [OPTIONS]
+
+OPTIONS:
+    --change <name>          OpenSpec change to execute (default: auto-detect)
+    --max-iterations <n>     Maximum iterations (default: 50)
+    --no-commit              Suppress automatic git commits
+    --verbose, -v            Enable verbose output
+
+OBSERVABILITY AND CONTROL:
+    --status                 Print loop status dashboard and exit
+    --add-context <text>     Add context to inject into the next iteration
+    --clear-context          Clear any pending context
+```
 
 ## How It Works
 
@@ -253,26 +181,29 @@ ralph-run --change my-feature
 
 **What happens:**
 
-1. **Validation**: Checks for required OpenSpec artifacts
-2. **PRD Generation**: Converts proposal + specs + design → PRD format (for internal use)
+1. **Validation**: Checks for required OpenSpec artifacts and git repository
+2. **PRD Generation**: Converts proposal + specs + design → PRD format for internal use
 3. **Task Execution**: For each incomplete task:
    - Generates context-rich prompt (task + specs + design + git history + errors)
-   - Runs `opencode` with the prompt
-   - Creates git commit with task description
+   - Runs `opencode` with the prompt via the internal mini Ralph engine
+   - Creates git commit with task description (unless `--no-commit`)
    - Marks task complete in tasks.md
-4. **Completion**: All tasks done, errors cleared
+4. **Completion**: All tasks done
 
 ### Step 3: Monitor Progress
 
 ```bash
+# Check loop status
+ralph-run --status
+
 # Check remaining tasks
 grep "^- \[ \]" openspec/changes/my-feature/tasks.md
 
 # View git commits
 git log --oneline
 
-# See errors (if any failed)
-cat openspec/changes/my-feature/.ralph/errors.md
+# Inject context into next iteration
+ralph-run --add-context "Prefer async/await over callbacks"
 ```
 
 ## Example Workflow
@@ -288,9 +219,7 @@ ralph-run --change user-auth
 # Output:
 # [INFO] Found 15 tasks to execute
 # [INFO] Executing task 1/15: Create User model with password field
-# ✓ Complete
 # [INFO] Executing task 2/15: Implement password hashing
-# ✓ Complete
 # ...
 
 # 3. Verify implementation
@@ -307,19 +236,26 @@ git diff HEAD~15   # See full implementation
 | **Iterative Loop** | Each task builds on previous commits |
 | **Error Propagation** | Failures inform subsequent tasks |
 | **Granular History** | One git commit per task |
-| **Auto-Resume** | Interrupted? Run again—picks up where left off |
-| **Context Injection** | Inject custom instructions during execution |
-
-For detailed feature descriptions, see below.
+| **Auto-Resume** | Interrupted? Run again — picks up where left off |
+| **Context Injection** | `--add-context` injects guidance into the next iteration |
+| **Loop Status** | `--status` shows active state, history, and struggle indicators |
+| **No External Ralph** | Self-contained mini Ralph engine — no external `ralph` CLI needed |
 
 ## Features
 
-### Ralph Wiggum + Agentic Coding
+### Mini Ralph Loop Engine
 
-- **Iterative refinement**: Each task builds on previous commits with full context
-- **Error propagation**: Failures inform subsequent iterations—don't repeat mistakes
-- **Granular history**: Commit per task makes debugging and rollback easy
-- **Context awareness**: AI sees proposal, specs, design, git history, and errors
+`spec-and-loop` includes a first-party mini Ralph implementation (`lib/mini-ralph/`) that
+provides the core iterative loop without any external Ralph dependency:
+
+- **Iterative execution**: Each task builds on previous commits with full context
+- **State and history**: Loop state, iteration history, and struggle indicators stored in `.ralph/`
+- **Prompt templates**: Context-aware prompts generated from OpenSpec artifacts
+- **Completion promises**: Loop exits when a completion signal is detected
+- **Task progression**: Synchronized with `tasks.md` checkboxes as the source of truth
+
+The supported subset intentionally excludes upstream features that are out of scope for
+this repository's OpenSpec-first workflow (multi-agent rotation, plugin toggles, etc.).
 
 ### OpenSpec + opencode Synergy
 
@@ -331,25 +267,43 @@ For detailed feature descriptions, see below.
 
 ### Script Features
 
-- **Auto-resume**: Interrupted? Run again—picks up where left off
-- **Context injection**: Inject custom instructions during execution
+- **Auto-resume**: Interrupted? Run again — picks up where left off
+- **Context injection**: `--add-context` / `--clear-context` via `.ralph/ralph-context.md`
 - **Error recovery**: Errors propagate to guide subsequent tasks
-- **Bidirectional tracking**: Tasks.md and .ralph/tracking.json stay synced
+- **Task synchronization**: `tasks.md` and `.ralph/ralph-tasks.md` stay in sync
 - **Idempotent**: Run multiple times safely
 
 ## Advanced Usage
 
 ### Context Injection
 
-Inject custom instructions during execution:
+Inject custom instructions into the next iteration:
 
 ```bash
-# Create injection file
-echo "Use Redis instead of Memcached" > openspec/changes/my-feature/.ralph/.context_injection
+ralph-run --add-context "Use Redis instead of Memcached"
 
-# Next opencode invocation includes:
-## Injected Context
-Use Redis instead of Memcached
+# Check current pending context
+ralph-run --status
+
+# Clear pending context
+ralph-run --clear-context
+```
+
+### Loop Status Dashboard
+
+```bash
+ralph-run --status
+```
+
+Shows: active loop state, current task, prompt summary, pending context, iteration history,
+and struggle indicators if the loop appears stuck.
+
+### No-Commit Mode
+
+Run without automatic git commits (useful for reviewing changes before committing):
+
+```bash
+ralph-run --change my-feature --no-commit
 ```
 
 ### Verbose Mode
@@ -366,18 +320,12 @@ ralph-run --verbose --change my-feature
 cat openspec/changes/my-feature/.ralph/PRD.md
 ```
 
-### Manually Inject Context
-
-```bash
-echo "Consider performance implications" > openspec/changes/my-feature/.ralph/.context_injection
-```
-
 ## Architecture
 
 This package integrates:
 - **OpenSpec**: Structured specification workflow
 - **opencode**: Agentic coding assistant for task execution
-- **Ralph Loop**: Iterative development with commits per task, error tracking
+- **Mini Ralph** (`lib/mini-ralph/`): Internal iterative loop engine
 
 ### Context Propagation
 
@@ -388,14 +336,14 @@ Each task execution includes:
 - **Design decisions**: Architectural constraints
 - **Git history**: Last 10 commits (what's already done)
 - **Previous errors**: What failed before (to avoid repeating)
+- **Pending context**: Any `--add-context` injection
 
 ### Task Tracking
 
-Bidirectional synchronization:
-- **tasks.md**: Human-readable checkboxes `[ ]` → `[x]`
-- **.ralph/tracking.json**: Machine-readable state
-- **Atomic updates**: Both succeed or both fail
-- **Stable IDs**: Line numbers persist across script runs
+Synchronized tracking:
+- **tasks.md**: Human-readable checkboxes `[ ]` → `[x]` (source of truth)
+- **.ralph/ralph-tasks.md**: Symlink to `tasks.md` for the loop engine
+- **Atomic updates**: Checkboxes updated after each completed task
 
 ### File Structure
 
@@ -403,18 +351,19 @@ Bidirectional synchronization:
 openspec/changes/<name>/
 ├── proposal.md          # Your "why"
 ├── design.md            # Your "how"
-├── tasks.md             # Your "what" (checkboxes)
+├── tasks.md             # Your "what" (checkboxes, source of truth)
 └── specs/               # Your requirements
     ├── auth/
     │   └── spec.md
     └── api/
         └── spec.md
-└── .ralph/             # Internal state (auto-generated)
-    ├── PRD.md                    # Generated from artifacts
-    ├── tracking.json             # Task completion state
-    ├── errors.md                 # Failure history
-    ├── context-injections.md      # Manual injections log
-    └── .context_injection        # Pending injection
+
+.ralph/                  # Internal loop state (auto-generated)
+├── PRD.md               # Generated from OpenSpec artifacts
+├── ralph-tasks.md       # Symlink → tasks.md
+├── ralph-context.md     # Pending context from --add-context
+├── ralph-history.json   # Iteration history and loop metadata
+└── prompt-template.md   # Rendered prompt template
 ```
 
 ## Troubleshooting
@@ -440,7 +389,6 @@ export PATH="$PATH:$(npm root -g)/.bin"
 ## Resources
 
 - [OpenSpec](https://openspec.ai) - Structured specification workflow
-- [open-ralph-wiggum](https://github.com/Th0rgal/open-ralph-wiggum) - Iterative execution loop
 - [opencode](https://opencode.ai) - Agentic coding assistant
 
 ## License
