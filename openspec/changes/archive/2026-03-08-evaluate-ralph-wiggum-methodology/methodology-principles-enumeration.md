@@ -269,9 +269,9 @@ repeated-error warnings to guide user intervention.
 ### P14 — OpenSpec artifact immutability during loop execution
 
 **Claim:** `proposal.md`, `design.md`, and `specs/*/spec.md` are read-only
-during loop execution by convention; only `tasks.md` is modified by the loop.
-Immutability is maintained through code path design rather than runtime
-enforcement or file-system permissions.
+during loop execution by convention, not enforcement; only `tasks.md` is
+modified by the loop. Immutability is maintained through code path design
+rather than runtime enforcement or file-system permissions.
 
 Implementation evidence: The loop engine does not have any write paths to
 artifact files. `scripts/ralph-run.sh:371-401` — `read_openspec_artifacts()`
