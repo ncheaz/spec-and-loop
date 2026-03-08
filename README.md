@@ -141,15 +141,16 @@ For complete installation instructions, see [QUICKSTART.md](./QUICKSTART.md).
 ralph-run [OPTIONS]
 
 OPTIONS:
-    --change <name>          OpenSpec change to execute (default: auto-detect)
-    --max-iterations <n>     Maximum iterations (default: 50)
-    --no-commit              Suppress automatic git commits
-    --verbose, -v            Enable verbose output
+    --change <name>          Specify the OpenSpec change to execute (default: auto-detect)
+    --max-iterations <n>     Maximum iterations for Ralph loop (default: 50)
+    --no-commit              Suppress automatic git commits during the loop
+    --verbose, -v            Enable verbose mode for debugging
+    --help, -h               Show this help message
 
 OBSERVABILITY AND CONTROL:
-    --status                 Print loop status dashboard and exit
-    --add-context <text>     Add context to inject into the next iteration
-    --clear-context          Clear any pending context
+    --status                 Print the current loop status dashboard and exit
+    --add-context <text>     Add pending context to inject into the next iteration and exit
+    --clear-context          Clear any pending context and exit
 ```
 
 ## How It Works
