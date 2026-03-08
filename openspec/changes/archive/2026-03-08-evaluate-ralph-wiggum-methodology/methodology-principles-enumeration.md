@@ -116,9 +116,10 @@ artifacts with no stale information.
 
 **Claim:** The loop iteration counter is persisted in `.ralph/ralph-loop.state.json`
 and resumes from `priorIteration + 1` on restart, ensuring iteration numbers
-reflect actual progress. The invariant `iteration = completed_count + 1` holds
-on a clean first run but is maintained by state-file continuity on subsequent
-restarts rather than live task-count derivation.
+reflect actual progress. On a clean first run, the iteration starts at 1 while the
+completed count starts at 0, so the relationship `iteration = completed_count + 1`
+emerges from initial conditions. On subsequent restarts, this relationship is
+maintained by state-file continuity rather than live task-count derivation.
 
 Restart behavior: The JS runner (`_resolveStartIteration` at `lib/mini-ralph/runner.js:387-403`) returns 1 if no
 existing state file exists, if the persisted iteration is invalid (not a number

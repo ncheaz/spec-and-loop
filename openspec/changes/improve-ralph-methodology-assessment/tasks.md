@@ -10,7 +10,7 @@
 - [x] 2.1 Update P6 description to clarify state-file-based iteration numbering persistence
 - [x] 2.2 Add implementation details about restart behavior and state file continuity
 - [x] 2.3 Reference the implementation paths: `lib/mini-ralph/runner.js:387-403` and `scripts/ralph-run.sh:846-882`
-- [ ] 2.4 Remove or qualify any claims about live task-count derivation
+- [x] 2.4 Remove or qualify any claims about live task-count derivation
 
 ## 3. Update P14 Description
 
