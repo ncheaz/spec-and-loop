@@ -115,7 +115,7 @@ openspec archive <change-name> # Archive a completed change
 
 # Information and status
 openspec list                  # List all active changes (use --specs to list specs)
-openspec status                # Display artifact completion status for a change
+openspec status --change <name> # Display artifact completion status for a change
 openspec validate <item-name> # Validate changes and specs
 
 # View and manage
@@ -310,7 +310,7 @@ openspec list
 openspec new change my-new-feature
 
 # Ensure tasks.md exists in your change directory
-ls -la openspec/changes/my-feature/tasks.md
+ls -la openspec/changes/my-new-feature/tasks.md
 ```
 
 ### "No tasks to execute"
@@ -320,7 +320,7 @@ ls -la openspec/changes/my-feature/tasks.md
 **Solution:**
 ```bash
 # Check tasks.md for incomplete tasks
-grep "^\- \[ \]" openspec/changes/my-feature/tasks.md
+grep "^\- \[ \]" openspec/changes/my-new-feature/tasks.md
 
 # If no incomplete tasks, create a new change
 openspec new change another-feature
@@ -337,16 +337,16 @@ openspec new change another-feature
 **Solution:**
 ```bash
 # Check what artifacts exist in your change directory
-ls -la openspec/changes/my-feature/
+ls -la openspec/changes/my-new-feature/
 
 # Create missing artifacts manually or use openspec new change
-openspec new change my-feature
+openspec new change my-new-feature
 
 # Or manually create the required files:
-# - openspec/changes/my-feature/proposal.md
-# - openspec/changes/my-feature/design.md
-# - openspec/changes/my-feature/specs/spec-name/spec.md
-# - openspec/changes/my-feature/tasks.md
+# - openspec/changes/my-new-feature/proposal.md
+# - openspec/changes/my-new-feature/design.md
+# - openspec/changes/my-new-feature/specs/spec-name/spec.md
+# - openspec/changes/my-new-feature/tasks.md
 ```
 
 ### "Required directory not found: specs/"
@@ -356,14 +356,14 @@ openspec new change my-feature
 **Solution:**
 ```bash
 # Create the specs directory
-mkdir -p openspec/changes/my-feature/specs
+mkdir -p openspec/changes/my-new-feature/specs
 
 # Create at least one spec file
-mkdir -p openspec/changes/my-feature/specs/main-feature
-echo "# Main Feature Spec" > openspec/changes/my-feature/specs/main-feature/spec.md
+mkdir -p openspec/changes/my-new-feature/specs/main-feature
+echo "# Main Feature Spec" > openspec/changes/my-new-feature/specs/main-feature/spec.md
 
 # Verify
-ls -la openspec/changes/my-feature/specs/
+ls -la openspec/changes/my-new-feature/specs/
 ```
 
 ### "opencode CLI not found"
