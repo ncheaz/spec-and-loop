@@ -189,12 +189,16 @@ ralph-run --change my-feature
 
 1. **Validation**: Checks for required OpenSpec artifacts and git repository
 2. **PRD Generation**: Converts proposal + specs + design → PRD format for internal use
-3. **Task Execution**: For each incomplete task:
+3. **Setup**: Creates .ralph directory, syncs tasks symlink, and sets up output capture
+4. **Task Execution**: For each incomplete task:
    - Generates context-rich prompt (full OpenSpec artifacts + a fresh task snapshot + recent loop signals)
    - Runs `opencode` with the prompt via the internal mini Ralph engine
+   - Captures output to temp directory for review and debugging
+   - Logs any errors to `.ralph/errors.md` with timestamps
    - Creates git commit with task description (unless `--no-commit`)
    - Marks task complete in tasks.md
-4. **Completion**: All tasks done
+5. **Cleanup**: Automatically removes old output directories (older than 7 days)
+6. **Completion**: All tasks done
 
 ### Step 3: Monitor Progress
 
@@ -252,6 +256,9 @@ git diff HEAD~15   # See full implementation
 | **Auto-Resume** | Interrupted? Run again — picks up where left off |
 | **Context Injection** | `--add-context` injects guidance into the next iteration |
 | **Loop Status** | `--status` shows active state, history, and struggle indicators |
+| **Error Tracking** | Automatic error logging and archiving for debugging |
+| **Output Capture** | Loop output captured to temp directories for review |
+| **Cross-Platform** | Full support for Linux and macOS with portable operations |
 | **No External Ralph** | Self-contained mini Ralph engine — no external `ralph` CLI needed |
 
 ## Features
@@ -283,7 +290,11 @@ this repository's OpenSpec-first workflow (multi-agent rotation, plugin toggles,
 - **Auto-resume**: Interrupted? Run again — picks up where left off
 - **Context injection**: `--add-context` / `--clear-context` via each change's `.ralph/ralph-context.md`
 - **Error recovery**: Recent loop signals help guide subsequent tasks
+- **Error tracking**: Automatic error logging to `.ralph/errors.md` with timestamps and archiving
 - **Task synchronization**: `tasks.md` and the per-change `.ralph/ralph-tasks.md` symlink stay in sync
+- **Output capture**: Loop output captured to temp directories for review and debugging
+- **Cross-platform**: Portable operations for Linux and macOS (stat, md5sum, realpath)
+- **Cleanup**: Automatic cleanup of old output directories (older than 7 days)
 - **Idempotent**: Run multiple times safely
 
 ## Advanced Usage
@@ -333,6 +344,29 @@ ralph-run --verbose --change my-feature
 cat openspec/changes/my-feature/.ralph/PRD.md
 ```
 
+### Review Loop Output
+
+```bash
+# Find the latest output directory path
+cat openspec/changes/my-feature/.ralph/.output_dir
+
+# View stdout and stderr logs
+cat openspec/changes/my-feature/.ralph/.output_dir/ralph-stdout.log
+cat openspec/changes/my-feature/.ralph/.output_dir/ralph-stderr.log
+```
+
+Output is captured to temporary directories for debugging. Old output directories are automatically cleaned up after 7 days.
+
+### View Error Logs
+
+```bash
+# View recent errors
+cat openspec/changes/my-feature/.ralph/errors.md
+
+# Archived errors are saved with timestamps
+ls openspec/changes/my-feature/.ralph/errors_*.md
+```
+
 ## Architecture
 
 This package integrates:
@@ -368,13 +402,28 @@ openspec/changes/<name>/
 │   └── api/
 │       └── spec.md
 └── .ralph/              # Internal loop state (auto-generated, per change)
-    ├── PRD.md
-    ├── ralph-tasks.md
-    ├── ralph-context.md
-    ├── ralph-history.json
-    ├── ralph-loop.state.json
-    └── prompt-template.md
+    ├── PRD.md                    # Generated product requirements document
+    ├── ralph-tasks.md           # Symlink to ../tasks.md (syncs task state)
+    ├── ralph-context.md         # Pending context for next iteration
+    ├── ralph-history.json       # Iteration history and state
+    ├── ralph-loop.state.json    # Current loop state and iteration count
+    ├── prompt-template.md       # Template used for generating prompts
+    ├── errors.md                # Error logs with timestamps
+    ├── errors_*.md              # Archived error logs
+    └── .output_dir             # Path to latest output capture directory
 ```
+
+### Cross-Platform Support
+
+`spec-and-loop` is designed to work seamlessly on both Linux and macOS. The script includes portable implementations for:
+
+- **File modification times**: Uses `stat -f %m` on macOS and `stat -c %Y` on Linux
+- **MD5 hashing**: Supports both `md5sum` (Linux) and `md5 -q` (macOS)
+- **Path resolution**: Falls back from `realpath` to `readlink -f` to manual path construction
+- **Temp directories**: Uses `TMPDIR` environment variable or `/tmp` as fallback
+- **Cleanup**: Portable `find` and `rm` operations for old output directories
+
+All features work identically on both platforms without requiring platform-specific configuration.
 
 ## Troubleshooting
 
