@@ -31,4 +31,4 @@
 
 - [x] 5.1 Read through updated P6 and P14 descriptions
 - [x] 5.2 Ensure descriptions are concise but contain sufficient implementation detail
-- [ ] 5.3 Confirm changes align with the design document decisions
+- [x] 5.3 Confirm changes align with the design document decisions
