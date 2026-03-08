@@ -3,7 +3,7 @@
 **Repository:** `spec-and-loop`
 **Change:** `evaluate-ralph-wiggum-methodology`
 **Assessment date:** 2026-03-08
-**Status:** In progress — verdicts assigned (task 2.3 complete); findings narrative pending (tasks 3.1–3.2)
+**Status:** In progress — confirmed-alignment section written (task 3.1 complete); mismatches narrative pending (task 3.2)
 
 ---
 
@@ -85,6 +85,203 @@ OpenSpec specs → docs (README/QUICKSTART/BOTW) → archived artifacts.
 implementation and test evidence.*
 
 <!-- BEGIN confirmed-alignments -->
+
+The following sixteen principles carry a `verified` verdict with **high**
+confidence.  Each is supported by Tier 1 (automated tests) and Tier 2
+(implementation code) evidence, and no contradicting repository evidence was
+found.
+
+#### P1 — Self-contained runtime (no external Ralph dependency)
+
+`scripts/ralph-run.sh:268-292` — `validate_dependencies()` requires only `node`,
+`opencode`, and `jq`.  `lib/mini-ralph/index.js` is a fully self-contained
+Node.js module; `lib/mini-ralph/invoker.js:39-43` invokes `opencode` (not an
+external `ralph` binary).  Three separate test assertions in
+`tests/unit/bash/test-validate-dependencies.bats` (lines 231, 240, 249)
+explicitly confirm that `@th0rgal/ralph-wiggum`, `bun`, and `RALPH_CMD` are
+absent from dependency output.  The integration test
+`tests/integration/test-simple-workflow.bats:67` confirms self-containment
+end-to-end.
+
+#### P2 — Iterative loop execution with configurable completion and iteration limits
+
+`lib/mini-ralph/runner.js:88-175` implements the core `while (iterationCount <
+maxIterations)` loop with completion-promise exit (`runner.js:164-168`) and
+max-iterations fallback (`runner.js:86`).  `scripts/ralph-run.sh:195-204`
+exposes `--max-iterations` with a default of 50.  Unit tests in
+`tests/unit/javascript/mini-ralph-runner.test.js` (lines 328–392) cover the
+completion-promise exit, the max-iterations exit, and minimum-iterations
+enforcement.  Integration tests in `tests/integration/test-max-iterations.bats`
+(lines 74, 107) confirm flag propagation and default value.
+
+#### P3 — tasks.md as the single source of truth for task state
+
+`lib/mini-ralph/tasks.js:72-98` reads `tasks.md` from disk on every
+`parseTasks()` call with no in-memory cache.  `lib/mini-ralph/runner.js:113-115`
+and `runner.js:132-134` take fresh before/after snapshots from disk around each
+invocation.  `scripts/ralph-run.sh:446-477` mirrors the same disk-read pattern
+in bash.  The `parseTasks()` unit test suite in
+`tests/unit/javascript/mini-ralph-tasks.test.js` (lines 100–182) and the bash
+tests in `tests/unit/bash/test-parse-tasks.bats` both confirm live-file
+derivation with no caching.
+
+#### P4 — Symlink architecture for task file shared access
+
+`lib/mini-ralph/tasks.js:39-55` — `syncLink()` creates an absolute-path symlink
+via `fs.symlinkSync(absTasksFile, linkPath)`.  `scripts/ralph-run.sh:679-733` —
+`sync_tasks_to_ralph()` uses `ln -sf` on both macOS and Linux.
+`tests/unit/javascript/mini-ralph-tasks.test.js` — `syncLink()` suite (lines
+50–99) confirms creation, replacement, and directory creation.
+`tests/unit/bash/test-symlink-architecture.bats:123` — "both systems see same
+file state simultaneously" confirms the shared-access invariant holds at
+runtime.  `tests/integration/test-symlink-macos.bats` provides platform-specific
+end-to-end coverage.
+
+#### P5 — Fresh context per iteration (PRD regeneration)
+
+`lib/mini-ralph/runner.js:95` calls `prompt.render(options, iterationCount)`
+inside the loop on every iteration.  `lib/mini-ralph/prompt.js:82-87` reads
+`tasksFile` content fresh on every call; `lib/mini-ralph/tasks.js:152-180` —
+`taskContext()` always reads live `tasks.md`.  The bash side regenerates the PRD
+in `scripts/ralph-run.sh:994-997` before the loop begins.
+`tests/unit/javascript/mini-ralph-prompt.test.js:149` — "injects fresh
+task_context when tasksFile is present" and
+`tests/unit/bash/test-prd-task-context-injection.bats` confirm that each
+iteration receives up-to-date task state with no stale context carry-over.
+
+#### P7 — Structured git commit format with task numbers
+
+`lib/mini-ralph/runner.js:302-315` — `_formatAutoCommitMessage()` produces the
+exact documented format: `Ralph iteration ${iteration}: ${summary}\n\nTasks
+completed:\n${taskLines}` with each task line formatted as `- [x]
+${task.fullDescription || task.description}`.
+`tests/unit/javascript/mini-ralph-runner.test.js` — `_formatAutoCommitMessage()`
+suite (lines 232–276) covers single-task, multi-task, and empty-task cases.
+`tests/unit/javascript/mini-ralph-runner-autocommit.test.js:65` confirms the
+format is used in live commit calls.
+`tests/unit/bash/test-create-prompt-template.bats:219` confirms the same format
+is embedded in the AI prompt template to guide agent-generated commits.
+
+#### P8 — Auto-resume on restart
+
+`lib/mini-ralph/runner.js:50-51` reads existing state on startup; `runner.js:387-403`
+— `_resolveStartIteration()` resumes at `priorIteration + 1` when the tasks
+file matches, or treats a differing tasks file as a fresh run.
+`scripts/ralph-run.sh:846-882` — `restore_ralph_state_from_tasks()` preserves
+the existing state-file iteration on restart.
+`tests/unit/javascript/mini-ralph-runner.test.js:573` — "sets resumedAt in
+state when resuming from prior iteration" and
+`tests/integration/test-interrupted-execution.bats:194` — "can be restarted
+after interruption" confirm correct end-to-end resume behavior.
+
+#### P9 — Loop state and history persistence in `.ralph/`
+
+`lib/mini-ralph/state.js:33-36` — `init()` writes `ralph-loop.state.json`;
+`state.js:61-64` — `update()` merges fields.  `lib/mini-ralph/history.js:56-61`
+— `append()` pushes each iteration entry; `history.js:43-49` records `duration`,
+`completionDetected`, `taskDetected`, `toolUsage`, `filesChanged`, and
+`exitCode`.  `tests/unit/javascript/mini-ralph-state.test.js` (lines 34–155) and
+`tests/unit/javascript/mini-ralph-history.test.js` (lines 69–175) provide
+comprehensive coverage for all documented fields across init, update, and append
+operations.
+
+#### P10 — Context injection (`--add-context` / `--clear-context`)
+
+`lib/mini-ralph/context.js` implements `add()` (appends to `ralph-context.md`),
+`clear()` (deletes the file), and `consume()` (reads then clears in one shot).
+`lib/mini-ralph/runner.js:99` calls `context.consume(ralphDir)` on every
+iteration.  `scripts/ralph-run.sh:1106-1122` routes `--add-context` and
+`--clear-context` correctly.  `tests/unit/javascript/mini-ralph-context.test.js:128`
+— "context is not re-injected after consumption" confirms the one-shot injection
+contract.  `tests/unit/javascript/mini-ralph-runner.test.js:488` — "consumes
+context after first iteration" confirms runner-level behavior.
+
+#### P11 — Status dashboard (`--status`)
+
+`lib/mini-ralph/status.js:23-115` — `render()` outputs loop state (active /
+inactive, iteration, started time), prompt summary, pending context, task
+progress (via `tasks.countTasks()` and `tasks.currentTask()`), recent history
+(last 5 entries), and struggle indicators.  `scripts/ralph-run.sh:1097-1104`
+routes `--status` to `run_observability_command("status")`.
+`tests/unit/javascript/mini-ralph-status.test.js` — `render()` suite (lines
+136–300) independently tests each output section: header, active/inactive state,
+iteration display, pending context, task progress, recent history, and struggle
+indicators.
+
+#### P12 — Struggle indicators (no-progress and repeated-error warnings)
+
+`lib/mini-ralph/status.js:185-208` — `_detectStruggles()` flags no-progress
+when `noProgressCount >= 2 && noProgressCount === recentHistory.length` and
+repeated errors when `errorCount >= 2`.  `status.js:102-112` surfaces warnings
+with a `--add-context` tip.  `tests/unit/javascript/mini-ralph-status.test.js`
+— `_detectStruggles()` suite (lines 88–134) covers both positive-detection cases
+(all-no-progress, multiple errors) and negative cases (single error, at least
+one iteration with changes), confirming threshold accuracy.
+
+#### P13 — Auto-commit with `--no-commit` opt-out
+
+`lib/mini-ralph/runner.js:150-161` gates auto-commit on
+`!options.noCommit && exitCode === 0 && filesChanged.length > 0 && (hasCompletion || hasTask)`.
+`runner.js:231-274` — `_autoCommit()` runs `git add -A` then `git commit`.
+`scripts/mini-ralph-cli.js:97-99` and `scripts/ralph-run.sh:203-206` thread
+`--no-commit` through both layers.
+`tests/unit/javascript/mini-ralph-runner-autocommit.test.js` covers the commit
+path (line 65), no-task skip (line 30), empty-staged-files skip (line 39), and
+commit-failure handling (line 93).
+`tests/unit/bash/test-execute-ralph-loop.bats:349,373` confirm `--no-commit` is
+passed when the flag is set and absent when it is not.
+
+#### P15 — OpenSpec-native loop preparation (PRD generation from artifacts)
+
+`scripts/ralph-run.sh:371-444` reads `proposal.md`, `design.md`, and all
+`specs/*/spec.md` files, assembles them into a structured PRD under a
+`# Product Requirements Document` header, and writes it to `.ralph/PRD.md`.
+`scripts/mini-ralph-cli.js:192-194` passes `--prompt-file PRD.md` to the
+mini-ralph runner on every invocation.
+`tests/unit/bash/test-generate-prd.bats` (lines 16–286) tests section presence,
+proposal/design/spec content, and multi-spec handling.
+`tests/integration/test-simple-workflow.bats:90` confirms PRD generation in a
+real end-to-end run.
+
+#### P16 — macOS and Linux cross-platform compatibility
+
+`scripts/ralph-run.sh:6-98` implements OS detection (`detect_os()` via
+`uname -s`), platform-specific `stat` calls (`get_file_mtime()`), `mktemp`
+fallbacks, and `realpath` / `readlink -f` fallbacks.
+`lib/mini-ralph/` uses only Node.js built-ins (`fs`, `path`, `crypto`) and is
+platform-agnostic by construction.
+`tests/unit/bash/test-detect-os.bats` and `tests/unit/bash/test-get-file-mtime.bats`
+cover both platform branches and unknown-OS handling.
+`tests/integration/test-symlink-macos.bats` and
+`tests/integration/test-symlink-linux.bats` provide platform-specific
+integration coverage.
+
+#### P17 — Prompt sources and templating
+
+`lib/mini-ralph/prompt.js:33-53` — `loadBase()` supports both inline
+`promptText` and file-based `promptFile` loading.  `prompt.js:64-101` —
+`render()` applies `promptTemplate` substitution for `{{iteration}}`,
+`{{max_iterations}}`, `{{tasks}}`, `{{task_context}}`, `{{task_promise}}`,
+`{{completion_promise}}`, and `{{context}}`.
+`scripts/ralph-run.sh:735-843` — `create_prompt_template()` writes
+`prompt-template.md` embedding all template variables.
+`tests/unit/javascript/mini-ralph-prompt.test.js` — `_renderTemplate()` suite
+(lines 30–69) and `render()` suite (lines 104–217) cover all variables.
+`tests/unit/bash/test-create-prompt-template.bats` confirms each placeholder is
+present in the generated template.
+
+#### P18 — `ralph-run` as the sole documented end-user interface
+
+`scripts/mini-ralph-cli.js:5-10` contains an explicit developer comment
+identifying the file as internal; `mini-ralph-cli.js:130-153` echoes this in
+help output with "This is an internal script. Use ralph-run as the documented
+interface."  `scripts/ralph-run.sh:153-187` — `usage()` is the only
+public-facing help surface.
+`tests/unit/javascript/ralph-run-wrapper.test.js` (lines 46–73) confirms the
+wrapper exists, is executable, and delegates correctly to the bash script.
+`tests/unit/bash/test-validate-dependencies.bats:249` — "does not reference
+RALPH_CMD in output" confirms no external Ralph interface is surfaced.
+
 <!-- END confirmed-alignments -->
 
 ### 4.2 Mismatches and Stale Claims
