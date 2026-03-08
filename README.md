@@ -45,10 +45,13 @@ brew install anomalyco/tap/opencode
 openspec init
 
 # 2. Create a new change
-openspec new add-user-auth
+openspec new change add-user-auth
 
-# 3. Fast-forward through artifact creation
-openspec ff add-user-auth
+# 3. Review and complete the OpenSpec artifacts
+#    (openspec/changes/add-user-auth/proposal.md)
+#    (openspec/changes/add-user-auth/design.md)
+#    (openspec/changes/add-user-auth/specs/*/spec.md)
+#    (openspec/changes/add-user-auth/tasks.md)
 
 # 4. Run the ralph loop (executes tasks with opencode)
 ralph-run --change add-user-auth
