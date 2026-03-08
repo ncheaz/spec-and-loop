@@ -152,7 +152,7 @@ git init
 openspec init
 
 # 2. Create a feature
-openspec new user-authentication
+openspec new change user-authentication
 
 # 3. Go through the workflow
 # - Create proposal: Why add auth?
