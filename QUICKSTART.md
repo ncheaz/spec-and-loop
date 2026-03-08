@@ -35,7 +35,7 @@ git init
 ## Installation
 
 ```bash
-npm install -g spec-and-loop
+npm install -g spec-and-loop@2.0.0
 ```
 
 ## Quick Demo (5 Minutes)
