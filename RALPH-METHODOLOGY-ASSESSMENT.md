@@ -3,7 +3,7 @@
 **Repository:** `spec-and-loop`
 **Change:** `evaluate-ralph-wiggum-methodology`
 **Assessment date:** 2026-03-08
-**Status:** In progress — confirmed-alignment section written (task 3.1 complete); mismatches section written (task 3.2 complete); final review pending (task 3.3)
+**Status:** Complete — all findings written and reviewed; path accuracy, verdict language, and follow-up recommendations verified (tasks 3.1–3.3 complete)
 
 ---
 
