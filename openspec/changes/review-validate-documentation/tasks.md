@@ -20,7 +20,7 @@
 
 - [x] 3.1 Update README.md installation section with pinned version numbers for dependencies
 - [x] 3.2 Rewrite README.md Quick Start workflow to use correct OpenSpec commands
-- [ ] 3.3 Update all OpenSpec command references throughout README.md to match version 1.2.0 syntax
+- [x] 3.3 Update all OpenSpec command references throughout README.md to match version 1.2.0 syntax
 - [ ] 3.4 Verify and document all ralph-run.sh flags in the Commands section
 - [ ] 3.5 Update How It Works section to reflect actual workflow without fast-forward commands
 - [ ] 3.6 Update Example Workflow to use correct command sequence
