@@ -1,5 +1,7 @@
 # Quick Start Guide
 
+> **Version Compatibility:** OpenSpec 1.2.0 | spec-and-loop 2.0.0
+
 Get up and running with **spec-and-loop** in 5 minutes!
 
 ## Prerequisites
