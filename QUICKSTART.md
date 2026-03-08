@@ -182,52 +182,235 @@ git diff HEAD~15        # See full implementation
 
 ## Troubleshooting
 
-### "openspec CLI not found" or "opencode CLI not found"
+### "openspec: command not found"
 
+**Problem:** OpenSpec CLI is not installed or not in PATH
+
+**Solution:**
 ```bash
-npm install -g @fission-ai/openspec@latest opencode-ai
+# Install with pinned version (recommended)
+npm install -g @fission-ai/openspec@1.2.0
+
+# Verify installation
+openspec --version
+
+# If command still not found, add npm global bin to PATH
+export PATH="$PATH:$(npm root -g)/.bin"
+```
+
+### "opencode: command not found"
+
+**Problem:** opencode CLI is not installed or not in PATH
+
+**Solution:**
+```bash
+# Install opencode
+npm install -g opencode-ai
+
+# Verify installation
+opencode --version
+
+# If command still not found, add npm global bin to PATH
+export PATH="$PATH:$(npm root -g)/.bin"
 ```
 
 ### "jq CLI not found"
 
+**Problem:** jq (JSON processor) is not installed
+
+**Solution:**
 ```bash
 # Ubuntu/Debian
 sudo apt install jq
 
 # macOS
 brew install jq
+
+# Verify installation
+jq --version
 ```
 
 ### "Not a git repository"
 
+**Problem:** You're not in a git repository
+
+**Solution:**
 ```bash
+# Initialize git in current directory
 git init
+
+# Verify
+git status
 ```
 
 ### "command not found: ralph-run"
 
-**Problem:** npm bin directory not in PATH
+**Problem:** spec-and-loop npm bin directory not in PATH
 
 **Solution:**
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
-export PATH="$PATH:$(npm root -g)/.bin"
+# Add npm global bin directory to PATH
+echo 'export PATH="$PATH:$(npm root -g)/.bin"' >> ~/.bashrc
+# Or for zsh:
+echo 'export PATH="$PATH:$(npm root -g)/.bin"' >> ~/.zshrc
 
 # Reload shell
 source ~/.bashrc
+# or
+source ~/.zshrc
+
+# Verify
+ralph-run --help
+```
+
+### "Internal mini Ralph runtime not found"
+
+**Problem:** spec-and-loop installation is incomplete or node is missing
+
+**Solution:**
+```bash
+# Ensure spec-and-loop is properly installed
+npm uninstall -g spec-and-loop
+npm install -g spec-and-loop
+
+# Ensure Node.js is installed (version 24.0.0 or higher)
+node --version
+
+# If node is not installed, install from https://nodejs.org
+```
+
+### "OpenSpec changes directory not found"
+
+**Problem:** OpenSpec has not been initialized or no changes exist
+
+**Solution:**
+```bash
+# Initialize OpenSpec
+openspec init
+
+# Create a new change
+openspec new change my-feature
+
+# Verify directory exists
+ls -la openspec/changes/
+```
+
+### "No changes found with tasks.md"
+
+**Problem:** No OpenSpec changes with tasks files exist
+
+**Solution:**
+```bash
+# List available changes
+openspec list
+
+# Create a new change if needed
+openspec new change my-new-feature
+
+# Ensure tasks.md exists in your change directory
+ls -la openspec/changes/my-feature/tasks.md
 ```
 
 ### "No tasks to execute"
 
-**Problem:** All tasks already complete (or tasks.md has no unchecked items)
+**Problem:** All tasks in tasks.md are already marked complete
 
 **Solution:**
 ```bash
-# Check tasks.md
+# Check tasks.md for incomplete tasks
 grep "^\- \[ \]" openspec/changes/my-feature/tasks.md
 
-# Or create a new change
-openspec new another-feature
+# If no incomplete tasks, create a new change
+openspec new change another-feature
+
+# Or uncheck a task by editing tasks.md manually:
+# Change: - [x] This task is done
+# To:     - [ ] This task needs work
+```
+
+### "Required artifact not found"
+
+**Problem:** OpenSpec artifacts (proposal.md, design.md, tasks.md) are missing
+
+**Solution:**
+```bash
+# Check what artifacts exist in your change directory
+ls -la openspec/changes/my-feature/
+
+# Create missing artifacts manually or use openspec new change
+openspec new change my-feature
+
+# Or manually create the required files:
+# - openspec/changes/my-feature/proposal.md
+# - openspec/changes/my-feature/design.md
+# - openspec/changes/my-feature/specs/spec-name/spec.md
+# - openspec/changes/my-feature/tasks.md
+```
+
+### "Required directory not found: specs/"
+
+**Problem:** The specs directory is missing from your change
+
+**Solution:**
+```bash
+# Create the specs directory
+mkdir -p openspec/changes/my-feature/specs
+
+# Create at least one spec file
+mkdir -p openspec/changes/my-feature/specs/main-feature
+echo "# Main Feature Spec" > openspec/changes/my-feature/specs/main-feature/spec.md
+
+# Verify
+ls -la openspec/changes/my-feature/specs/
+```
+
+### "opencode CLI not found"
+
+**Problem:** opencode is not installed globally
+
+**Solution:**
+```bash
+# Install opencode
+npm install -g opencode-ai
+
+# Verify installation
+opencode --version
+
+# Add to PATH if needed
+export PATH="$PATH:$(npm root -g)/.bin"
+```
+
+### "Node.js version too old"
+
+**Problem:** Node.js version is below the required version (24.0.0+)
+
+**Solution:**
+```bash
+# Check current Node.js version
+node --version
+
+# If version is below 24.0.0, upgrade Node.js:
+# Using nvm (recommended):
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+nvm install 24
+nvm use 24
+
+# Or install from https://nodejs.org
+```
+
+### "npm: command not found"
+
+**Problem:** npm is not installed or not in PATH
+
+**Solution:**
+```bash
+# npm comes with Node.js. Install Node.js from https://nodejs.org
+
+# After installing Node.js, verify:
+npm --version
+node --version
+
+# If still not found, restart your terminal or add to PATH
 ```
 
 ## Features at a Glance

@@ -12,7 +12,7 @@
 - [x] 2.3 Remove all references to non-existent commands (e.g., `openspec ff`)
 - [x] 2.4 Update QUICKSTART.md Common Commands section to reflect actual available commands
 - [x] 2.5 Rewrite Real-World Example to use correct workflow steps
-- [ ] 2.6 Update QUICKSTART.md troubleshooting section with common errors and their solutions
+- [x] 2.6 Update QUICKSTART.md troubleshooting section with common errors and their solutions
 - [ ] 2.7 Add version compatibility notes indicating this guide applies to OpenSpec 1.2.0 and spec-and-loop 2.0.0
 - [ ] 2.8 Ensure all command blocks in QUICKSTART.md are immediately executable without modification
 
