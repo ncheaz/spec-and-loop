@@ -14,16 +14,18 @@ OpenSpec provides excellent structure for planning (proposal → specs → desig
 
 The runtime prompt is self-contained: it does not depend on Cursor-only slash commands or editor-local skills.
 
+**Version Requirements:** This documentation applies to OpenSpec 1.2.0 and spec-and-loop 2.0.0.
+
 ## Installation
 
 ```bash
-npm install -g spec-and-loop
+npm install -g spec-and-loop@2.0.0
 ```
 
 **Prerequisites:** You need OpenSpec and the OpenCode AI agent installed:
 
 ```bash
-npm install -g @fission-ai/openspec@latest opencode-ai
+npm install -g @fission-ai/openspec@1.2.0 opencode-ai
 ```
 
 Alternative OpenCode install methods:
@@ -91,15 +93,15 @@ All tests are run automatically via GitHub Actions on every push and pull reques
 
 Before using spec-and-loop, ensure you have:
 
-1. **Node.js** - For package installation
-   ```bash
-   node --version  # Should be >=24
-   ```
+ 1. **Node.js** - For package installation (requires >=24.0.0)
+    ```bash
+    node --version  # Should be >=24.0.0
+    ```
 
-2. **openspec** - OpenSpec CLI for specification workflow
-   ```bash
-   npm install -g @fission-ai/openspec@latest
-   ```
+ 2. **openspec** - OpenSpec CLI for specification workflow (requires 1.2.0)
+    ```bash
+    npm install -g @fission-ai/openspec@1.2.0
+    ```
 
 3. **opencode** - Agentic coding assistant
    ```bash
