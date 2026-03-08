@@ -47,7 +47,8 @@ teardown() {
   [ "$status" -eq 0 ]
 
   local symlink_path="$ralph_dir/ralph-tasks.md"
-  local expected_target="$change_dir/tasks.md"
+  local expected_target
+  expected_target=$(get_realpath "$change_dir/tasks.md")
   local actual_target
   actual_target=$(get_realpath "$symlink_path")
 
@@ -116,7 +117,7 @@ teardown() {
   local test_string="task marked complete: [x] task one"
   echo "$test_string" >> "$ralph_dir/ralph-tasks.md"
 
-  grep -q "$test_string" "$change_dir/tasks.md"
+  grep -qF "$test_string" "$change_dir/tasks.md"
 }
 
 @test "symlink architecture: both systems see same file state simultaneously" {
@@ -145,7 +146,7 @@ teardown() {
   content_from_symlink=$(cat "$ralph_dir/ralph-tasks.md")
 
   [ "$content_from_target" = "$content_from_symlink" ]
-  grep -q "updated at $timestamp" "$content_from_target"
+  echo "$content_from_target" | grep -q "updated at $timestamp"
 }
 
 @test "symlink architecture: symlink inode matches target inode" {
@@ -170,10 +171,12 @@ teardown() {
 
   if [[ "$os" == "Linux" ]]; then
     target_inode=$(stat -c %i "$change_dir/tasks.md")
+    # Follow the symlink to get the target inode
     symlink_inode=$(stat -c %i "$ralph_dir/ralph-tasks.md")
   elif [[ "$os" == "macOS" ]]; then
     target_inode=$(stat -f %i "$change_dir/tasks.md")
-    symlink_inode=$(stat -f %i "$ralph_dir/ralph-tasks.md")
+    # On macOS, stat -f %i returns the symlink's own inode; use -L to follow the symlink
+    symlink_inode=$(stat -Lf %i "$ralph_dir/ralph-tasks.md")
   fi
 
   [ "$target_inode" = "$symlink_inode" ]
@@ -218,7 +221,7 @@ teardown() {
 
   local content
   content=$(cat "$ralph_dir/ralph-tasks.md")
-  grep -q "Test Tasks" "$content"
+  echo "$content" | grep -q "Test Tasks"
 }
 
 @test "symlink architecture: symlink works with absolute path resolution" {
@@ -239,7 +242,7 @@ teardown() {
 
   local content
   content=$(cat "$ralph_dir/ralph-tasks.md")
-  grep -q "Test Tasks" "$content"
+  echo "$content" | grep -q "Test Tasks"
 }
 
 @test "symlink architecture: symlink persists across directory changes" {
@@ -262,7 +265,7 @@ teardown() {
   content=$(cat "$ralph_dir/ralph-tasks.md")
   cd "$test_dir"
 
-  grep -q "Test Tasks" "$content"
+  echo "$content" | grep -q "Test Tasks"
 }
 
 @test "symlink architecture: file MD5 matches through symlink" {

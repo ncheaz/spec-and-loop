@@ -1,13 +1,6 @@
 #!/bin/bash
 
-set -e
-
 VERSION="1.0.0"
-
-# Add Bun to PATH if installed
-if [[ -d "$HOME/.bun/bin" ]]; then
-    export PATH="$HOME/.bun/bin:$PATH"
-fi
 
 # Detect OS for cross-platform compatibility
 detect_os() {
@@ -63,9 +56,8 @@ get_realpath() {
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_NODE_BIN="$SCRIPT_DIR/../node_modules/.bin"
-BUNDLED_RALPH_JS="$SCRIPT_DIR/../node_modules/@th0rgal/ralph-wiggum/bin/ralph.js"
-MINI_RALPH_CLI="$SCRIPT_DIR/mini-ralph-cli.js"
-RALPH_CMD=()
+# Allow tests to inject a mock by setting MINI_RALPH_CLI_OVERRIDE in the environment
+MINI_RALPH_CLI="${MINI_RALPH_CLI_OVERRIDE:-$SCRIPT_DIR/mini-ralph-cli.js}"
 
 if [[ -d "$LOCAL_NODE_BIN" ]]; then
     case ":$PATH:" in
@@ -106,17 +98,9 @@ make_temp_dir() {
 }
 
 resolve_ralph_command() {
-    if command -v ralph >/dev/null 2>&1; then
-        RALPH_CMD=("ralph")
+    if [[ -f "$MINI_RALPH_CLI" ]] && command -v node >/dev/null 2>&1; then
         return 0
     fi
-
-    if [[ -f "$BUNDLED_RALPH_JS" ]] && command -v node >/dev/null 2>&1; then
-        RALPH_CMD=("node" "$BUNDLED_RALPH_JS")
-        return 0
-    fi
-
-    RALPH_CMD=()
     return 1
 }
 
@@ -140,12 +124,10 @@ cleanup() {
     local exit_code=$1
     log_info "Cleaning up..."
     
-    # NOTE: We do NOT kill ralph/bun processes here because:
-    # 1. Ralph runs synchronously in the foreground
+    # NOTE: We do NOT kill node processes here because:
+    # 1. The mini Ralph runtime runs synchronously in the foreground
     # 2. Ctrl+C (SIGINT) naturally propagates to child processes
-    # 3. Using pkill -f "bun" is DANGEROUS - it matches gnome-session-binary!
-    # 4. Using pkill -f "ralph" could kill other user processes
-    # The shell's process group handling ensures clean termination.
+    # 3. The shell's process group handling ensures clean termination.
     
     if [[ $exit_code -ne 0 ]]; then
         log_error "Script terminated with exit code: $exit_code"
@@ -153,7 +135,9 @@ cleanup() {
     exit $exit_code
 }
 
-trap 'cleanup $?' EXIT INT TERM QUIT
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    trap 'cleanup $?' EXIT INT TERM QUIT
+fi
 
 handle_error() {
     local exit_code=$1
@@ -282,12 +266,11 @@ validate_dependencies() {
     log_verbose "Validating dependencies..."
     
     if ! resolve_ralph_command; then
-        log_error "ralph CLI not found."
-        log_error "Please install open-ralph-wiggum: npm install -g @th0rgal/ralph-wiggum"
-        log_error "If spec-and-loop is globally installed, reinstalling it should also restore the bundled Ralph dependency."
+        log_error "Internal mini Ralph runtime not found: $MINI_RALPH_CLI"
+        log_error "Ensure node is installed and spec-and-loop dependencies are up to date (npm install)."
         exit 1
     fi
-    log_verbose "Found Ralph command: ${RALPH_CMD[*]}"
+    log_verbose "Found internal mini Ralph runtime: $MINI_RALPH_CLI"
     
     # Check for opencode
     if ! command -v opencode &> /dev/null; then
@@ -484,7 +467,7 @@ parse_tasks() {
         ((line_number++)) || true
         
         if [[ "$line" == "- [ ]"* ]]; then
-            local task_desc="${line#- [ ] }"
+            local task_desc="${line#- \[ \] }"
             TASKS+=("$task_desc")
             TASK_IDS+=("$line_number")
             log_verbose "Found incomplete task (line $line_number): $task_desc"
@@ -911,12 +894,12 @@ get_current_task_context() {
     while IFS= read -r line; do
         if [[ "$line" =~ ^-\ \[/\] ]]; then
             # Found in-progress task - extract description
-            current_task_desc="${line#- [/] }"
+            current_task_desc="${line#- \[/\] }"
             found_task=true
             break
         elif [[ "$line" =~ ^-\ \[\ \] ]] && [[ "$found_task" == "false" ]]; then
             # Found incomplete task - extract description
-            current_task_desc="${line#- [ ] }"
+            current_task_desc="${line#- \[ \] }"
             found_task=true
             break
         fi
@@ -980,7 +963,7 @@ execute_ralph_loop() {
     local max_iterations="${3:-50}"
     local no_commit="${4:-false}"
     
-    log_info "Starting Ralph Wiggum loop with open-ralph-wiggum..."
+    log_info "Starting internal mini Ralph loop..."
     log_info "Max iterations: $max_iterations"
     log_info "Change directory: $change_dir"
     if [[ "$no_commit" == true ]]; then
@@ -988,8 +971,8 @@ execute_ralph_loop() {
     fi
     
     if ! resolve_ralph_command; then
-        log_error "ralph CLI not found."
-        log_error "Please install open-ralph-wiggum: npm install -g @th0rgal/ralph-wiggum"
+        log_error "Internal mini Ralph runtime not found: $MINI_RALPH_CLI"
+        log_error "Ensure node is installed and spec-and-loop dependencies are up to date (npm install)."
         return 1
     fi
     
@@ -1028,17 +1011,30 @@ execute_ralph_loop() {
     local stdout_log="$output_dir/ralph-stdout.log"
     local stderr_log="$output_dir/ralph-stderr.log"
     
-    log_info "Delegating to ralph CLI..."
+    log_info "Invoking internal mini Ralph runtime..."
     log_info "Capturing output to: $output_dir"
     
-    # Run Ralph and capture output to both console and files
+    # Build the mini-ralph-cli arguments
+    local mini_ralph_args=(
+        "--prompt-file" "$ralph_dir/PRD.md"
+        "--prompt-template" "$template_file"
+        "--ralph-dir" "$ralph_dir"
+        "--tasks-file" "$change_dir/tasks.md"
+        "--tasks"
+        "--max-iterations" "$max_iterations"
+    )
+
+    if [[ "$no_commit" == true ]]; then
+        mini_ralph_args+=("--no-commit")
+    fi
+
+    if [[ "$VERBOSE" == true ]]; then
+        mini_ralph_args+=("--verbose")
+    fi
+
+    # Run the internal mini Ralph CLI and capture output
     {
-        "${RALPH_CMD[@]}" --prompt-file "$ralph_dir/PRD.md" \
-            --agent opencode \
-            --tasks \
-            --max-iterations "$max_iterations" \
-            --prompt-template "$template_file" \
-            --verbose-tools
+        node "$MINI_RALPH_CLI" "${mini_ralph_args[@]}"
     } > >(tee "$stdout_log") 2> >(tee "$stderr_log")
     
     return $?
@@ -1094,6 +1090,7 @@ run_observability_command() {
 }
 
 main() {
+    set -e
     parse_arguments "$@"
     
     log_verbose "Starting ralph-run v$VERSION"
@@ -1168,4 +1165,6 @@ main() {
     log_info "ralph-run.sh initialized successfully"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

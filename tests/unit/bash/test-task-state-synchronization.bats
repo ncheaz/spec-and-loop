@@ -44,10 +44,10 @@ EOF
 
   # Count completed tasks
   local completed_count
-  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
+  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || true)
 
   # Verify count is 0
-  [ "$completed_count" -eq 0 ]
+  [ "${completed_count:-0}" -eq 0 ]
 }
 
 @test "task state synchronization: count is accurate for mixed states" {
@@ -112,8 +112,8 @@ EOF
 EOF
 
   local completed_count
-  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
-  [ "$completed_count" -eq 0 ]
+  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || true)
+  [ "${completed_count:-0}" -eq 0 ]
 
   # Mark one task as completed
   cat > "$tasks_file" <<'EOF'
@@ -124,8 +124,8 @@ EOF
 - [ ] 1.3 Task three
 EOF
 
-  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
-  [ "$completed_count" -eq 1 ]
+  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || true)
+  [ "${completed_count:-0}" -eq 1 ]
 
   # Mark two more tasks as completed
   cat > "$tasks_file" <<'EOF'
@@ -136,8 +136,8 @@ EOF
 - [x] 1.3 Task three
 EOF
 
-  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
-  [ "$completed_count" -eq 3 ]
+  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || true)
+  [ "${completed_count:-0}" -eq 3 ]
 }
 
 @test "task state synchronization: handles empty tasks file" {
@@ -149,10 +149,10 @@ EOF
 
   # Count completed tasks
   local completed_count
-  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
+  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || true)
 
   # Verify count is 0
-  [ "$completed_count" -eq 0 ]
+  [ "${completed_count:-0}" -eq 0 ]
 }
 
 @test "task state synchronization: handles file without task lines" {
@@ -167,10 +167,10 @@ EOF
 
   # Count completed tasks
   local completed_count
-  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
+  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || true)
 
   # Verify count is 0
-  [ "$completed_count" -eq 0 ]
+  [ "${completed_count:-0}" -eq 0 ]
 }
 
 @test "task state synchronization: parse_tasks does NOT count completed tasks" {
@@ -206,8 +206,8 @@ EOF
 
   # Count completed tasks
   local completed_count
-  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || echo "0")
-  [ "$completed_count" -eq 3 ]
+  completed_count=$(grep -c "^- \[x\]" "$tasks_file" 2>/dev/null || true)
+  [ "${completed_count:-0}" -eq 3 ]
 
   # Get task context and verify completed tasks section
   local context
@@ -215,6 +215,6 @@ EOF
 
   # Count completed tasks in context output
   local context_completed_count
-  context_completed_count=$(echo "$context" | grep -c "\- \[x\]" || echo "0")
-  [ "$context_completed_count" -eq 3 ]
+  context_completed_count=$(echo "$context" | grep -c "\- \[x\]" || true)
+  [ "${context_completed_count:-0}" -eq 3 ]
 }

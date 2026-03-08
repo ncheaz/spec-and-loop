@@ -104,8 +104,9 @@ teardown() {
   }
   export -f git
 
-  # Run validate_git_repository
-  run validate_git_repository
+  # Run validate_git_repository directly (not via `run`) so variable changes propagate
+  validate_git_repository
+  local _exit_status=$?
   
   # Verify git rev-parse --git-dir was called
   [ "$git_called" = true ]
@@ -113,7 +114,7 @@ teardown() {
   [[ "$git_command" == *"--git-dir"* ]] || true
   
   # Function should succeed
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
 }
 
 @test "validate_git_repository: handles git command errors gracefully" {

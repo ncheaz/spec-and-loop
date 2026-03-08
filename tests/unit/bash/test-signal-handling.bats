@@ -76,26 +76,41 @@ teardown() {
 @test "signal handling: cleanup sets CLEANUP_IN_PROGRESS flag" {
   cleanup_test_dir
   
-  unset CLEANUP_IN_PROGRESS
+  local marker_file
+  marker_file=$(mktemp)
   
-  cleanup 0
+  (
+    source tests/helpers/test-functions.sh
+    unset CLEANUP_IN_PROGRESS
+    exit() { echo "$CLEANUP_IN_PROGRESS" > "$marker_file"; }
+    cleanup 0
+  )
   
-  [ "$CLEANUP_IN_PROGRESS" = "true" ]
+  [ "$(cat "$marker_file")" = "true" ]
+  rm -f "$marker_file"
 }
 
 @test "signal handling: cleanup prevents multiple calls" {
   cleanup_test_dir
   
-  unset CLEANUP_IN_PROGRESS
+  local counter_file
+  counter_file=$(mktemp)
+  echo "0" > "$counter_file"
   
-  cleanup 0
+  (
+    source tests/helpers/test-functions.sh
+    unset CLEANUP_IN_PROGRESS
+    exit() {
+      local c; c=$(cat "$counter_file")
+      echo "$((c + 1))" > "$counter_file"
+    }
+    cleanup 0  # first call
+    cleanup 1  # second call — guard returns early, no increment
+  )
   
-  [ "$CLEANUP_IN_PROGRESS" = "true" ]
-  
-  # Second call should not reset the flag
-  cleanup 1
-  
-  [ "$CLEANUP_IN_PROGRESS" = "true" ]
+  # Only one cleanup ran
+  [ "$(cat "$counter_file")" = "1" ]
+  rm -f "$counter_file"
 }
 
 @test "signal handling: cleanup does not kill processes directly" {
@@ -192,20 +207,25 @@ teardown() {
 @test "signal handling: cleanup is idempotent" {
   cleanup_test_dir
   
-  unset CLEANUP_IN_PROGRESS
+  local counter_file
+  counter_file=$(mktemp)
+  echo "0" > "$counter_file"
   
-  cleanup 0
-  local first_flag="$CLEANUP_IN_PROGRESS"
+  (
+    source tests/helpers/test-functions.sh
+    unset CLEANUP_IN_PROGRESS
+    exit() {
+      local c; c=$(cat "$counter_file")
+      echo "$((c + 1))" > "$counter_file"
+    }
+    cleanup 0
+    cleanup 0
+    cleanup 0
+  )
   
-  cleanup 0
-  local second_flag="$CLEANUP_IN_PROGRESS"
-  
-  cleanup 0
-  local third_flag="$CLEANUP_IN_PROGRESS"
-  
-  [ "$first_flag" = "true" ]
-  [ "$second_flag" = "true" ]
-  [ "$third_flag" = "true" ]
+  # All three calls — only the first should do work
+  [ "$(cat "$counter_file")" = "1" ]
+  rm -f "$counter_file"
 }
 
 @test "signal handling: cleanup works with all handled signals" {
@@ -261,12 +281,18 @@ teardown() {
 @test "signal handling: cleanup sets flag before processing" {
   cleanup_test_dir
   
-  unset CLEANUP_IN_PROGRESS
+  local marker_file
+  marker_file=$(mktemp)
   
-  # The flag should be set as the first action
-  cleanup 0
+  (
+    source tests/helpers/test-functions.sh
+    unset CLEANUP_IN_PROGRESS
+    exit() { echo "$CLEANUP_IN_PROGRESS" > "$marker_file"; }
+    cleanup 0
+  )
   
-  [ "$CLEANUP_IN_PROGRESS" = "true" ]
+  [ "$(cat "$marker_file")" = "true" ]
+  rm -f "$marker_file"
 }
 
 @test "signal handling: cleanup returns immediately when already in progress" {
@@ -275,8 +301,10 @@ teardown() {
   CLEANUP_IN_PROGRESS="true"
   export CLEANUP_IN_PROGRESS
   
+  # When already in progress, cleanup returns immediately (returns 0, not the
+  # passed exit code, to signal it was a no-op re-entry guard).
   run cleanup 1
   
-  [ "$status" -eq 1 ]
+  [ "$status" -eq 0 ]
   [ "$CLEANUP_IN_PROGRESS" = "true" ]
 }

@@ -52,7 +52,7 @@ cleanup_test_dir() {
 
 # Create a sample git repository in the test directory
 create_git_repo() {
-  local repo_path="${1:-$TEST_DIR}"
+  local repo_path="${1:-${TEST_DIR:-$(pwd)}}"
   mkdir -p "$repo_path"
   cd "$repo_path" || return 1
   git init -q
@@ -66,7 +66,11 @@ create_git_repo() {
 # Create a sample OpenSpec change structure
 create_openspec_change() {
   local change_name="${1:-test-change}"
-  local change_dir="$TEST_DIR/openspec/changes/$change_name"
+  # Fall back to the current working directory when TEST_DIR is not set.
+  # Many tests cd into their temp dir before calling this function, so $(pwd)
+  # is always a writable location.
+  local base_dir="${TEST_DIR:-$(pwd)}"
+  local change_dir="$base_dir/openspec/changes/$change_name"
   mkdir -p "$change_dir/specs"
   
   # Create proposal.md

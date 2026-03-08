@@ -1,4 +1,3 @@
-const { execSync } = require('child_process');
 const path = require('path');
 
 // Mock execSync to test the wrapper without actually running the bash script
@@ -6,26 +5,43 @@ jest.mock('child_process', () => ({
   execSync: jest.fn()
 }));
 
-// Import after mocking
-const ralphRunWrapper = require('../../../../bin/ralph-run');
-
 describe('ralph-run wrapper', () => {
+  const wrapperPath = path.join(__dirname, '..', '..', '..', 'bin', 'ralph-run');
   const originalArgv = process.argv;
-  const scriptPath = path.join(__dirname, '..', '..', '..', '..', 'scripts', 'ralph-run.sh');
+
+  let execSync;
 
   beforeEach(() => {
-    // Reset mocks and environment
+    jest.resetModules();
+    execSync = require('child_process').execSync;
     jest.clearAllMocks();
+    execSync.mockReturnValue(Buffer.from('output'));
     process.argv = [...originalArgv];
+    jest.spyOn(process, 'exit').mockImplementation(() => {});
   });
 
   afterEach(() => {
     process.argv = originalArgv;
+    jest.restoreAllMocks();
   });
 
+  const requireWrapper = (args) => {
+    const originalArgv2 = process.argv;
+    if (args !== undefined) {
+      process.argv = ['node', 'ralph-run', ...args];
+    }
+    try {
+      jest.resetModules();
+      execSync = require('child_process').execSync;
+      execSync.mockReturnValue(Buffer.from('output'));
+      require(wrapperPath);
+    } finally {
+      process.argv = originalArgv2;
+    }
+  };
+
   test('invokes bash script with correct path', () => {
-    process.argv = ['node', 'ralph-run'];
-    require('../../../../bin/ralph-run');
+    requireWrapper([]);
 
     expect(execSync).toHaveBeenCalledWith(
       expect.stringContaining('bash'),
@@ -34,8 +50,7 @@ describe('ralph-run wrapper', () => {
   });
 
   test('passes through command-line arguments', () => {
-    process.argv = ['node', 'ralph-run', '--change', 'test-change', '--max-iterations', '2'];
-    require('../../../../bin/ralph-run');
+    requireWrapper(['--change', 'test-change', '--max-iterations', '2']);
 
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toContain('--change');
@@ -45,26 +60,22 @@ describe('ralph-run wrapper', () => {
   });
 
   test('quotes arguments with spaces correctly', () => {
-    process.argv = ['node', 'ralph-run', '--change', 'test change with spaces'];
-    require('../../../../bin/ralph-run');
+    requireWrapper(['--change', 'test change with spaces']);
 
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toContain('test change with spaces');
   });
 
   test('escapes quotes in arguments', () => {
-    process.argv = ['node', 'ralph-run', '--arg', 'value "with quotes"'];
-    require('../../../../bin/ralph-run');
+    requireWrapper(['--arg', 'value "with quotes"']);
 
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toContain('value');
   });
 
   test('uses stdio inherit for proper output passthrough', () => {
-    process.argv = ['node', 'ralph-run'];
-    require('../../../../bin/ralph-run');
+    requireWrapper([]);
 
-    const callArgs = execSync.mock.calls[1]; // Second call (the actual execSync)
     expect(execSync).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ stdio: 'inherit' })
@@ -72,54 +83,42 @@ describe('ralph-run wrapper', () => {
   });
 
   test('exits with correct status code on success', () => {
-    execSync.mockReturnValue(Buffer.from('output'));
-    process.argv = ['node', 'ralph-run'];
-
-    const wrapper = require('../../../../bin/ralph-run');
-    // Should not throw on success
+    requireWrapper([]);
+    // Should not throw on success and should not call exit
+    expect(process.exit).not.toHaveBeenCalledWith(1);
   });
 
   test('exits with error status code on failure', () => {
+    jest.resetModules();
+    execSync = require('child_process').execSync;
     const mockError = new Error('Command failed');
     mockError.status = 1;
-    execSync.mockImplementation(() => {
-      throw mockError;
-    });
+    execSync.mockImplementation(() => { throw mockError; });
 
-    process.argv = ['node', 'ralph-run'];
-
-    // The wrapper should exit with the error status
-    expect(() => {
-      const wrapper = require('../../../../bin/ralph-run');
-    }).not.toThrow();
+    // The wrapper should handle the error without throwing
+    expect(() => { require(wrapperPath); }).not.toThrow();
   });
 
   test('handles missing error status (defaults to 1)', () => {
+    jest.resetModules();
+    execSync = require('child_process').execSync;
     const mockError = new Error('Command failed');
     delete mockError.status;
-    execSync.mockImplementation(() => {
-      throw mockError;
-    });
-
-    process.argv = ['node', 'ralph-run'];
+    execSync.mockImplementation(() => { throw mockError; });
 
     // Should handle missing status gracefully
-    expect(() => {
-      const wrapper = require('../../../../bin/ralph-run');
-    }).not.toThrow();
+    expect(() => { require(wrapperPath); }).not.toThrow();
   });
 
   test('includes script path in command', () => {
-    process.argv = ['node', 'ralph-run'];
-    require('../../../../bin/ralph-run');
+    requireWrapper([]);
 
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toContain('ralph-run.sh');
   });
 
   test('handles multiple arguments', () => {
-    process.argv = ['node', 'ralph-run', '--change', 'test', '--verbose', '--max-iterations', '3'];
-    require('../../../../bin/ralph-run');
+    requireWrapper(['--change', 'test', '--verbose', '--max-iterations', '3']);
 
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toContain('--change');
@@ -130,42 +129,35 @@ describe('ralph-run wrapper', () => {
   });
 
   test('handles empty arguments list', () => {
-    process.argv = ['node', 'ralph-run'];
-    require('../../../../bin/ralph-run');
+    requireWrapper([]);
 
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toContain('bash');
   });
 
   test('constructs absolute path to script', () => {
-    process.argv = ['node', 'ralph-run'];
-    require('../../../../bin/ralph-run');
+    requireWrapper([]);
 
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toContain('scripts/ralph-run.sh');
   });
 
   test('handles arguments with special characters', () => {
-    process.argv = ['node', 'ralph-run', '--arg', 'value&special<char>'];
-    require('../../../../bin/ralph-run');
+    requireWrapper(['--arg', 'value&special<char>']);
 
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toContain('value&special<char>');
   });
 
   test('arguments are properly joined with spaces', () => {
-    process.argv = ['node', 'ralph-run', 'arg1', 'arg2', 'arg3'];
-    require('../../../../bin/ralph-run');
+    requireWrapper(['arg1', 'arg2', 'arg3']);
 
     const callArgs = execSync.mock.calls[0][0];
-    const parts = callArgs.split(' ');
-    // Verify that arguments are space-separated
     expect(callArgs).toMatch(/arg1.*arg2.*arg3/);
   });
 
   test('preserves argument order', () => {
-    process.argv = ['node', 'ralph-run', '--first', 'value1', '--second', 'value2'];
-    require('../../../../bin/ralph-run');
+    requireWrapper(['--first', 'value1', '--second', 'value2']);
 
     const callArgs = execSync.mock.calls[0][0];
     const firstIndex = callArgs.indexOf('--first');
@@ -174,27 +166,28 @@ describe('ralph-run wrapper', () => {
   });
 
   test('works with Node.js script path', () => {
-    process.argv = ['node', 'ralph-run', '--version'];
-    require('../../../../bin/ralph-run');
+    requireWrapper(['--version']);
 
     expect(execSync).toHaveBeenCalled();
   });
 
   test('wrapper can be required multiple times', () => {
-    process.argv = ['node', 'ralph-run'];
-    
-    const wrapper1 = require('../../../../bin/ralph-run');
-    const wrapper2 = require('../../../../bin/ralph-run');
+    requireWrapper([]);
+    const firstCallCount = execSync.mock.calls.length;
 
+    jest.resetModules();
+    execSync = require('child_process').execSync;
+    execSync.mockReturnValue(Buffer.from('output'));
+    require(wrapperPath);
+
+    // Both invocations should have called execSync
     expect(execSync).toHaveBeenCalled();
+    expect(firstCallCount).toBeGreaterThan(0);
   });
 
   test('does not modify original process.argv beyond what is necessary', () => {
-    const originalArgvCopy = [...originalArgv];
-    process.argv = ['node', 'ralph-run', '--test'];
-    
-    require('../../../../bin/ralph-run');
-    
+    requireWrapper(['--test']);
+
     // Process.argv may be modified during execution, but the wrapper shouldn't break
     expect(Array.isArray(process.argv)).toBe(true);
   });

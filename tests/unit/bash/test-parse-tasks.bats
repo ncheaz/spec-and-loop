@@ -101,19 +101,20 @@ EOF
   cat > "$tasks_file" <<'EOF'
 ## Test Tasks
 
-- [ ] 1.1 First task (line 4)
-- [ ] 1.2 Second task (line 5)
-- [ ] 1.3 Third task (line 6)
+- [ ] 1.1 First task
+- [ ] 1.2 Second task
+- [ ] 1.3 Third task
 EOF
 
   # Call parse_tasks
   parse_tasks "$TEST_DIR"
 
   # Verify line numbers are correct (1-indexed)
+  # file layout: line 1 = heading, line 2 = blank, lines 3-5 = tasks
   [ "${#TASK_IDS[@]}" -eq 3 ]
-  [ "${TASK_IDS[0]}" = "4" ]
-  [ "${TASK_IDS[1]}" = "5" ]
-  [ "${TASK_IDS[2]}" = "6" ]
+  [ "${TASK_IDS[0]}" = "3" ]
+  [ "${TASK_IDS[1]}" = "4" ]
+  [ "${TASK_IDS[2]}" = "5" ]
 }
 
 @test "parse_tasks: handles empty tasks file" {

@@ -1,4 +1,3 @@
-const { execSync } = require('child_process');
 const path = require('path');
 
 // Mock execSync to capture the exact command being executed
@@ -9,12 +8,16 @@ jest.mock('child_process', () => ({
 describe('ralph-run argument passing', () => {
   const scriptPath = path.join(__dirname, '../../../bin/ralph-run');
 
+  let execSync;
+
   beforeEach(() => {
+    jest.resetModules();
+    execSync = require('child_process').execSync;
     jest.clearAllMocks();
   });
 
   afterEach(() => {
-    jest.resetModules();
+    jest.restoreAllMocks();
   });
 
   const runWrapperWithArgs = (args) => {
@@ -23,6 +26,7 @@ describe('ralph-run argument passing', () => {
     
     try {
       jest.resetModules();
+      execSync = require('child_process').execSync;
       require(scriptPath);
       return execSync.mock.calls[0][0];
     } finally {

@@ -1,4 +1,3 @@
-const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -11,13 +10,38 @@ describe('ralph-run wrapper', () => {
   const scriptPath = path.join(__dirname, '../../../bin/ralph-run');
   const bashScriptPath = path.join(__dirname, '../../../scripts/ralph-run.sh');
 
+  let execSync;
+
   beforeEach(() => {
+    jest.resetModules();
+    execSync = require('child_process').execSync;
     jest.clearAllMocks();
+    execSync.mockReturnValue('success');
   });
 
   afterEach(() => {
-    jest.resetModules();
+    jest.restoreAllMocks();
   });
+
+  const requireWrapper = () => {
+    jest.resetModules();
+    execSync = require('child_process').execSync;
+    execSync.mockReturnValue('success');
+    require(scriptPath);
+  };
+
+  const requireWrapperWithArgs = (args) => {
+    const originalArgv = process.argv;
+    process.argv = ['node', scriptPath, ...args];
+    try {
+      jest.resetModules();
+      execSync = require('child_process').execSync;
+      execSync.mockReturnValue('success');
+      require(scriptPath);
+    } finally {
+      process.argv = originalArgv;
+    }
+  };
 
   test('wrapper file exists', () => {
     expect(fs.existsSync(scriptPath)).toBe(true);
@@ -38,8 +62,7 @@ describe('ralph-run wrapper', () => {
   });
 
   test('wrapper invokes bash script', () => {
-    // Simulate running the wrapper
-    require(scriptPath);
+    requireWrapper();
 
     expect(execSync).toHaveBeenCalled();
     const callArgs = execSync.mock.calls[0][0];
@@ -49,68 +72,35 @@ describe('ralph-run wrapper', () => {
 
   test('wrapper passes command line arguments to bash script', () => {
     const testArgs = ['--change', 'test-change', '--max-iterations', '10'];
-    
-    // Mock process.argv
-    const originalArgv = process.argv;
-    process.argv = ['node', scriptPath, ...testArgs];
-    
-    try {
-      // Re-require the script to pick up new argv
-      jest.resetModules();
-      require(scriptPath);
-      
-      expect(execSync).toHaveBeenCalled();
-      const callArgs = execSync.mock.calls[0][0];
-      expect(callArgs).toContain('--change');
-      expect(callArgs).toContain('test-change');
-      expect(callArgs).toContain('--max-iterations');
-      expect(callArgs).toContain('10');
-    } finally {
-      process.argv = originalArgv;
-    }
+    requireWrapperWithArgs(testArgs);
+
+    expect(execSync).toHaveBeenCalled();
+    const callArgs = execSync.mock.calls[0][0];
+    expect(callArgs).toContain('--change');
+    expect(callArgs).toContain('test-change');
+    expect(callArgs).toContain('--max-iterations');
+    expect(callArgs).toContain('10');
   });
 
   test('wrapper quotes arguments containing spaces', () => {
-    const testArgs = ['--change', 'test change with spaces'];
-    
-    const originalArgv = process.argv;
-    process.argv = ['node', scriptPath, ...testArgs];
-    
-    try {
-      jest.resetModules();
-      require(scriptPath);
-      
-      expect(execSync).toHaveBeenCalled();
-      const callArgs = execSync.mock.calls[0][0];
-      // Arguments with spaces should be quoted
-      expect(callArgs).toContain('"test change with spaces"');
-    } finally {
-      process.argv = originalArgv;
-    }
+    requireWrapperWithArgs(['--change', 'test change with spaces']);
+
+    expect(execSync).toHaveBeenCalled();
+    const callArgs = execSync.mock.calls[0][0];
+    expect(callArgs).toContain('"test change with spaces"');
   });
 
   test('wrapper quotes arguments containing quotes', () => {
-    const testArgs = ['--test', 'value with "quotes" inside'];
-    
-    const originalArgv = process.argv;
-    process.argv = ['node', scriptPath, ...testArgs];
-    
-    try {
-      jest.resetModules();
-      require(scriptPath);
-      
-      expect(execSync).toHaveBeenCalled();
-      const callArgs = execSync.mock.calls[0][0];
-      // Quotes should be escaped
-      expect(callArgs).toContain('\\\"');
-    } finally {
-      process.argv = originalArgv;
-    }
+    requireWrapperWithArgs(['--test', 'value with "quotes" inside']);
+
+    expect(execSync).toHaveBeenCalled();
+    const callArgs = execSync.mock.calls[0][0];
+    expect(callArgs).toContain('\\\"');
   });
 
   test('wrapper passes stdio: inherit to execSync', () => {
-    require(scriptPath);
-    
+    requireWrapper();
+
     expect(execSync).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ stdio: 'inherit' })
@@ -118,144 +108,109 @@ describe('ralph-run wrapper', () => {
   });
 
   test('wrapper uses correct bash script path', () => {
-    require(scriptPath);
-    
+    requireWrapper();
+
     const callArgs = execSync.mock.calls[0][0];
     const expectedPath = path.join(__dirname, '../../../scripts/ralph-run.sh');
     expect(callArgs).toContain(expectedPath);
   });
 
   test('wrapper handles no arguments', () => {
-    const originalArgv = process.argv;
-    process.argv = ['node', scriptPath];
-    
-    try {
-      jest.resetModules();
-      require(scriptPath);
-      
-      expect(execSync).toHaveBeenCalled();
-      const callArgs = execSync.mock.calls[0][0];
-      // Should still call bash script, just with no additional args
-      expect(callArgs).toContain(bashScriptPath);
-    } finally {
-      process.argv = originalArgv;
-    }
+    requireWrapperWithArgs([]);
+
+    expect(execSync).toHaveBeenCalled();
+    const callArgs = execSync.mock.calls[0][0];
+    expect(callArgs).toContain(bashScriptPath);
   });
 
   test('wrapper handles single argument', () => {
-    const originalArgv = process.argv;
-    process.argv = ['node', scriptPath, '--help'];
-    
-    try {
-      jest.resetModules();
-      require(scriptPath);
-      
-      expect(execSync).toHaveBeenCalled();
-      const callArgs = execSync.mock.calls[0][0];
-      expect(callArgs).toContain('--help');
-    } finally {
-      process.argv = originalArgv;
-    }
+    requireWrapperWithArgs(['--help']);
+
+    expect(execSync).toHaveBeenCalled();
+    const callArgs = execSync.mock.calls[0][0];
+    expect(callArgs).toContain('--help');
   });
 
   test('wrapper handles multiple arguments', () => {
-    const originalArgv = process.argv;
-    process.argv = ['node', scriptPath, '--change', 'my-change', '--verbose', '--max-iterations', '5'];
-    
-    try {
-      jest.resetModules();
-      require(scriptPath);
-      
-      expect(execSync).toHaveBeenCalled();
-      const callArgs = execSync.mock.calls[0][0];
-      expect(callArgs).toContain('--change');
-      expect(callArgs).toContain('my-change');
-      expect(callArgs).toContain('--verbose');
-      expect(callArgs).toContain('--max-iterations');
-      expect(callArgs).toContain('5');
-    } finally {
-      process.argv = originalArgv;
-    }
+    requireWrapperWithArgs(['--change', 'my-change', '--verbose', '--max-iterations', '5']);
+
+    expect(execSync).toHaveBeenCalled();
+    const callArgs = execSync.mock.calls[0][0];
+    expect(callArgs).toContain('--change');
+    expect(callArgs).toContain('my-change');
+    expect(callArgs).toContain('--verbose');
+    expect(callArgs).toContain('--max-iterations');
+    expect(callArgs).toContain('5');
   });
 
   test('wrapper exits with non-zero when bash script fails', () => {
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {});
+    jest.resetModules();
+    execSync = require('child_process').execSync;
     execSync.mockImplementation(() => {
       const error = new Error('Script failed');
       error.status = 1;
       throw error;
     });
-    
+
     require(scriptPath);
-    
+
     expect(exitSpy).toHaveBeenCalledWith(1);
-    
     exitSpy.mockRestore();
   });
 
   test('wrapper exits with bash script exit code', () => {
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {});
+    jest.resetModules();
+    execSync = require('child_process').execSync;
     execSync.mockImplementation(() => {
       const error = new Error('Script failed');
       error.status = 42;
       throw error;
     });
-    
+
     require(scriptPath);
-    
+
     expect(exitSpy).toHaveBeenCalledWith(42);
-    
     exitSpy.mockRestore();
   });
 
   test('wrapper exits with 1 when bash script has no status code', () => {
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {});
+    jest.resetModules();
+    execSync = require('child_process').execSync;
     execSync.mockImplementation(() => {
       throw new Error('Script failed');
     });
-    
+
     require(scriptPath);
-    
+
     expect(exitSpy).toHaveBeenCalledWith(1);
-    
     exitSpy.mockRestore();
   });
 
   test('wrapper does not exit when bash script succeeds', () => {
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {});
-    execSync.mockImplementation(() => {
-      return 'success';
-    });
-    
-    require(scriptPath);
-    
+    requireWrapper();
+
     // Should not call process.exit if successful
     expect(exitSpy).not.toHaveBeenCalled();
-    
     exitSpy.mockRestore();
   });
 
   test('wrapper uses bash interpreter', () => {
-    require(scriptPath);
-    
+    requireWrapper();
+
     const callArgs = execSync.mock.calls[0][0];
     expect(callArgs).toMatch(/^bash/);
   });
 
   test('wrapper passes all arguments as single string to bash', () => {
-    const originalArgv = process.argv;
-    process.argv = ['node', scriptPath, '--arg1', 'val1', '--arg2', 'val2'];
-    
-    try {
-      jest.resetModules();
-      require(scriptPath);
-      
-      expect(execSync).toHaveBeenCalled();
-      // execSync should be called with a single string command
-      const callArgs = execSync.mock.calls[0][0];
-      expect(typeof callArgs).toBe('string');
-    } finally {
-      process.argv = originalArgv;
-    }
+    requireWrapperWithArgs(['--arg1', 'val1', '--arg2', 'val2']);
+
+    expect(execSync).toHaveBeenCalled();
+    // execSync should be called with a single string command
+    const callArgs = execSync.mock.calls[0][0];
+    expect(typeof callArgs).toBe('string');
   });
 });

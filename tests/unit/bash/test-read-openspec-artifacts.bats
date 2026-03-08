@@ -37,10 +37,11 @@ This is a test proposal for reading artifacts.
 EOF
 
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that OPENSPEC_PROPOSAL variable is set
   [ -n "$OPENSPEC_PROPOSAL" ]
@@ -72,10 +73,11 @@ Decision 2: Use Bats for testing
 EOF
 
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that OPENSPEC_DESIGN variable is set
   [ -n "$OPENSPEC_DESIGN" ]
@@ -106,10 +108,11 @@ The system shall do something else.
 EOF
 
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that OPENSPEC_SPECS variable is set
   [ -n "$OPENSPEC_SPECS" ]
@@ -145,10 +148,11 @@ This is the third spec file.
 EOF
 
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that OPENSPEC_SPECS variable contains all specs
   [ -n "$OPENSPEC_SPECS" ]
@@ -171,10 +175,11 @@ EOF
   rm "$change_dir/proposal.md"
   
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error (proposal is optional)
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # OPENSPEC_PROPOSAL should be empty
   [ -z "$OPENSPEC_PROPOSAL" ]
@@ -194,10 +199,11 @@ EOF
   rm "$change_dir/design.md"
   
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error (design is optional)
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # OPENSPEC_DESIGN should be empty
   [ -z "$OPENSPEC_DESIGN" ]
@@ -217,10 +223,11 @@ EOF
   rm -rf "$change_dir/specs"
   
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error (specs is optional)
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # OPENSPEC_SPECS should be empty
   [ -z "$OPENSPEC_SPECS" ]
@@ -258,10 +265,11 @@ Test spec content.
 EOF
 
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that all variables are set
   [ -n "$OPENSPEC_PROPOSAL" ]
@@ -302,10 +310,11 @@ Content with **bold** and *italic* text.
 EOF
 
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that markdown formatting is preserved
   [[ "$OPENSPEC_PROPOSAL" == *"# Proposal Title"* ]] || true
@@ -325,10 +334,11 @@ EOF
   change_dir=$(create_openspec_change)
   
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that spec name is included
   [[ "$OPENSPEC_SPECS" == *"test-spec"* ]] || true
@@ -357,10 +367,11 @@ Content with pipes | and ampersands &.
 EOF
 
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that special characters are preserved
   [[ "$OPENSPEC_SPECS" == *"$variable"* ]] || true
@@ -382,10 +393,11 @@ EOF
   > "$change_dir/design.md"
   
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Variables should be empty or whitespace
   [ -z "$OPENSPEC_PROPOSAL" ] || [[ "$OPENSPEC_PROPOSAL" == $'\n' ]] || true
@@ -403,12 +415,14 @@ EOF
   change_dir=$(create_openspec_change)
   
   # Run read_openspec_artifacts multiple times
-  run read_openspec_artifacts "$change_dir"
-  [ "$status" -eq 0 ]
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
+  [ "$_exit_status" -eq 0 ]
   local first_proposal="$OPENSPEC_PROPOSAL"
   
-  run read_openspec_artifacts "$change_dir"
-  [ "$status" -eq 0 ]
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
+  [ "$_exit_status" -eq 0 ]
   local second_proposal="$OPENSPEC_PROPOSAL"
   
   # Content should be consistent
@@ -426,10 +440,11 @@ EOF
   change_dir=$(create_openspec_change)
   
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Output may contain verbose messages
   [[ "$output" == *"Reading"* || "$output" == *"Read"* ]] || true
@@ -454,10 +469,11 @@ This is a nested spec file.
 EOF
 
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that nested spec was read
   [[ "$OPENSPEC_SPECS" == *"nested"* ]] || true
@@ -507,10 +523,11 @@ EOF
   } > "$change_dir/proposal.md"
   
   # Run read_openspec_artifacts
-  run read_openspec_artifacts "$change_dir"
+  read_openspec_artifacts "$change_dir"
+  local _exit_status=$?
   
   # Function should complete without error
-  [ "$status" -eq 0 ]
+  [ "$_exit_status" -eq 0 ]
   
   # Check that content was read
   [ -n "$OPENSPEC_PROPOSAL" ]

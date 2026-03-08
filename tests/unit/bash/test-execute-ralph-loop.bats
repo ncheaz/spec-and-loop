@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 
-# Test suite for execute_ralph_loop() function
-# Tests Ralph CLI invocation and loop execution orchestration
+# Test suite for execute_ralph_loop() function (internal mini Ralph runtime)
+# Tests are deterministic: they stub `node "$MINI_RALPH_CLI"` via a fake node
+# wrapper so no real OpenCode process or external Ralph package is invoked.
 
 setup() {
   load '../../helpers/test-common'
@@ -12,536 +13,493 @@ teardown() {
   cleanup_test_dir
 }
 
-@test "execute_ralph_loop: requires ralph CLI to be installed" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "ralph command not found" >&2
-    return 1
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"ralph CLI not found"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Create the minimal OpenSpec change directory structure that
+# execute_ralph_loop depends on.
+_make_change_dir() {
+  local base="$1"
+  local name="${2:-test-change}"
+  local change_dir="$base/openspec/changes/$name"
+  mkdir -p "$change_dir/specs"
+  printf '%s\n' '# Proposal' > "$change_dir/proposal.md"
+  printf '%s\n' '# Design'   > "$change_dir/design.md"
+  printf '%s\n' '- [ ] Task one' > "$change_dir/tasks.md"
+  printf '%s\n' '# Spec' > "$change_dir/specs/spec.md"
+  echo "$change_dir"
 }
 
-@test "execute_ralph_loop: creates prompt template file" {
+# Build a fake node script that acts as the mini-ralph-cli.js stub.
+# It just exits 0 (success) and writes a marker to stdout.
+_fake_cli_exit0() {
+  local path="$1"
+  cat > "$path" << 'FAKECLI'
+#!/usr/bin/env node
+process.stdout.write('fake-mini-ralph: ok\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$path"
+}
+
+# Fake CLI that exits with a specific code
+_fake_cli_exit() {
+  local path="$1"
+  local code="$2"
+  cat > "$path" << FAKECLI
+#!/usr/bin/env node
+process.stdout.write('fake-mini-ralph: exit $code\n');
+process.exit($code);
+FAKECLI
+  chmod +x "$path"
+}
+
+# ---------------------------------------------------------------------------
+# execute_ralph_loop: basic success
+# ---------------------------------------------------------------------------
+
+@test "execute_ralph_loop: succeeds with a valid change directory" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
   local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
+  mkdir -p "$ralph_dir"
+
+  local fake_cli="$test_dir/fake-mini-ralph-cli.js"
+  _fake_cli_exit0 "$fake_cli"
+  MINI_RALPH_CLI="$fake_cli"
+
   run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: invokes node with MINI_RALPH_CLI" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  # CLI writes its own argv[1] (the CLI path) so we can confirm node ran it
+  local fake_cli="$test_dir/fake-cli.js"
+  cat > "$fake_cli" << FAKECLI
+#!/usr/bin/env node
+process.stdout.write('invoked: ' + __filename + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$fake_cli"
+  MINI_RALPH_CLI="$fake_cli"
+
+  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"invoked:"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# execute_ralph_loop: exit code propagation
+# ---------------------------------------------------------------------------
+
+@test "execute_ralph_loop: returns exit code from node CLI (0 = success)" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: returns non-zero exit code from node CLI" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit "$test_dir/fake-cli.js" 7
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
+  [ "$status" -eq 7 ]
+}
+
+# ---------------------------------------------------------------------------
+# execute_ralph_loop: pre-flight artifacts created in ralph_dir
+# ---------------------------------------------------------------------------
+
+@test "execute_ralph_loop: creates prompt-template.md in ralph_dir" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
   [ "$status" -eq 0 ]
   [ -f "$ralph_dir/prompt-template.md" ]
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
 }
 
-@test "execute_ralph_loop: generates PRD file" {
+@test "execute_ralph_loop: creates PRD.md in ralph_dir" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
   local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
   run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
   [ "$status" -eq 0 ]
   [ -f "$ralph_dir/PRD.md" ]
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
 }
 
-@test "execute_ralph_loop: creates task context file when tasks exist" {
+@test "execute_ralph_loop: creates ralph-tasks.md symlink in ralph_dir" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
   local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
-  [ "$status" -eq 0 ]
-  
-  if [[ -f "$ralph_dir/.context_injection" ]]; then
-    grep -q "## Current Task Context" "$ralph_dir/.context_injection"
-  fi
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
+  mkdir -p "$ralph_dir"
 
-@test "execute_ralph_loop: syncs tasks to Ralph directory" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
   run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
   [ "$status" -eq 0 ]
   [ -L "$ralph_dir/ralph-tasks.md" ]
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
 }
 
-@test "execute_ralph_loop: creates output directory for logs" {
+@test "execute_ralph_loop: ralph-tasks.md symlink points to change tasks.md" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
   local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  local target
+  target=$(readlink "$ralph_dir/ralph-tasks.md")
+  [[ "$target" == *"tasks.md" ]]
+}
+
+@test "execute_ralph_loop: creates an output capture directory" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
   run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
   [ "$status" -eq 0 ]
-  
-  local output_dirs
-  output_dirs=$(find "$ralph_dir" -type d -name "*output*")
-  [ -n "$output_dirs" ]
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
+  # .output_dir file records the output capture path
+  [ -f "$ralph_dir/.output_dir" ]
 }
 
-@test "execute_ralph_loop: captures stdout to log file" {
+# ---------------------------------------------------------------------------
+# execute_ralph_loop: CLI argument passing
+# ---------------------------------------------------------------------------
+
+@test "execute_ralph_loop: passes --prompt-file to the CLI" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
   local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "This is stdout output from Ralph"
-    return 0
-  }
-  export -f ralph
-  
+  mkdir -p "$ralph_dir"
+
+  # CLI records its arguments to a file for inspection
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--prompt-file" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: passes --prompt-template to the CLI" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--prompt-template" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: passes --max-iterations to the CLI" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 15
+
+  run grep -q -- "--max-iterations" "$args_file"
+  [ "$status" -eq 0 ]
+  run grep -q -- "15" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: passes --tasks-file to the CLI" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--tasks-file" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: passes --tasks flag to the CLI" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--tasks" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: passes --no-commit when no_commit=true" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1 true
+
+  run grep -q -- "--no-commit" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: does NOT pass --no-commit by default" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--no-commit" "$args_file"
+  [ "$status" -ne 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# execute_ralph_loop: missing internal runtime
+# ---------------------------------------------------------------------------
+
+@test "execute_ralph_loop: returns 1 when MINI_RALPH_CLI does not exist" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  MINI_RALPH_CLI="/nonexistent/mini-ralph-cli.js"
+
   run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
-  [ "$status" -eq 0 ]
-  
-  local stdout_logs
-  stdout_logs=$(find "$ralph_dir" -name "*stdout*" -type f)
-  [ -n "$stdout_logs" ]
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not found"* ]]
 }
 
-@test "execute_ralph_loop: captures stderr to log file" {
+@test "execute_ralph_loop: error message mentions MINI_RALPH_CLI on missing runtime" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
   local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "This is stderr output from Ralph" >&2
-    return 0
-  }
-  export -f ralph
-  
+  mkdir -p "$ralph_dir"
+
+  MINI_RALPH_CLI="/missing/mini-ralph-cli.js"
+
   run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
-  [ "$status" -eq 0 ]
-  
-  local stderr_logs
-  stderr_logs=$(find "$ralph_dir" -name "*stderr*" -type f)
-  [ -n "$stderr_logs" ]
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"/missing/mini-ralph-cli.js"* ]]
 }
 
-@test "execute_ralph_loop: passes max_iterations to ralph CLI" {
+# ---------------------------------------------------------------------------
+# execute_ralph_loop: log messages
+# ---------------------------------------------------------------------------
+
+@test "execute_ralph_loop: logs start message" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
   local ralph_dir="$test_dir/.ralph"
-  local max_iter=15
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  local ralph_args
-  mock ralph
-  ralph() {
-    ralph_args="$*"
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir" "$max_iter"
-  
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
   [ "$status" -eq 0 ]
-  [[ "$ralph_args" == *"--max-iterations $max_iter"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
+  [[ "$output" == *"mini Ralph"* ]] || [[ "$output" == *"Starting"* ]]
+}
+
+@test "execute_ralph_loop: logs max iterations" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  run execute_ralph_loop "$change_dir" "$ralph_dir" 5
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"5"* ]]
+}
+
+@test "execute_ralph_loop: does not reference ralph CLI (external) in output" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  _fake_cli_exit0 "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
+  [[ "$output" != *"@th0rgal/ralph-wiggum"* ]]
+  [[ "$output" != *"RALPH_CMD"* ]]
 }
 
 @test "execute_ralph_loop: uses default max_iterations of 50 when not specified" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
   local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  local ralph_args
-  mock ralph
-  ralph() {
-    ralph_args="$*"
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir"
-  
-  [ "$status" -eq 0 ]
-  [[ "$ralph_args" == *"--max-iterations 50"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
+  mkdir -p "$ralph_dir"
 
-@test "execute_ralph_loop: passes prompt file to ralph CLI" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  local ralph_args
-  mock ralph
-  ralph() {
-    ralph_args="$*"
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir"
-  
-  [ "$status" -eq 0 ]
-  [[ "$ralph_args" == *"--prompt-file"* ]] || true
-  [[ "$ralph_args" == *"PRD.md"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
 
-@test "execute_ralph_loop: passes prompt template to ralph CLI" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  local ralph_args
-  mock ralph
-  ralph() {
-    ralph_args="$*"
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir"
-  
-  [ "$status" -eq 0 ]
-  [[ "$ralph_args" == *"--prompt-template"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
+  execute_ralph_loop "$change_dir" "$ralph_dir"
 
-@test "execute_ralph_loop: passes agent flag to ralph CLI" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  local ralph_args
-  mock ralph
-  ralph() {
-    ralph_args="$*"
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir"
-  
+  run grep -q "50" "$args_file"
   [ "$status" -eq 0 ]
-  [[ "$ralph_args" == *"--agent opencode"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
-
-@test "execute_ralph_loop: passes tasks flag to ralph CLI" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  local ralph_args
-  mock ralph
-  ralph() {
-    ralph_args="$*"
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir"
-  
-  [ "$status" -eq 0 ]
-  [[ "$ralph_args" == *"--tasks"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
-
-@test "execute_ralph_loop: passes verbose-tools flag to ralph CLI" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  local ralph_args
-  mock ralph
-  ralph() {
-    ralph_args="$*"
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir"
-  
-  [ "$status" -eq 0 ]
-  [[ "$ralph_args" == *"--verbose-tools"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
-
-@test "execute_ralph_loop: logs informational messages" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
-  [ "$status" -eq 0 ]
-  
-  [[ "$output" == *"Starting Ralph Wiggum loop"* ]] || true
-  [[ "$output" == *"Max iterations: 1"* ]] || true
-  [[ "$output" == *"Change directory"* ]] || true
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
-
-@test "execute_ralph_loop: restores Ralph state from tasks before execution" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "Mock ralph execution"
-    return 0
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
-  [ "$status" -eq 0 ]
-  [ -f "$ralph_dir/ralph-loop.state.json" ]
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
-}
-
-@test "execute_ralph_loop: returns ralph CLI exit status" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  local change_dir="$test_dir/openspec/changes/test-change"
-  local ralph_dir="$test_dir/.ralph"
-  
-  mkdir -p "$change_dir/specs" "$ralph_dir"
-  
-  create_openspec_change "test-change"
-  
-  mock ralph
-  ralph() {
-    echo "Mock ralph execution"
-    return 42
-  }
-  export -f ralph
-  
-  run execute_ralph_loop "$change_dir" "$ralph_dir" 1
-  
-  [ "$status" -eq 42 ]
-  
-  cd - > /dev/null
-  rm -rf "$test_dir"
 }

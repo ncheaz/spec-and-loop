@@ -40,18 +40,18 @@ teardown() {
 @test "get_realpath: uses readlink -f when realpath unavailable" {
   # Mock realpath to be unavailable, readlink -f to be available
   command() {
-    if [[ "$1" == "realpath" ]]; then
+    if [[ "$1" == "-v" && "$2" == "realpath" ]]; then
       return 1
-    elif [[ "$1" == "readlink" ]]; then
+    elif [[ "$1" == "-v" && "$2" == "readlink" ]]; then
       return 0
     fi
-    return 1
+    builtin command "$@"
   }
   
-  # Mock readlink -f command
+  # Mock readlink -f command (args: $1=-f, $2=path)
   readlink() {
-    if [[ "$2" == "-f" ]]; then
-      echo "/absolute/path/$(basename "$3")"
+    if [[ "$1" == "-f" ]]; then
+      echo "/absolute/path/$(basename "$2")"
     fi
   }
   
@@ -91,10 +91,10 @@ teardown() {
 }
 
 @test "get_realpath: returns absolute path for relative path" {
-  # Mock realpath
+  # Mock realpath — command() must handle "-v realpath" to signal availability
   command() {
-    [[ "$1" == "realpath" ]] && return 0
-    return 1
+    [[ "$1" == "-v" && "$2" == "realpath" ]] && return 0
+    builtin command "$@"
   }
   
   realpath() {

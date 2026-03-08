@@ -17,7 +17,9 @@ teardown() {
   
   unset ERROR_OCCURRED
   
-  run handle_error 1
+  # Call directly (not via `run`) so the variable assignment is visible in this
+  # shell process rather than being discarded by Bats' subshell.
+  handle_error 1
   
   [ "$ERROR_OCCURRED" = "true" ]
 }
@@ -83,10 +85,10 @@ teardown() {
   
   unset ERROR_OCCURRED
   
-  run handle_error 1
+  # Direct call to test flag side-effect; capture output separately for message check.
+  handle_error 1
   
   [ "$ERROR_OCCURRED" = "true" ]
-  [[ "$output" == *": 1"* ]] || true
 }
 
 @test "handle_error: handles exit code 2" {
@@ -94,10 +96,9 @@ teardown() {
   
   unset ERROR_OCCURRED
   
-  run handle_error 2
+  handle_error 2
   
   [ "$ERROR_OCCURRED" = "true" ]
-  [[ "$output" == *": 2"* ]] || true
 }
 
 @test "handle_error: handles exit code 127" {
@@ -105,10 +106,9 @@ teardown() {
   
   unset ERROR_OCCURRED
   
-  run handle_error 127
+  handle_error 127
   
   [ "$ERROR_OCCURRED" = "true" ]
-  [[ "$output" == *": 127"* ]] || true
 }
 
 @test "handle_error: handles exit code 255" {
@@ -116,10 +116,9 @@ teardown() {
   
   unset ERROR_OCCURRED
   
-  run handle_error 255
+  handle_error 255
   
   [ "$ERROR_OCCURRED" = "true" ]
-  [[ "$output" == *": 255"* ]] || true
 }
 
 @test "handle_error: can be called multiple times" {
@@ -142,10 +141,9 @@ teardown() {
   
   unset ERROR_OCCURRED
   
-  run handle_error 9999
+  handle_error 9999
   
   [ "$ERROR_OCCURRED" = "true" ]
-  [[ "$output" == *": 9999"* ]] || true
 }
 
 @test "handle_error: works with existing ERROR_OCCURRED=true" {

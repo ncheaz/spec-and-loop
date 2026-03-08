@@ -34,7 +34,7 @@ EOF
   
   # Verify completed task is included
   echo "$context" | grep -q "## Completed Tasks for Git Commit"
-  echo "$context" | grep -q "- \[x\] 1.1 Completed task"
+  echo "$context" | grep -q -- "- \[x\] 1.1 Completed task"
 }
 
 @test "get_current_task_context: falls back to first incomplete task [ ] when no in-progress" {
@@ -78,12 +78,12 @@ EOF
   echo "$context" | grep -q "## Completed Tasks for Git Commit"
   
   # Verify all completed tasks are included
-  echo "$context" | grep -q "- \[x\] 1.1 First completed task"
-  echo "$context" | grep -q "- \[x\] 1.2 Second completed task"
-  echo "$context" | grep -q "- \[x\] 1.4 Third completed task"
+  echo "$context" | grep -q -- "- \[x\] 1.1 First completed task"
+  echo "$context" | grep -q -- "- \[x\] 1.2 Second completed task"
+  echo "$context" | grep -q -- "- \[x\] 1.4 Third completed task"
   
-  # Verify incomplete task is not in completed section
-  ! echo "$context" | grep -q "1.3 Incomplete task"
+  # Verify incomplete task does not appear as a completed task
+  ! echo "$context" | grep -q -- "- \[x\] 1.3 Incomplete task"
 }
 
 @test "get_current_task_context: returns empty string for missing tasks.md" {

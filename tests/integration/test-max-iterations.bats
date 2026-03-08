@@ -40,6 +40,23 @@ echo "Mock ralph CLI - iteration $count"
 exit 0
 EOF
   chmod +x "$MOCK_BIN_DIR/ralph"
+
+  # Create mock mini-ralph-cli.js that records iterations
+  cat > "$MOCK_BIN_DIR/mini-ralph-cli.js" <<'JSEOF'
+#!/usr/bin/env node
+const fs = require('fs');
+const iterFile = process.env.ITERATION_FILE || '';
+if (iterFile) {
+  let count = 1;
+  try { count = parseInt(fs.readFileSync(iterFile, 'utf8').trim()) + 1; } catch(e) {}
+  fs.writeFileSync(iterFile, String(count));
+  console.log('Mock mini-ralph-cli.js - iteration ' + count);
+} else {
+  console.log('Mock mini-ralph-cli.js - would normally execute Ralph loop');
+}
+process.exit(0);
+JSEOF
+  export MINI_RALPH_CLI_OVERRIDE="$MOCK_BIN_DIR/mini-ralph-cli.js"
   
   # Add mock bin to PATH
   export PATH="$MOCK_BIN_DIR:$PATH"
@@ -48,6 +65,7 @@ EOF
 }
 
 teardown() {
+  unset MINI_RALPH_CLI_OVERRIDE
   cd / || true
   rm -f "$ITERATION_FILE"
   cleanup_test_dir

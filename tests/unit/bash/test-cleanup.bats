@@ -15,27 +15,52 @@ teardown() {
 @test "cleanup: sets CLEANUP_IN_PROGRESS flag" {
   cleanup_test_dir
   
-  unset CLEANUP_IN_PROGRESS
+  # cleanup() calls `exit` at the end so it cannot be called directly in the
+  # test process. Verify the flag by sourcing a wrapper that writes the variable
+  # value to a temp file before exit is reached.
+  local marker_file
+  marker_file=$(mktemp)
   
-  run cleanup 0
+  (
+    source tests/helpers/test-functions.sh
+    unset CLEANUP_IN_PROGRESS
+    # Intercept exit to capture the flag value before termination.
+    exit() {
+      echo "$CLEANUP_IN_PROGRESS" > "$marker_file"
+      # Do NOT call the real exit — just return so the subshell ends cleanly.
+    }
+    cleanup 0
+  )
   
-  [ "$status" -eq 0 ]
-  [ "$CLEANUP_IN_PROGRESS" = "true" ]
+  [ "$(cat "$marker_file")" = "true" ]
+  rm -f "$marker_file"
 }
 
 @test "cleanup: prevents multiple cleanup calls" {
   cleanup_test_dir
   
-  unset CLEANUP_IN_PROGRESS
+  # Run cleanup twice in a subshell; second call should be a no-op because
+  # CLEANUP_IN_PROGRESS is already "true" from the first call.
+  # We write a counter to a temp file to verify only one cleanup ran.
+  local counter_file
+  counter_file=$(mktemp)
+  echo "0" > "$counter_file"
   
-  run cleanup 0
-  [ "$status" -eq 0 ]
+  (
+    source tests/helpers/test-functions.sh
+    unset CLEANUP_IN_PROGRESS
+    exit() {
+      local count
+      count=$(cat "$counter_file")
+      echo "$((count + 1))" > "$counter_file"
+    }
+    cleanup 0  # first call — sets flag, increments counter
+    cleanup 0  # second call — guard should return early, counter stays at 1
+  )
   
-  run cleanup 0
-  [ "$status" -eq 0 ]
-  
-  # Second call should exit immediately without processing
-  [ "$CLEANUP_IN_PROGRESS" = "true" ]
+  # Only one cleanup should have run
+  [ "$(cat "$counter_file")" = "1" ]
+  rm -f "$counter_file"
 }
 
 @test "cleanup: exits with provided exit code when zero" {

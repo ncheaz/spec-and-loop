@@ -53,13 +53,15 @@ teardown() {
 }
 
 @test "detect_os: case matches various Linux distributions" {
-  # Test different Linux distribution names
-  local linux_distros=("Linux" "Linux-gnu" "LinuxMint" "Ubuntu" "Debian")
+  # Note: `uname -s` on any Linux distro always returns a string starting with
+  # "Linux" (e.g. "Linux", "Linux-gnu"). Distro names like "Ubuntu" are never
+  # returned by uname -s, so only test realistic variants here.
+  local linux_variants=("Linux" "Linux-gnu" "LinuxMint")
   
-  for distro in "${linux_distros[@]}"; do
+  for variant in "${linux_variants[@]}"; do
     # Mock uname to return Linux variant
     uname() {
-      echo "$distro"
+      echo "$variant"
     }
     
     # Re-detect OS after mocking

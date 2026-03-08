@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
 
-# Test suite for validate_dependencies() function
-# Tests CLI dependency validation logic
+# Test suite for validate_dependencies() function (internal mini Ralph runtime)
+# Tests CLI dependency validation against node + mini-ralph-cli.js instead of
+# the removed @th0rgal/ralph-wiggum / Bun-based external ralph CLI.
 
 setup() {
-  # Load the main script to access the validate_dependencies function
   load '../../helpers/test-common'
   source tests/helpers/test-functions.sh
 }
@@ -13,378 +13,270 @@ teardown() {
   cleanup_test_dir
 }
 
-@test "validate_dependencies: succeeds when all dependencies are present" {
-  # Create a test directory
+# ---------------------------------------------------------------------------
+# resolve_ralph_command
+# ---------------------------------------------------------------------------
+
+@test "validate_dependencies: succeeds when node and mini-ralph-cli.js are present" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
 
-  # Mock all required CLIs as available
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      # Simulate that commands are found
-      shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
+  # Ensure resolve_ralph_command can find node (it's always available in CI)
+  # and create a stub mini-ralph-cli.js so the path check passes.
+  local stub_cli="$test_dir/mini-ralph-cli-stub.js"
+  touch "$stub_cli"
 
-  # Run validate_dependencies - should succeed without exiting
-  run validate_dependencies
-  
-  # Function should complete without error
+  MINI_RALPH_CLI="$stub_cli"
+
+  run resolve_ralph_command
   [ "$status" -eq 0 ]
-  
-  # Output should contain validation success message
-  [[ "$output" == *"All dependencies validated"* ]] || true
 }
 
-@test "validate_dependencies: uses bundled Ralph when global ralph is missing" {
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
+@test "validate_dependencies: resolve_ralph_command fails when MINI_RALPH_CLI file does not exist" {
+  MINI_RALPH_CLI="/nonexistent/path/mini-ralph-cli.js"
 
-  local bundled_dir="$test_dir/node_modules/@th0rgal/ralph-wiggum/bin"
-  mkdir -p "$bundled_dir"
-  printf '%s\n' '#!/usr/bin/env node' 'console.log("bundled ralph");' > "$bundled_dir/ralph.js"
-
-  BUNDLED_RALPH_JS="$bundled_dir/ralph.js"
-
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" ]]; then
-        return 1
-      elif [[ "$1" == "node" || "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
-
-  validate_dependencies
-
-  [ "${RALPH_CMD[0]}" = "node" ]
-  [ "${RALPH_CMD[1]}" = "$bundled_dir/ralph.js" ]
-}
-
-@test "validate_dependencies: fails when ralph CLI is missing" {
-  # Create a test directory
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-
-  # Mock command -v to simulate ralph not found
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" ]]; then
-        return 1  # ralph not found
-      elif [[ "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0  # other dependencies found
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
-
-  # Run validate_dependencies - should exit with error
-  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
-  
-  # Function should exit with code 1
+  run resolve_ralph_command
   [ "$status" -eq 1 ]
-  
-  # Output should contain error message about missing ralph
-  [[ "$output" == *"ralph CLI not found"* ]] || true
 }
+
+@test "validate_dependencies: resolve_ralph_command fails when node is not in PATH" {
+  # Temporarily override PATH to hide node
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local stub_cli="$test_dir/mini-ralph-cli.js"
+  touch "$stub_cli"
+
+  MINI_RALPH_CLI="$stub_cli"
+
+  run bash -c "
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='$stub_cli'
+    PATH='' resolve_ralph_command
+  "
+  [ "$status" -eq 1 ]
+}
+
+# ---------------------------------------------------------------------------
+# validate_dependencies — success path
+# ---------------------------------------------------------------------------
+
+@test "validate_dependencies: succeeds when all dependencies are present" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local project_root="$PWD"
+
+  local stub_cli="$test_dir/mini-ralph-cli.js"
+  touch "$stub_cli"
+
+  # Create fake opencode and jq scripts in a temp bin dir added to PATH
+  local fake_bin="$test_dir/fake-bin"
+  mkdir -p "$fake_bin"
+  printf '#!/bin/sh\nexit 0\n' > "$fake_bin/opencode"
+  printf '#!/bin/sh\nexit 0\n' > "$fake_bin/jq"
+  chmod +x "$fake_bin/opencode" "$fake_bin/jq"
+
+  run bash -c "
+    cd '$project_root'
+    export PATH='$fake_bin:$PATH'
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='$stub_cli'
+    validate_dependencies
+  "
+
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# validate_dependencies — missing internal runtime
+# ---------------------------------------------------------------------------
+
+@test "validate_dependencies: fails when mini-ralph-cli.js is missing" {
+  run bash -c "
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='/nonexistent/mini-ralph-cli.js'
+    validate_dependencies
+  "
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"mini Ralph runtime not found"* ]] || [[ "$output" == *"not found"* ]]
+}
+
+@test "validate_dependencies: error message mentions MINI_RALPH_CLI path" {
+  run bash -c "
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='/missing/path/mini-ralph-cli.js'
+    validate_dependencies
+  "
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"/missing/path/mini-ralph-cli.js"* ]]
+}
+
+@test "validate_dependencies: error message mentions npm install hint" {
+  run bash -c "
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='/nonexistent/mini-ralph-cli.js'
+    validate_dependencies
+  "
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"npm install"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# validate_dependencies — missing opencode
+# ---------------------------------------------------------------------------
 
 @test "validate_dependencies: fails when opencode CLI is missing" {
-  # Create a test directory
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
+  local stub_cli="$test_dir/mini-ralph-cli.js"
+  touch "$stub_cli"
 
-  # Mock command -v to simulate opencode not found
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" ]]; then
-        return 0  # ralph found
-      elif [[ "$1" == "opencode" ]]; then
-        return 1  # opencode not found
-      elif [[ "$1" == "jq" ]]; then
-        return 0  # jq found
-      fi
+  # Put a fake opencode script that exits non-zero before the real one in PATH,
+  # so 'command -v opencode' finds it but it's treated as absent by validate_dependencies.
+  # Actually validate_dependencies uses 'command -v opencode' to detect presence.
+  # We need a PATH where opencode does NOT exist at all.
+  # Strategy: use a controlled PATH with only essential dirs but omitting opencode locations.
+  local fake_bin="$test_dir/fake-bin"
+  mkdir -p "$fake_bin"
+  # jq is present (as fake)
+  printf '#!/bin/sh\nexit 0\n' > "$fake_bin/jq"
+  chmod +x "$fake_bin/jq"
+  # node must be present; create a symlink to the real node
+  ln -sf "$(command -v node)" "$fake_bin/node"
+  # Essential system tools
+  for cmd in bash sh dirname basename pwd mkdir rm ln mktemp cat grep sed date find stat readlink; do
+    local real_cmd
+    real_cmd=$(command -v "$cmd" 2>/dev/null || true)
+    if [[ -n "$real_cmd" ]]; then
+      ln -sf "$real_cmd" "$fake_bin/$cmd" 2>/dev/null || true
     fi
-    command command "$@"
-  }
-  export -f command
+  done
 
-  # Run validate_dependencies - should exit with error
-  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
-  
-  # Function should exit with code 1
+  run bash -c "
+    export PATH='$fake_bin'
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='$stub_cli'
+    validate_dependencies
+  "
   [ "$status" -eq 1 ]
-  
-  # Output should contain error message about missing opencode
-  [[ "$output" == *"opencode CLI not found"* ]] || true
+  [[ "$output" == *"opencode"* ]]
 }
 
-@test "validate_dependencies: shows helpful error message for missing ralph with installation hint" {
-  # Create a test directory
+@test "validate_dependencies: opencode error message includes install hint" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
+  local stub_cli="$test_dir/mini-ralph-cli.js"
+  touch "$stub_cli"
 
-  # Mock command -v to simulate ralph not found
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" ]]; then
-        return 1
-      elif [[ "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
+  local fake_bin="$test_dir/fake-bin"
+  mkdir -p "$fake_bin"
+  printf '#!/bin/sh\nexit 0\n' > "$fake_bin/jq"
+  chmod +x "$fake_bin/jq"
+  ln -sf "$(command -v node)" "$fake_bin/node"
+  for cmd in bash sh dirname basename pwd mkdir rm ln mktemp cat grep sed date find stat readlink; do
+    local real_cmd
+    real_cmd=$(command -v "$cmd" 2>/dev/null || true)
+    if [[ -n "$real_cmd" ]]; then
+      ln -sf "$real_cmd" "$fake_bin/$cmd" 2>/dev/null || true
     fi
-    command command "$@"
-  }
-  export -f command
+  done
 
-  # Run validate_dependencies
-  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
-  
-  # Should suggest installing ralph
-  [[ "$output" == *"npm install -g"* ]] || true
-  [[ "$output" == *"@th0rgal/ralph-wiggum"* ]] || true
+  run bash -c "
+    export PATH='$fake_bin'
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='$stub_cli'
+    validate_dependencies
+  "
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"opencode-ai"* ]] || [[ "$output" == *"npm install"* ]]
 }
 
-@test "validate_dependencies: shows helpful error message for missing opencode with installation hint" {
-  # Create a test directory
+# ---------------------------------------------------------------------------
+# validate_dependencies — missing jq
+# ---------------------------------------------------------------------------
+
+@test "validate_dependencies: fails when jq CLI is missing" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
+  local stub_cli="$test_dir/mini-ralph-cli.js"
+  touch "$stub_cli"
 
-  # Mock command -v to simulate opencode not found
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" ]]; then
-        return 0
-      elif [[ "$1" == "opencode" ]]; then
-        return 1
-      elif [[ "$1" == "jq" ]]; then
-        return 0
-      fi
+  local fake_bin="$test_dir/fake-bin"
+  mkdir -p "$fake_bin"
+  # opencode is present (as fake)
+  printf '#!/bin/sh\nexit 0\n' > "$fake_bin/opencode"
+  chmod +x "$fake_bin/opencode"
+  ln -sf "$(command -v node)" "$fake_bin/node"
+  for cmd in bash sh dirname basename pwd mkdir rm ln mktemp cat grep sed date find stat readlink; do
+    local real_cmd
+    real_cmd=$(command -v "$cmd" 2>/dev/null || true)
+    if [[ -n "$real_cmd" ]]; then
+      ln -sf "$real_cmd" "$fake_bin/$cmd" 2>/dev/null || true
     fi
-    command command "$@"
-  }
-  export -f command
+  done
 
-  # Run validate_dependencies
-  run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
-  
-  # Should suggest installing opencode
-  [[ "$output" == *"npm install -g"* ]] || true
-  [[ "$output" == *"opencode"* ]] || true
+  run bash -c "
+    export PATH='$fake_bin'
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='$stub_cli'
+    validate_dependencies
+  "
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"jq"* ]]
 }
 
-@test "validate_dependencies: uses command -v to check for ralph" {
-  # Create a test directory
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
+# ---------------------------------------------------------------------------
+# validate_dependencies — no mention of old external ralph
+# ---------------------------------------------------------------------------
 
-  # Track command calls
-  local command_called=false
-  local checked_commands=()
-
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      command_called=true
-      shift
-      checked_commands+=("$1")
-      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
-
-  # Run validate_dependencies
-  run validate_dependencies
-  
-  # Verify command -v was called
-  [ "$command_called" = true ]
-  
-  # Verify ralph was checked
-  [[ " ${checked_commands[*]} " == *" ralph "* ]] || true
+@test "validate_dependencies: does not reference @th0rgal/ralph-wiggum in output" {
+  run bash -c "
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='/nonexistent/mini-ralph-cli.js'
+    validate_dependencies 2>&1 || true
+  "
+  [[ "$output" != *"@th0rgal/ralph-wiggum"* ]]
 }
 
-@test "validate_dependencies: uses command -v to check for opencode" {
-  # Create a test directory
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-
-  # Track command calls
-  local command_called=false
-  local checked_commands=()
-
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      command_called=true
-      shift
-      checked_commands+=("$1")
-      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
-
-  # Run validate_dependencies
-  run validate_dependencies
-  
-  # Verify command -v was called
-  [ "$command_called" = true ]
-  
-  # Verify opencode was checked
-  [[ " ${checked_commands[*]} " == *" opencode "* ]] || true
+@test "validate_dependencies: does not reference bun in output" {
+  run bash -c "
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='/nonexistent/mini-ralph-cli.js'
+    validate_dependencies 2>&1 || true
+  "
+  [[ "$output" != *"bun"* ]]
 }
 
-@test "validate_dependencies: logs verbose message when finding ralph" {
-  # Create a test directory
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-
-  # Mock all CLIs as available
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
-
-  # Run validate_dependencies
-  run validate_dependencies
-  
-  # Should log that ralph was found
-  [[ "$output" == *"Found: ralph"* ]] || true
+@test "validate_dependencies: does not reference RALPH_CMD in output" {
+  run bash -c "
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='/nonexistent/mini-ralph-cli.js'
+    validate_dependencies 2>&1 || true
+  "
+  [[ "$output" != *"RALPH_CMD"* ]]
 }
 
-@test "validate_dependencies: logs verbose message when finding opencode" {
-  # Create a test directory
+# ---------------------------------------------------------------------------
+# validate_dependencies — idempotent / multiple calls
+# ---------------------------------------------------------------------------
+
+@test "validate_dependencies: can be called multiple times safely" {
   local test_dir
   test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
+  local stub_cli="$test_dir/mini-ralph-cli.js"
+  touch "$stub_cli"
 
-  # Mock all CLIs as available
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
+  # Create fake bin with both opencode and jq
+  local fake_bin="$test_dir/fake-bin"
+  mkdir -p "$fake_bin"
+  printf '#!/bin/sh\nexit 0\n' > "$fake_bin/opencode"
+  printf '#!/bin/sh\nexit 0\n' > "$fake_bin/jq"
+  chmod +x "$fake_bin/opencode" "$fake_bin/jq"
 
-  # Run validate_dependencies
-  run validate_dependencies
-  
-  # Should log that opencode was found
-  [[ "$output" == *"Found: opencode"* ]] || true
-}
-
-@test "validate_dependencies: can be called multiple times without errors" {
-  # Create a test directory
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-
-  # Mock all CLIs as available
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
-
-  # Call validate_dependencies multiple times
-  run validate_dependencies
+  run bash -c "
+    export PATH='$fake_bin:$PATH'
+    source tests/helpers/test-functions.sh
+    MINI_RALPH_CLI='$stub_cli'
+    validate_dependencies && validate_dependencies && validate_dependencies
+  "
   [ "$status" -eq 0 ]
-  
-  run validate_dependencies
-  [ "$status" -eq 0 ]
-  
-  run validate_dependencies
-  [ "$status" -eq 0 ]
-}
-
-@test "validate_dependencies: validates ralph before opencode" {
-  # Create a test directory
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-
-  # Track command calls in order
-  local checked_commands=()
-
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      checked_commands+=("$1")
-      return 0
-    fi
-    command command "$@"
-  }
-  export -f command
-
-  # Run validate_dependencies
-  run validate_dependencies
-  
-  # Verify ralph is checked before opencode
-  [ "${checked_commands[0]}" = "ralph" ]
-  [ "${checked_commands[1]}" = "opencode" ]
-}
-
-@test "validate_dependencies: logs verbose validation message at start" {
-  # Create a test directory
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-
-  # Mock all CLIs as available
-  command() {
-    if [[ "$1" == "-v" ]]; then
-      shift
-      if [[ "$1" == "ralph" || "$1" == "opencode" || "$1" == "jq" ]]; then
-        return 0
-      fi
-    fi
-    command command "$@"
-  }
-  export -f command
-
-  # Run validate_dependencies
-  run validate_dependencies
-  
-  # Should log validation start message (may be in verbose mode)
-  [[ "$output" == *"Validating dependencies"* ]] || true
 }
