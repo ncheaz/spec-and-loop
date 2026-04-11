@@ -24,6 +24,8 @@ const {
   _getCurrentTaskDescription,
   _detectProtectedCommitArtifacts,
   _gitErrorMessage,
+  _isFailedIteration,
+  _wasSuccessfulIteration,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -192,7 +194,7 @@ describe('invoker helpers', () => {
       stderr.emit('data', Buffer.from('warn'));
       child.emit('close', 2);
 
-      await expect(pending).resolves.toEqual({ stdout: 'hello', stderr: 'warn', exitCode: 2 });
+      await expect(pending).resolves.toEqual({ stdout: 'hello', stderr: 'warn', exitCode: 2, signal: null });
       expect(mockSpawn).toHaveBeenCalledWith('opencode', ['run', 'prompt'], expect.any(Object));
       expect(stdoutSpy).toHaveBeenCalled();
       expect(stderrSpy).toHaveBeenCalled();
@@ -260,6 +262,7 @@ describe('invoker helpers', () => {
         stdout: 'Read\n<promise>COMPLETE</promise>',
         stderr: '',
         exitCode: 0,
+        signal: null,
         toolUsage: [{ tool: 'Read', count: 1 }],
         filesChanged: ['b.js'],
       });
@@ -622,6 +625,24 @@ describe('_buildIterationFeedback()', () => {
     expect(feedback).toContain('stdout: some output');
   });
 
+  test('includes signal and failure-stage metadata in failed iteration feedback', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 2, exitCode: null, signal: 'SIGTERM', filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 3, exitCode: null, signal: '', failureStage: 'prompt_render', filesChanged: [], completionDetected: false, taskDetected: false },
+    ], [
+      { iteration: 2, stderr: '---\n### stdout\nterminated by signal', stdout: 'partial output', signal: 'SIGTERM', failureStage: '' },
+      { iteration: 3, stderr: 'template expansion failed', stdout: '', signal: '', failureStage: 'prompt_render' },
+    ]);
+
+    expect(feedback).toContain('Iteration 2: opencode exited via signal SIGTERM');
+    expect(feedback).toContain('signal: SIGTERM');
+    expect(feedback).toContain('---');
+    expect(feedback).toContain('stdout: partial output');
+    expect(feedback).toContain('Iteration 3: iteration aborted during prompt_render');
+    expect(feedback).toContain('failure stage: prompt_render');
+    expect(feedback).toContain('template expansion failed');
+  });
+
   test('does not include error output when no matching error entry exists', () => {
     const feedback = _buildIterationFeedback([
       { iteration: 5, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
@@ -662,6 +683,28 @@ describe('_buildIterationFeedback()', () => {
     expect(feedback).toContain('Iteration 2: opencode exited with code 1');
     expect(feedback).not.toContain('Error output:');
   });
+
+  test('describes signal-terminated iterations as failures', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 2, exitCode: null, signal: 'SIGTERM', filesChanged: [], completionDetected: false, taskDetected: false },
+    ]);
+
+    expect(feedback).toContain('Iteration 2: opencode exited via signal SIGTERM');
+  });
+});
+
+describe('iteration outcome helpers', () => {
+  test('_isFailedIteration returns true for non-zero exits and signal exits', () => {
+    expect(_isFailedIteration({ exitCode: 1, signal: '' })).toBe(true);
+    expect(_isFailedIteration({ exitCode: null, signal: 'SIGTERM' })).toBe(true);
+    expect(_isFailedIteration({ exitCode: 0, signal: '' })).toBe(false);
+  });
+
+  test('_wasSuccessfulIteration only returns true for clean exits', () => {
+    expect(_wasSuccessfulIteration({ exitCode: 0, signal: '' })).toBe(true);
+    expect(_wasSuccessfulIteration({ exitCode: 1, signal: '' })).toBe(false);
+    expect(_wasSuccessfulIteration({ exitCode: null, signal: 'SIGINT' })).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -696,6 +739,42 @@ describe('_extractErrorForIteration()', () => {
     expect(_extractErrorForIteration(errorContent, 5)).toBeNull();
   });
 
+  test('uses the newest exact iteration match when duplicates exist', () => {
+    const errorContent = [
+      {
+        iteration: 12,
+        exitCode: 1,
+        stderr: 'iteration twelve',
+        stdout: '',
+      },
+      {
+        iteration: 1,
+        exitCode: 1,
+        stderr: 'older iteration one',
+        stdout: '',
+      },
+      {
+        iteration: 1,
+        exitCode: 2,
+        stderr: 'newer iteration one',
+        stdout: 'latest stdout',
+      },
+    ];
+
+    expect(_extractErrorForIteration(errorContent, 1)).toEqual({
+      stderr: 'newer iteration one',
+      stdout: 'latest stdout',
+      signal: '',
+      failureStage: '',
+    });
+    expect(_extractErrorForIteration(errorContent, 12)).toEqual({
+      stderr: 'iteration twelve',
+      stdout: '',
+      signal: '',
+      failureStage: '',
+    });
+  });
+
   test('returns null for empty errorContent', () => {
     expect(_extractErrorForIteration('', 1)).toBeNull();
     expect(_extractErrorForIteration(null, 1)).toBeNull();
@@ -727,6 +806,26 @@ describe('_extractErrorForIteration()', () => {
     const result = _extractErrorForIteration(errorContent, 1);
     expect(result.stdout.length).toBe(503);
     expect(result.stdout.endsWith('...')).toBe(true);
+  });
+
+  test('preserves signal and failure stage metadata for matching iteration entries', () => {
+    const result = _extractErrorForIteration([
+      {
+        iteration: 4,
+        exitCode: null,
+        signal: 'SIGTERM',
+        failureStage: 'invoke_contract',
+        stderr: 'signal failure',
+        stdout: 'partial output',
+      },
+    ], 4);
+
+    expect(result).toEqual({
+      stderr: 'signal failure',
+      stdout: 'partial output',
+      signal: 'SIGTERM',
+      failureStage: 'invoke_contract',
+    });
   });
 });
 
@@ -894,6 +993,89 @@ describe('run() with mocked invoker', () => {
     expect(persistedState.stoppedAt).toBeTruthy();
     expect(persistedState.exitReason).toBe('fatal_error');
     expect(invokeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('persists prompt render failures as iteration-aligned error and history entries', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const invokeSpy = jest.spyOn(invoker, 'invoke');
+
+    try {
+      await expect(run(makeOptions({
+        ralphDir,
+        promptText: undefined,
+        promptFile: path.join(tmpDir, 'missing-prompt.md'),
+        maxIterations: 1,
+      }))).rejects.toThrow('prompt file not found');
+
+      const persistedState = state.read(ralphDir);
+      const errorEntries = errors.readEntries(ralphDir);
+      const historyEntries = history.recent(ralphDir, 1);
+
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.exitReason).toBe('fatal_error');
+      expect(invokeSpy).not.toHaveBeenCalled();
+      expect(errorEntries).toHaveLength(1);
+      expect(errorEntries[0]).toMatchObject({
+        iteration: 1,
+        task: 'N/A',
+        signal: '',
+        failureStage: 'prompt_render',
+        stdout: '',
+      });
+      expect(errorEntries[0].stderr).toContain('prompt file not found');
+      expect(Number.isNaN(errorEntries[0].exitCode)).toBe(true);
+      expect(historyEntries[0]).toMatchObject({
+        iteration: 1,
+        completionDetected: false,
+        taskDetected: false,
+        exitCode: null,
+        signal: '',
+        failureStage: 'prompt_render',
+        completedTasks: [],
+      });
+    } finally {
+      invokeSpy.mockRestore();
+    }
+  });
+
+  test('persists invoker abort failures as iteration-aligned error and history entries', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const invokeSpy = jest.spyOn(invoker, 'invoke').mockRejectedValue(
+      Object.assign(new Error('opencode printed CLI help'), { failureStage: 'invoke_contract' })
+    );
+
+    try {
+      await expect(run(makeOptions({ ralphDir, maxIterations: 1 }))).rejects.toThrow('opencode printed CLI help');
+
+      const persistedState = state.read(ralphDir);
+      const errorEntries = errors.readEntries(ralphDir);
+      const historyEntries = history.recent(ralphDir, 1);
+
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.exitReason).toBe('fatal_error');
+      expect(invokeSpy).toHaveBeenCalledTimes(1);
+      expect(errorEntries).toHaveLength(1);
+      expect(errorEntries[0]).toMatchObject({
+        iteration: 1,
+        task: 'N/A',
+        signal: '',
+        failureStage: 'invoke_contract',
+        stdout: '',
+      });
+      expect(errorEntries[0].stderr).toContain('opencode printed CLI help');
+      expect(Number.isNaN(errorEntries[0].exitCode)).toBe(true);
+      expect(historyEntries[0]).toMatchObject({
+        iteration: 1,
+        completionDetected: false,
+        taskDetected: false,
+        exitCode: null,
+        signal: '',
+        failureStage: 'invoke_contract',
+        completedTasks: [],
+      });
+    } finally {
+      invokeSpy.mockRestore();
+    }
   });
 
   test('syncs the managed tasks symlink in tasks mode', async () => {
@@ -1175,6 +1357,44 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('injects signal and fatal-stage diagnostics into follow-up iterations', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+
+      if (callCount === 1) {
+        return {
+          stdout: 'partial output',
+          stderr: '---\n### stdout\nterminated by signal',
+          exitCode: null,
+          signal: 'SIGTERM',
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      expect(prompts[1]).toContain('Iteration 1: opencode exited via signal SIGTERM');
+      expect(prompts[1]).toContain('signal: SIGTERM');
+      expect(prompts[1]).toContain('---');
+      expect(prompts[1]).toContain('stdout: partial output');
+    } finally {
+      restore();
+    }
+  });
+
   test('records protected-artifact auto-commit anomalies in history', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     const tasksFile = path.join(tmpDir, 'openspec', 'changes', 'demo', 'tasks.md');
@@ -1374,6 +1594,68 @@ describe('run() with mocked invoker', () => {
       expect(errorContent).toContain('some error happened');
     } finally {
       restore();
+    }
+  });
+
+  test('records signal-terminated invocations as failed iterations', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: 'partial output',
+      stderr: 'terminated by signal',
+      exitCode: null,
+      signal: 'SIGTERM',
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+      const errorEntries = errors.readEntries(ralphDir);
+      const historyEntries = history.recent(ralphDir, 1);
+
+      expect(errorEntries).toHaveLength(1);
+      expect(errorEntries[0]).toMatchObject({
+        iteration: 1,
+        exitCode: NaN,
+        signal: 'SIGTERM',
+        stderr: 'terminated by signal',
+        stdout: 'partial output',
+      });
+      expect(historyEntries[0]).toMatchObject({
+        iteration: 1,
+        exitCode: null,
+        signal: 'SIGTERM',
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  test('does not auto-commit or complete signal-terminated iterations even with completion output', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      stderr: 'terminated by signal',
+      exitCode: null,
+      signal: 'SIGTERM',
+      filesChanged: ['src/app.js'],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: false }));
+      expect(result.completed).toBe(false);
+      expect(result.exitReason).toBe('max_iterations');
+      expect(execSpy).not.toHaveBeenCalled();
+      expect(history.recent(ralphDir, 1)[0]).toMatchObject({
+        commitAttempted: false,
+        completionDetected: false,
+        signal: 'SIGTERM',
+      });
+    } finally {
+      restore();
+      execSpy.mockRestore();
     }
   });
 
@@ -1631,6 +1913,49 @@ describe('run() with mocked invoker', () => {
       await run(makeOptions({ maxIterations: 5, noCommit: true }));
       expect(prompts[4]).toContain('critical failure 4');
       expect(prompts[4]).not.toContain('critical failure 1');
+    } finally {
+      restore();
+    }
+  });
+
+  test('uses the newest exact iteration error entry in prompt feedback when duplicates exist', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+
+      if (callCount === 1) {
+        errors.append(ralphDir, {
+          iteration: 1,
+          task: 'seeded duplicate',
+          exitCode: 9,
+          stderr: 'older duplicate error',
+          stdout: '',
+        });
+
+        return {
+          stdout: 'no promise',
+          stderr: 'new exact iteration error',
+          exitCode: 1,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      expect(prompts[1]).toContain('new exact iteration error');
+      expect(prompts[1]).not.toContain('older duplicate error');
     } finally {
       restore();
     }
