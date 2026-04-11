@@ -7,7 +7,7 @@
 
 ## 2. Completion Cleanup Hardening
 
-- [ ] 2.1 Harden `lib/mini-ralph/runner.js` completion cleanup so archive/clear failures are best-effort warnings that never leave a genuinely completed loop marked active.
+- [x] 2.1 Harden `lib/mini-ralph/runner.js` completion cleanup so archive/clear failures are best-effort warnings that never leave a genuinely completed loop marked active.
   - Done when: the happy path still archives then clears error history, archive failure preserves the original error file and skips clear, clear failure leaves the active file in place, and all completed runs still end with inactive loop state.
   - Done when: cleanup failures emit operator-visible warnings without changing the completion outcome or the existing archive filename convention.
   - Verify by: `npx jest tests/unit/javascript/mini-ralph-runner.test.js --runInBand`

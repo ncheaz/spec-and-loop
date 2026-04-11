@@ -1043,6 +1043,90 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('archive failure warns, preserves active errors, and still marks loop inactive', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    let callCount = 0;
+    const archiveSpy = jest.spyOn(errors, 'archive').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    const clearSpy = jest.spyOn(errors, 'clear');
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          stdout: 'no promise',
+          stderr: 'some error',
+          exitCode: 1,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      expect(result.completed).toBe(true);
+      expect(clearSpy).not.toHaveBeenCalled();
+      expect(fs.existsSync(errors.errorsPath(ralphDir))).toBe(true);
+      expect(fs.readdirSync(ralphDir).filter((f) => f.startsWith('errors_') && f.endsWith('.md'))).toEqual([]);
+      expect(state.read(ralphDir).active).toBe(false);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('warning: failed to archive error history: disk full'));
+    } finally {
+      restore();
+      archiveSpy.mockRestore();
+      clearSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  test('clear failure warns, keeps active errors, preserves archive, and still marks loop inactive', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    let callCount = 0;
+    const clearSpy = jest.spyOn(errors, 'clear').mockImplementation(() => {
+      throw new Error('permission denied');
+    });
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          stdout: 'no promise',
+          stderr: 'some error',
+          exitCode: 1,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      expect(result.completed).toBe(true);
+      expect(fs.existsSync(errors.errorsPath(ralphDir))).toBe(true);
+      const archiveFiles = fs.readdirSync(ralphDir).filter((f) => f.startsWith('errors_') && f.endsWith('.md'));
+      expect(archiveFiles.length).toBe(1);
+      expect(state.read(ralphDir).active).toBe(false);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('warning: failed to clear active error history: permission denied'));
+    } finally {
+      restore();
+      clearSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
   test('errors preserved on incomplete exit', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     const restore = mockInvoker(invoker, async () => ({
