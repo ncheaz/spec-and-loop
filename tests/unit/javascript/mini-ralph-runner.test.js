@@ -17,6 +17,7 @@ const {
   _validateOptions,
   _resolveStartIteration,
   _completedTaskDelta,
+  _buildAutoCommitAllowlist,
   _formatAutoCommitMessage,
   _buildIterationFeedback,
   _extractErrorForIteration,
@@ -401,6 +402,58 @@ describe('_completedTaskDelta()', () => {
     ];
 
     expect(_completedTaskDelta(before, after)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _buildAutoCommitAllowlist
+// ---------------------------------------------------------------------------
+
+describe('_buildAutoCommitAllowlist()', () => {
+  test('includes current iteration files and the completed task-state update', () => {
+    const tasksFile = path.join(process.cwd(), 'openspec/change/tasks.md');
+
+    expect(
+      _buildAutoCommitAllowlist(
+        ['src/app.js', 'openspec/change/tasks.md'],
+        [{ number: '1.2', description: 'Task', fullDescription: '1.2 Task', status: 'completed' }],
+        tasksFile
+      ).sort()
+    ).toEqual(['openspec/change/tasks.md', 'src/app.js']);
+  });
+
+  test('adds tasks file even if invoker did not report it in filesChanged', () => {
+    const tasksFile = path.join(process.cwd(), 'openspec/change/tasks.md');
+
+    expect(
+      _buildAutoCommitAllowlist(
+        ['src/app.js'],
+        [{ number: '1.2', description: 'Task', fullDescription: '1.2 Task', status: 'completed' }],
+        tasksFile
+      ).sort()
+    ).toEqual(['openspec/change/tasks.md', 'src/app.js']);
+  });
+
+  test('ignores files outside the current repo', () => {
+    expect(
+      _buildAutoCommitAllowlist(
+        ['/tmp/outside.txt', 'src/app.js'],
+        [{ number: '1.2', description: 'Task', fullDescription: '1.2 Task', status: 'completed' }],
+        '/tmp/outside-tasks.md'
+      )
+    ).toEqual(['src/app.js']);
+  });
+
+  test('excludes unrelated dirty worktree files not attributed to the iteration', () => {
+    const tasksFile = path.join(process.cwd(), 'openspec/change/tasks.md');
+
+    expect(
+      _buildAutoCommitAllowlist(
+        ['src/current.js'],
+        [{ number: '1.2', description: 'Task', fullDescription: '1.2 Task', status: 'completed' }],
+        tasksFile
+      ).sort()
+    ).toEqual(['openspec/change/tasks.md', 'src/current.js']);
   });
 });
 

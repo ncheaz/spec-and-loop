@@ -36,6 +36,19 @@ describe('runner._autoCommit()', () => {
     );
   });
 
+  test('skips when there are no iteration files to stage', () => {
+    runner._autoCommit(2, {
+      completedTasks: [completedTask],
+      filesToStage: [],
+      verbose: true,
+    });
+
+    expect(execFileSync).not.toHaveBeenCalled();
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('no iteration files to stage')
+    );
+  });
+
   test('skips when nothing is staged after git add', () => {
     execFileSync.mockImplementation((command, args) => {
       if (command === 'git' && args[0] === 'diff') {
@@ -44,11 +57,15 @@ describe('runner._autoCommit()', () => {
       return '';
     });
 
-    runner._autoCommit(2, { completedTasks: [completedTask], verbose: true });
+    runner._autoCommit(2, {
+      completedTasks: [completedTask],
+      filesToStage: ['tasks.md', 'src/app.js'],
+      verbose: true,
+    });
 
     expect(execFileSync).toHaveBeenCalledWith(
       'git',
-      ['add', '-A'],
+      ['add', '--', 'tasks.md', 'src/app.js'],
       expect.any(Object)
     );
     expect(execFileSync).toHaveBeenCalledWith(
@@ -70,12 +87,16 @@ describe('runner._autoCommit()', () => {
       return '';
     });
 
-    runner._autoCommit(5, { completedTasks: [completedTask], verbose: false });
+    runner._autoCommit(5, {
+      completedTasks: [completedTask],
+      filesToStage: ['tasks.md', 'src/app.js'],
+      verbose: false,
+    });
 
     expect(execFileSync).toHaveBeenNthCalledWith(
       1,
       'git',
-      ['add', '-A'],
+      ['add', '--', 'tasks.md', 'src/app.js'],
       expect.any(Object)
     );
     expect(execFileSync).toHaveBeenNthCalledWith(
@@ -102,11 +123,41 @@ describe('runner._autoCommit()', () => {
     });
 
     expect(() => {
-      runner._autoCommit(3, { completedTasks: [completedTask], verbose: true });
+      runner._autoCommit(3, {
+        completedTasks: [completedTask],
+        filesToStage: ['tasks.md'],
+        verbose: true,
+      });
     }).not.toThrow();
 
     expect(stderrSpy).toHaveBeenCalledWith(
       expect.stringContaining('commit failed')
+    );
+  });
+
+  test('stages only the provided allowlist', () => {
+    execFileSync.mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'diff') {
+        return 'tasks.md\nsrc/app.js\n';
+      }
+      return '';
+    });
+
+    runner._autoCommit(6, {
+      completedTasks: [completedTask],
+      filesToStage: ['tasks.md', 'src/app.js'],
+      verbose: false,
+    });
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      'git',
+      ['add', '--', 'tasks.md', 'src/app.js'],
+      expect.any(Object)
+    );
+    expect(execFileSync).not.toHaveBeenCalledWith(
+      'git',
+      ['add', '-A'],
+      expect.any(Object)
     );
   });
 });
