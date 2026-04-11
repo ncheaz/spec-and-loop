@@ -51,7 +51,7 @@
 
 ## 4. Documentation and Regression Validation
 
-- [ ] 4.1 Align README, QUICKSTART, setup output, BP/BOTW, and assessment docs with the hardened runtime contract, supported OpenSpec commands, and Linux/macOS behavior.
+- [x] 4.1 Align README, QUICKSTART, setup output, BP/BOTW, and assessment docs with the hardened runtime contract, supported OpenSpec commands, and Linux/macOS behavior.
   - Done when: all operator-facing docs describe the same `ralph-run` workflow, promise-tag expectations, `--no-commit` semantics, and prompt/PRD freshness model, and published docs link to deeper methodology notes consistently.
   - Verify by: manual doc review plus targeted assertions for setup/help output where automated coverage already exists.
   - Stop and hand off if: doc alignment uncovers a required CLI or platform support change beyond preserving the current Linux/macOS contract.

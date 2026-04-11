@@ -181,7 +181,7 @@ EXAMPLES:
 
 PREREQUISITES:
     - Git repository (git init)
-    - OpenSpec artifacts created (openspec init, openspec new, openspec ff)
+    - OpenSpec artifacts created (openspec init, openspec new change, then complete the generated artifacts)
     - opencode CLI installed (npm install -g opencode-ai)
 
 EOF

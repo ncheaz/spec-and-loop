@@ -231,6 +231,30 @@ describe('setup.js post-install script', () => {
     );
   });
 
+  test('logs the scoped openspec install command', () => {
+    runSetup();
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('npm install -g @fission-ai/openspec')
+    );
+  });
+
+  test('logs the current openspec change creation command', () => {
+    runSetup();
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('openspec new change <name>')
+    );
+  });
+
+  test('logs the status command and supported OS note', () => {
+    runSetup();
+
+    const allLogs = consoleLogSpy.mock.calls.flat().join(' ');
+    expect(allLogs).toContain('ralph-run --status');
+    expect(allLogs).toContain('supported OS: Linux or macOS');
+  });
+
   test('chmod command includes +x flag', () => {
     runSetup();
 

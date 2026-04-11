@@ -3,7 +3,8 @@
 Get up and running with **spec-and-loop** in 5 minutes!
 
 > **Compatibility note:** Examples assume recent releases of `spec-and-loop`,
-> `@fission-ai/openspec`, and `opencode-ai`. `Node.js >=24` is required.
+> `@fission-ai/openspec`, and `opencode-ai`. `Node.js >=24` is required. The
+> supported OS contract is Linux and macOS.
 
 ## Prerequisites
 
@@ -68,7 +69,7 @@ ralph-run --change add-hello-world
 **That's it!** The script will:
 - Read your OpenSpec artifacts (proposal, specs, design, tasks)
 - Execute each task with full context using the internal mini Ralph engine
-- Create a git commit after each task (unless `--no-commit` is passed)
+- Create a runner-managed task commit when auto-commit is enabled and task-scoped staging succeeds
 - Track progress in tasks.md
 
 ## What Just Happened?
@@ -80,8 +81,9 @@ ralph-run --change add-hello-world
    - `tasks.md`: Implementation tasks as checkboxes
 
 2. **Executed tasks** with opencode via mini Ralph
-   - Each task got full context (proposal + specs + design + fresh task snapshot)
-   - Git commits created after each task
+   - Each task got full context (loop-start PRD snapshot + fresh task snapshot + recent loop signals)
+   - Task completion and full-run completion are signaled with standalone promise lines: `<promise>READY_FOR_NEXT_TASK</promise>` and `<promise>COMPLETE</promise>`
+   - Runner-managed commits are created after completed tasks unless `--no-commit` is active
    - Task checkboxes marked as complete
 
 3. **Iterated** until all tasks done
@@ -92,7 +94,7 @@ ralph-run --change add-hello-world
 ## Verify Your Work
 
 ```bash
-# Check the git history (one commit per task!)
+# Check the git history (runner-managed task commits by default)
 git log --oneline
 
 # See the change files
@@ -109,6 +111,8 @@ ralph-run --status
 `specs/*/spec.md`. During the run, `ralph-run` keeps refreshing `tasks.md`,
 recent loop signals, and pending injected context each iteration, but it does
 not regenerate `PRD.md` on every pass.
+
+If you customize the prompt template, keep the promise tags on standalone lines so quoted or explanatory mentions do not advance the loop.
 
 ## Common Commands
 
@@ -489,5 +493,6 @@ Tests run automatically on every push and pull request via GitHub Actions on bot
 
 - Check the **Troubleshooting** section above
 - Review the **Full README.md** for detailed info
+- Review [OPENSPEC-RALPH-BP.md](./OPENSPEC-RALPH-BP.md), [OPENSPEC-RALPH-WIGGUM-BOTW.md](./OPENSPEC-RALPH-WIGGUM-BOTW.md), and [RALPH-METHODOLOGY-ASSESSMENT.md](./RALPH-METHODOLOGY-ASSESSMENT.md) for methodology details
 
 Happy coding!

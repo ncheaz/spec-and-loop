@@ -32,6 +32,10 @@ Before writing tasks, it helps to remember what the loop actually does.
 - `.ralph/ralph-tasks.md` is a symlink back to `tasks.md`.
 - `.ralph/` stores transient runtime state, history, pending context, and error
   output. It is not the product source of truth.
+- The runner owns git commits. The agent should not create commits itself, and
+  `--no-commit` explicitly forbids `git add`/`git commit` in the rendered prompt.
+- Promise tags only count when they appear as standalone control lines:
+  `<promise>READY_FOR_NEXT_TASK</promise>` and `<promise>COMPLETE</promise>`.
 - The loop is happiest when one iteration can complete one task and prove it.
 
 Within a single run, treat `.ralph/PRD.md` as an invocation-time snapshot rather
@@ -477,6 +481,13 @@ If a fresh-session agent can:
 then the change is ready for `ralph-run`.
 
 ## Source notes
+
+Related repo-local methodology notes:
+
+- `README.md`
+- `QUICKSTART.md`
+- `OPENSPEC-RALPH-WIGGUM-BOTW.md`
+- `RALPH-METHODOLOGY-ASSESSMENT.md`
 
 Repo-local sources used for this update:
 

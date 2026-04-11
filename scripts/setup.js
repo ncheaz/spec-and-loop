@@ -32,16 +32,17 @@ function runSetup() {
   console.log('Usage:');
   console.log('  cd /path/to/your/project');
   console.log('  openspec init                    # Initialize OpenSpec');
-  console.log('  openspec new <name>             # Create a new change');
-  console.log('  openspec ff <name>              # Fast-forward artifacts');
+  console.log('  openspec new change <name>      # Create a new change');
   console.log('  ralph-run --change <name>       # Run ralph loop');
   console.log('  ralph-run                       # Auto-detect change');
+  console.log('  ralph-run --status              # Show loop status');
   console.log('');
   console.log('Prerequisites:');
-  console.log('  - openspec CLI: npm install -g openspec');
+  console.log('  - openspec CLI: npm install -g @fission-ai/openspec');
   console.log('  - opencode CLI: npm install -g opencode-ai');
   console.log('  - jq CLI: apt install jq / brew install jq');
   console.log('  - git: git init');
+  console.log('  - supported OS: Linux or macOS');
 }
 
 if (require.main === module) {

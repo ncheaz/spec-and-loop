@@ -60,7 +60,7 @@ OpenSpec specs → docs (README/QUICKSTART/BOTW) → archived artifacts.
 | P2  | Iterative loop with limits            | verified | high |
 | P3  | tasks.md as single source of truth    | verified | high |
 | P4  | Symlink architecture for task sharing | verified | high |
-| P5  | Fresh context per iteration (PRD regen)| verified | high |
+| P5  | Fresh context per iteration (PRD snapshot + live task context)| verified | high |
 | P6  | Iteration numbering aligned with tasks| partially-verified | medium |
 | P7  | Structured git commit format          | verified | high |
 | P8  | Auto-resume on restart                | verified | high |
@@ -137,13 +137,14 @@ file state simultaneously" confirms the shared-access invariant holds at
 runtime.  `tests/integration/test-symlink-macos.bats` provides platform-specific
 end-to-end coverage.
 
-#### P5 — Fresh context per iteration (PRD regeneration)
+#### P5 — Fresh context per iteration (PRD snapshot + live task context)
 
 `lib/mini-ralph/runner.js:95` calls `prompt.render(options, iterationCount)`
-inside the loop on every iteration.  `lib/mini-ralph/prompt.js:82-87` reads
-`tasksFile` content fresh on every call; `lib/mini-ralph/tasks.js:152-180` —
-`taskContext()` always reads live `tasks.md`.  The bash side regenerates the PRD
-in `scripts/ralph-run.sh:994-997` before the loop begins.
+inside the loop on every iteration. `lib/mini-ralph/prompt.js:82-89` reads
+`tasksFile` content fresh on every call and exposes the loop-start prompt body as
+`{{base_prompt}}`; `lib/mini-ralph/tasks.js:152-180` — `taskContext()` always
+reads live `tasks.md`. The bash side generates the PRD once at loop start in
+`scripts/ralph-run.sh:968-979`, then reuses it for the rest of the run.
 `tests/unit/javascript/mini-ralph-prompt.test.js:149` — "injects fresh
 task_context when tasksFile is present" and
 `tests/unit/bash/test-prd-task-context-injection.bats` confirm that each
@@ -220,9 +221,11 @@ one iteration with changes), confirming threshold accuracy.
 
 #### P13 — Auto-commit with `--no-commit` opt-out
 
-`lib/mini-ralph/runner.js:150-161` gates auto-commit on
-`!options.noCommit && exitCode === 0 && filesChanged.length > 0 && (hasCompletion || hasTask)`.
-`runner.js:231-274` — `_autoCommit()` runs `git add -A` then `git commit`.
+`lib/mini-ralph/runner.js:168-181` gates auto-commit on
+`!options.noCommit && exitCode === 0 && filesChanged.length > 0 && (hasCompletion || (options.tasksMode && hasTask))`.
+`runner.js:307-380` — `_autoCommit()` stages only the current iteration allowlist,
+blocks protected OpenSpec artifacts, and records operator-visible anomalies when
+staging or commit creation fails.
 `scripts/mini-ralph-cli.js:97-99` and `scripts/ralph-run.sh:203-206` thread
 `--no-commit` through both layers.
 `tests/unit/javascript/mini-ralph-runner-autocommit.test.js` covers the commit
@@ -446,16 +449,16 @@ same file.
 
 ---
 
-### P5 — Fresh context per iteration via PRD regeneration
+### P5 — Fresh context per iteration via PRD snapshot + live task context
 
-**Full claim:** The PRD is regenerated before each iteration so the AI always
-receives the latest completed-task list, current-task context, and all OpenSpec
-artifacts with no stale information.
+**Full claim:** The loop re-renders prompt context every iteration from a
+loop-start PRD snapshot plus live `tasks.md`, current-task context, recent loop
+signals, and pending injected context.
 
 | Field | Value |
 |-------|-------|
-| Verdict | `verified` — `prompt.render()` is called inside the runner loop on every iteration and reads live `tasks.md` content each time; PRD is generated fresh before the loop begins. Confirmed by unit tests for both `render()` and `generate_prd`. Confidence: **high**. |
-| Implementation evidence | `scripts/ralph-run.sh:404-433` — `generate_prd()` reads proposal, specs, and design fresh; `ralph-run.sh:994-997` — PRD written to `$ralph_dir/PRD.md` before loop starts; `lib/mini-ralph/prompt.js:82-87` — `render()` reads `tasksFile` content and `taskContext` fresh on every iteration call; `lib/mini-ralph/tasks.js:152-180` — `taskContext()` always reads live `tasks.md`; `lib/mini-ralph/runner.js:95` — `prompt.render(options, iterationCount)` called inside the while loop |
+| Verdict | `verified` — `prompt.render()` is called inside the runner loop on every iteration and reads live `tasks.md` content each time, while `PRD.md` is generated once at loop start and then reused. Confirmed by unit tests for prompt rendering and PRD generation. Confidence: **high**. |
+| Implementation evidence | `scripts/ralph-run.sh:404-444` — `generate_prd()` reads proposal, specs, and design and writes `$ralph_dir/PRD.md`; `ralph-run.sh:968-979` — PRD is generated before the loop starts; `lib/mini-ralph/prompt.js:83-107` — `render()` reads `tasksFile` content and `taskContext` fresh on every iteration call, exposes `{{base_prompt}}`, and injects commit-contract text; `lib/mini-ralph/tasks.js:152-180` — `taskContext()` always reads live `tasks.md`; `lib/mini-ralph/runner.js:95` — `prompt.render(options, iterationCount)` called inside the while loop |
 | Test evidence | `tests/unit/javascript/mini-ralph-prompt.test.js` — `render()` suite (lines 104–217): `renders template with iteration variables` (line 110), `injects tasks content when tasksFile is present` (line 131), `injects fresh task_context when tasksFile is present` (line 149); `tests/unit/bash/test-generate-prd.bats` — `generate_prd: generates PRD with all required sections` (line 16), `generate_prd: includes current task context when available` (line 162), `generate_prd: includes completed tasks in context` (line 377); `tests/unit/bash/test-prd-task-context-injection.bats` — validates task context is injected per-call |
 
 ---
@@ -563,8 +566,8 @@ unless `--no-commit` is passed.
 
 | Field | Value |
 |-------|-------|
-| Verdict | `verified` — Auto-commit is gated on `!options.noCommit`, success exit code, staged files, and detected task/completion; `--no-commit` passes through both bash and JS layers. All conditions individually tested. Confidence: **high**. |
-| Implementation evidence | `lib/mini-ralph/runner.js:150-161` — auto-commit conditional: `!options.noCommit && exitCode === 0 && filesChanged.length > 0 && (hasCompletion \|\| hasTask)`; `runner.js:231-274` — `_autoCommit()` runs `git add -A` then `git commit -m <message>`; `scripts/mini-ralph-cli.js:97-99` — `--no-commit` flag parsed and forwarded via `noCommit: true`; `scripts/ralph-run.sh:203-206` — `--no-commit` sets `NO_COMMIT=true` and passed to `execute_ralph_loop()` |
+| Verdict | `verified` — Auto-commit is gated on `!options.noCommit`, success exit code, staged files, and detected task/completion; `--no-commit` passes through both bash and JS layers, and the prompt contract explicitly forbids model-authored commits in that mode. Auto-commit stages only current-iteration files plus the matching `tasks.md` update and surfaces anomalies when commit creation fails. Confidence: **high**. |
+| Implementation evidence | `lib/mini-ralph/runner.js:168-181` — auto-commit conditional: `!options.noCommit && exitCode === 0 && filesChanged.length > 0 && (hasCompletion \|\| (options.tasksMode && hasTask))`; `runner.js:391-408` — `_buildAutoCommitAllowlist()` stages only iteration-attributed files plus the matching task-state update; `runner.js:325-379` — `_autoCommit()` blocks protected OpenSpec artifacts, reports `nothing_staged` / `commit_failed` anomalies, and creates commits with `git add -- <allowlist>` followed by `git commit -m <message>`; `lib/mini-ralph/prompt.js:101-106` — prompt contract forbids git commits entirely when `noCommit` is active; `scripts/mini-ralph-cli.js:97-99` — `--no-commit` flag parsed and forwarded via `noCommit: true`; `scripts/ralph-run.sh:203-206` — `--no-commit` sets `NO_COMMIT=true` and passed to `execute_ralph_loop()` |
 | Test evidence | `tests/unit/javascript/mini-ralph-runner-autocommit.test.js` — `commits with a Ralph-formatted message when tasks were completed` (line 65), `skips when no completed tasks were detected` (line 30), `skips when nothing is staged after git add` (line 39), `logs and swallows commit failures` (line 93); `tests/unit/javascript/mini-ralph-runner.test.js` — `_completedTaskDelta()` suite (lines 200–231); `tests/unit/bash/test-execute-ralph-loop.bats` — `execute_ralph_loop: passes --no-commit when no_commit=true` (line 349), `execute_ralph_loop: does NOT pass --no-commit by default` (line 373) |
 
 ---

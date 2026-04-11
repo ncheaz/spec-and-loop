@@ -323,6 +323,9 @@ The important repo-specific points are:
 - `tasks.md` remains the source of truth for execution state
 - `.ralph/` stores transient runtime state, history, errors, output capture, and
   optional injected context
+- the runner owns git commits; `--no-commit` disables runner commits and the
+  rendered prompt explicitly forbids model-authored commits
+- promise tags only advance the loop when emitted as standalone control lines
 - `--status`, `--add-context`, and `--clear-context` are part of the operational
   model for steering the loop without rewriting the whole harness
 
@@ -377,6 +380,13 @@ If forced to summarize in one line:
 > moving the repo until that truth is actually realized.
 
 ## Source notes
+
+Related repo-local methodology notes:
+
+- `README.md`
+- `QUICKSTART.md`
+- `OPENSPEC-RALPH-BP.md`
+- `RALPH-METHODOLOGY-ASSESSMENT.md`
 
 Repo-local sources used for this update:
 
