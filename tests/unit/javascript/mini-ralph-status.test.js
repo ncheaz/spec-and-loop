@@ -307,22 +307,39 @@ describe('_detectStruggles()', () => {
     expect(warnings.some((w) => w.includes('No file changes'))).toBe(false);
   });
 
-  test('detects repeated errors when 2 or more non-zero exit codes', () => {
+  test('detects repeated errors when recent failures share the same error signature', () => {
     const entries = [
-      { filesChanged: [], exitCode: 1 },
-      { filesChanged: [], exitCode: 1 },
+      { iteration: 3, filesChanged: [], exitCode: 1 },
+      { iteration: 4, filesChanged: [], exitCode: 1 },
     ];
-    const warnings = _detectStruggles(entries);
-    expect(warnings.some((w) => w.includes('exited with errors'))).toBe(true);
+    const warnings = _detectStruggles(entries, [
+      { iteration: 3, stderr: 'TypeError: Cannot read properties of undefined at foo (/tmp/a.js:10:5)', stdout: '' },
+      { iteration: 4, stderr: 'TypeError: Cannot read properties of undefined at foo (/tmp/b.js:20:9)', stdout: '' },
+    ]);
+    expect(warnings.some((w) => w.includes('Repeated error detected'))).toBe(true);
   });
 
-  test('does not flag errors for a single non-zero exit code', () => {
+  test('does not flag repeated errors for distinct failures', () => {
     const entries = [
-      { filesChanged: ['x.js'], exitCode: 0 },
-      { filesChanged: [], exitCode: 1 },
+      { iteration: 3, filesChanged: [], exitCode: 1 },
+      { iteration: 4, filesChanged: [], exitCode: 1 },
     ];
-    const warnings = _detectStruggles(entries);
-    expect(warnings.some((w) => w.includes('exited with errors'))).toBe(false);
+    const warnings = _detectStruggles(entries, [
+      { iteration: 3, stderr: 'TypeError: Cannot read properties of undefined', stdout: '' },
+      { iteration: 4, stderr: 'ReferenceError: handler is not defined', stdout: '' },
+    ]);
+    expect(warnings.some((w) => w.includes('Repeated error detected'))).toBe(false);
+  });
+
+  test('does not flag repeated errors for a single non-zero exit code', () => {
+    const entries = [
+      { iteration: 3, filesChanged: ['x.js'], exitCode: 0 },
+      { iteration: 4, filesChanged: [], exitCode: 1 },
+    ];
+    const warnings = _detectStruggles(entries, [
+      { iteration: 4, stderr: 'TypeError: Cannot read properties of undefined', stdout: '' },
+    ]);
+    expect(warnings.some((w) => w.includes('Repeated error detected'))).toBe(false);
   });
 });
 
@@ -375,6 +392,7 @@ describe('render()', () => {
     expect(output).toContain('INACTIVE');
     expect(output).toContain('Lifecycle:     completed');
     expect(output).toContain('Completed:');
+    expect(output).not.toContain('Stopped:');
   });
 
   test('shows stopped incomplete lifecycle, stop timestamp, and exit reason', () => {
@@ -393,6 +411,23 @@ describe('render()', () => {
     expect(output).toContain('Stopped:       2026-04-11T12:34:56.000Z');
     expect(output).toContain('Exit reason:   max_iterations');
     expect(output).not.toContain('Completed:');
+  });
+
+  test('prefers completed lifecycle over stale stopped metadata', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 7,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+      completedAt: '2026-04-11T12:35:56.000Z',
+      stoppedAt: '2026-04-11T12:34:56.000Z',
+      exitReason: 'completion_promise',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('Lifecycle:     completed');
+    expect(output).toContain('Completed:     2026-04-11T12:35:56.000Z');
+    expect(output).not.toContain('Stopped:       2026-04-11T12:34:56.000Z');
   });
 
   test('shows iteration and maxIterations', () => {
@@ -540,6 +575,46 @@ describe('render()', () => {
     const output = render(ralphDir);
     expect(output).toContain('Struggle Indicators');
     expect(output).toContain('No file changes');
+  });
+
+  test('does not show no-progress warning when a meaningful dirty-file change exists in the recent window', () => {
+    state.init(ralphDir, {
+      active: true,
+      iteration: 3,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+    });
+
+    history.append(ralphDir, {
+      iteration: 1,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: 0,
+    });
+    history.append(ralphDir, {
+      iteration: 2,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: true,
+      toolUsage: [],
+      filesChanged: ['already-dirty.js'],
+      exitCode: 0,
+    });
+    history.append(ralphDir, {
+      iteration: 3,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: 0,
+    });
+
+    const output = render(ralphDir);
+    expect(output).not.toContain('No file changes detected');
   });
 
   test('shows error summary when errors exist', () => {

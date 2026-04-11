@@ -39,7 +39,7 @@
   - Verify by: new invoker/runner tests for already-dirty file edits, untouched dirty files, and deleted/untracked path cases.
   - Stop and hand off if: accurate dirty-worktree detection requires whole-repo hashing or temporary staging that risks user worktree state.
 
-- [ ] 3.2 Update status and struggle detection to use the improved exit metadata and meaningful file-change signals.
+- [x] 3.2 Update status and struggle detection to use the improved exit metadata and meaningful file-change signals.
   - Done when: `--status` distinguishes active, completed, and stopped-incomplete runs correctly, and no-progress warnings do not trigger when a dirty file truly changed during the recent window.
   - Verify by: `tests/unit/javascript/mini-ralph-status.test.js` plus new status render cases.
   - Stop and hand off if: the necessary status changes would break a documented stable interface beyond this repository's own maintained surfaces.
