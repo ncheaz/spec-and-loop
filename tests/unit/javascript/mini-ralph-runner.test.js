@@ -82,8 +82,25 @@ describe('_containsPromise()', () => {
 
 describe('invoker helpers', () => {
   test('_looksLikeCliHelp detects CLI help output', () => {
-    expect(invokerHelpers._looksLikeCliHelp('Commands:\nrun opencode with a message\nOptions:\nopencode run [message..]')).toBe(true);
+    expect(
+      invokerHelpers._looksLikeCliHelp(
+        'opencode run [message..]\n\nrun opencode with a message\n\nPositionals:\n  message  message to send\n\nOptions:\n  -h, --help'
+      )
+    ).toBe(true);
     expect(invokerHelpers._looksLikeCliHelp('normal output')).toBe(false);
+  });
+
+  test('_looksLikeCliHelp ignores help-like diff text later in output', () => {
+    const output = [
+      'Reviewing the current task first.',
+      ...Array.from({ length: 45 }, (_, i) => `progress line ${i + 1}`),
+      'diff --git a/tests/unit/javascript/mini-ralph-runner.test.js b/tests/unit/javascript/mini-ralph-runner.test.js',
+      "+ expect(invokerHelpers._looksLikeCliHelp('Commands:\\nrun opencode with a message\\nOptions:\\nopencode run [message..]')).toBe(true);",
+      '+ Positionals:',
+      '<promise>READY_FOR_NEXT_TASK</promise>',
+    ].join('\n');
+
+    expect(invokerHelpers._looksLikeCliHelp(output)).toBe(false);
   });
 
   test('_extractToolUsage summarizes known tool names', () => {
@@ -224,7 +241,10 @@ describe('invoker helpers', () => {
       }));
       const helpInvoker = require('../../../lib/mini-ralph/invoker');
       const helpPending = helpInvoker.invoke({ prompt: 'Hello' });
-      helpChild.stdout.emit('data', Buffer.from('Commands:\nOptions:\nopencode run [message..]'));
+      helpChild.stdout.emit(
+        'data',
+        Buffer.from('opencode run [message..]\n\nrun opencode with a message\n\nPositionals:\n  message  message to send\n\nOptions:\n  -h, --help')
+      );
       helpChild.emit('close', 0);
       await expect(helpPending).rejects.toThrow(/printed CLI help/);
     } finally {

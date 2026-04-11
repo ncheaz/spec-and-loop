@@ -49,15 +49,32 @@ describe('mini-ralph invoker', () => {
 
   test('_looksLikeCliHelp detects the opencode help banner', () => {
     const helpText = [
-      'Commands:',
-      '  opencode [project]           start opencode tui',
-      '  opencode run [message..]     run opencode with a message',
+      'opencode run [message..]',
+      '',
+      'run opencode with a message',
+      '',
+      'Positionals:',
+      '  message  message to send',
       '',
       'Options:',
       '  -h, --help',
     ].join('\n');
 
     expect(invoker._looksLikeCliHelp(helpText)).toBe(true);
+  });
+
+  test('_looksLikeCliHelp ignores help-like strings printed later in normal output', () => {
+    const output = [
+      'Reviewing the current task first.',
+      'Running focused tests next.',
+      ...Array.from({ length: 45 }, (_, i) => `progress line ${i + 1}`),
+      'diff --git a/tests/unit/javascript/mini-ralph-runner.test.js b/tests/unit/javascript/mini-ralph-runner.test.js',
+      "+ expect(invokerHelpers._looksLikeCliHelp('Commands:\\nrun opencode with a message\\nOptions:\\nopencode run [message..]')).toBe(true);",
+      '+ Positionals:',
+      '<promise>READY_FOR_NEXT_TASK</promise>',
+    ].join('\n');
+
+    expect(invoker._looksLikeCliHelp(output)).toBe(false);
   });
 
   test('invoke uses "opencode run" with the prompt as the message', async () => {
@@ -113,9 +130,12 @@ describe('mini-ralph invoker', () => {
 
   test('invoke throws a clear error when opencode prints CLI help', async () => {
     const helpText = [
-      'Commands:',
-      '  opencode [project]           start opencode tui',
-      '  opencode run [message..]     run opencode with a message',
+      'opencode run [message..]',
+      '',
+      'run opencode with a message',
+      '',
+      'Positionals:',
+      '  message  message to send',
       '',
       'Options:',
       '  -h, --help',
@@ -134,5 +154,33 @@ describe('mini-ralph invoker', () => {
         ralphDir: '/tmp/ralph',
       })
     ).rejects.toThrow(/printed CLI help instead of running the prompt/i);
+  });
+
+  test('invoke ignores later diff output that mentions CLI help strings', async () => {
+    const stdout = [
+      'Reviewing the current task first.',
+      ...Array.from({ length: 45 }, (_, i) => `progress line ${i + 1}`),
+      'diff --git a/tests/unit/javascript/mini-ralph-runner.test.js b/tests/unit/javascript/mini-ralph-runner.test.js',
+      "+ expect(invokerHelpers._looksLikeCliHelp('Commands:\\nrun opencode with a message\\nOptions:\\nopencode run [message..]')).toBe(true);",
+      '+ Positionals:',
+      '<promise>READY_FOR_NEXT_TASK</promise>',
+    ].join('\n');
+
+    spawn.mockReturnValue(
+      makeChildProcess({
+        stdout,
+        exitCode: 0,
+      })
+    );
+
+    await expect(
+      invoker.invoke({
+        prompt: 'Do the work in the prompt.',
+        ralphDir: '/tmp/ralph',
+      })
+    ).resolves.toMatchObject({
+      exitCode: 0,
+      stdout,
+    });
   });
 });
