@@ -24,6 +24,6 @@
   - Verify by: run `npx jest --runInBand tests/unit/javascript/mini-ralph-runner.test.js tests/unit/javascript/mini-ralph-status.test.js` with cases for delimiter-like error text, signal failures, and fatal aborts.
   - Stop and hand off if: trustworthy status output requires changing the documented `ralph-run --status` sections instead of tightening the current sections.
 
-- [ ] 3.2 Run the focused JS suites for touched modules and then `npm test` to confirm the hardening pass preserves the documented public surface.
+- [x] 3.2 Run the focused JS suites for touched modules and then `npm test` to confirm the hardening pass preserves the documented public surface.
   - Verify by: run `npx jest --runInBand tests/unit/javascript/mini-ralph-errors.test.js tests/unit/javascript/mini-ralph-invoker.test.js tests/unit/javascript/mini-ralph-runner.test.js tests/unit/javascript/mini-ralph-status.test.js`, then run `npm test`.
   - Stop and hand off if: full regression failures expose unrelated pre-existing breakage outside this change's scope.
