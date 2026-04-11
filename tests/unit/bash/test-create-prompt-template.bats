@@ -216,7 +216,7 @@ teardown() {
   rm -rf "$test_dir"
 }
 
-@test "create_prompt_template: includes git commit format section" {
+@test "create_prompt_template: includes commit contract placeholder section" {
   local test_dir
   test_dir=$(setup_test_dir)
   cd "$test_dir" || return 1
@@ -230,8 +230,14 @@ teardown() {
   
   [ "$status" -eq 0 ]
   
-  grep -q "## CRITICAL: Git Commit Format" "$template_file"
-  
+  grep -q "## Commit Contract" "$template_file"
+  grep -q "{{commit_contract}}" "$template_file"
+  ! grep -q "Create a git commit using the required format below" "$template_file"
+  ! grep -q "## CRITICAL: Git Commit Format" "$template_file"
+  ! grep -q "When making git commits, you MUST use this EXACT format" "$template_file"
+  grep -q "When the task is successfully completed, mark it as \[x\] in the tasks file" "$template_file"
+  ! grep -q "Create a git commit" "$template_file"
+
   cd - > /dev/null
   rm -rf "$test_dir"
 }

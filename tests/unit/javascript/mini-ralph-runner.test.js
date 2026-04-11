@@ -827,6 +827,49 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('renders the default runner-owned commit contract into the invoked prompt', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const templateFile = path.join(tmpDir, 'template.md');
+    fs.writeFileSync(templateFile, '{{commit_contract}}', 'utf8');
+
+    const prompts = [];
+    const restore = mockInvoker(invoker, async (opts) => {
+      prompts.push(opts.prompt);
+      return { stdout: '<promise>COMPLETE</promise>', exitCode: 0, filesChanged: [], toolUsage: [] };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, promptTemplate: templateFile, maxIterations: 1 }));
+      expect(prompts[0]).toContain('Do not create git commits yourself');
+      expect(prompts[0]).toContain('Ralph runner manages automatic task commits');
+      expect(prompts[0]).not.toContain('Create a git commit');
+    } finally {
+      restore();
+    }
+  });
+
+  test('renders an explicit no-commit contract into the invoked prompt', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const templateFile = path.join(tmpDir, 'template.md');
+    fs.writeFileSync(templateFile, '{{commit_contract}}', 'utf8');
+
+    const prompts = [];
+    const restore = mockInvoker(invoker, async (opts) => {
+      prompts.push(opts.prompt);
+      return { stdout: '<promise>COMPLETE</promise>', exitCode: 0, filesChanged: [], toolUsage: [] };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, promptTemplate: templateFile, maxIterations: 1, noCommit: true }));
+      expect(prompts[0]).toContain('Do not create, amend, or finalize git commits in this run');
+      expect(prompts[0]).toContain('`--no-commit` is active');
+      expect(prompts[0]).toContain('Do not run `git add` or `git commit`');
+      expect(prompts[0]).not.toContain('The Ralph runner manages automatic task commits');
+    } finally {
+      restore();
+    }
+  });
+
   test('consumes context after first iteration (not re-injected)', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     fs.mkdirSync(ralphDir, { recursive: true });
