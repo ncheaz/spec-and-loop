@@ -91,6 +91,100 @@ describe('errors.readEntries()', () => {
     expect(result[0].timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
+   test('preserves literal delimiter and section marker lines in persisted streams', () => {
+     const ralphDir = path.join(tmpDir, '.ralph');
+     fs.mkdirSync(ralphDir);
+
+     errors.append(ralphDir, {
+       iteration: 1,
+       task: 'task a',
+       exitCode: 1,
+       stderr: ['line before', '---', '### stdout', 'line after'].join('\n'),
+       stdout: ['### stderr', 'plain output'].join('\n'),
+     });
+
+     const result = errors.readEntries(ralphDir);
+
+     expect(result).toHaveLength(1);
+     expect(result[0]).toMatchObject({
+       iteration: 1,
+       stderr: ['line before', '---', '### stdout', 'line after'].join('\n'),
+       stdout: ['### stderr', 'plain output'].join('\n'),
+     });
+     expect(errors.count(ralphDir)).toBe(1);
+   });
+
+   test('preserves blank lines inside indented stream blocks', () => {
+     const ralphDir = path.join(tmpDir, '.ralph');
+     fs.mkdirSync(ralphDir);
+
+     errors.append(ralphDir, {
+       iteration: 1,
+       task: 'task a',
+       exitCode: 1,
+       stderr: 'first line\n\nthird line',
+       stdout: '',
+     });
+
+     expect(errors.readEntries(ralphDir)).toMatchObject([
+       {
+         iteration: 1,
+         stderr: 'first line\n\nthird line',
+         stdout: '',
+       },
+     ]);
+   });
+
+   test('reads mixed legacy and hardened entries', () => {
+     const ralphDir = path.join(tmpDir, '.ralph');
+     fs.mkdirSync(ralphDir);
+     const content = [
+       '---',
+       'Timestamp: 2026-04-11T21:00:00.000Z',
+       'Iteration: 1',
+       'Task: legacy task',
+       'Exit Code: 1',
+       '',
+       '### stderr',
+       'legacy stderr',
+       '',
+       '### stdout',
+       'legacy stdout',
+       '',
+       '---',
+       'Timestamp: 2026-04-11T22:00:00.000Z',
+       'Iteration: 2',
+       'Task: hardened task',
+       'Exit Code: 2',
+       '',
+       '### stderr',
+       '    hardened stderr',
+       '    ---',
+       '',
+       '### stdout',
+       '    hardened stdout',
+       '',
+     ].join('\n');
+     fs.writeFileSync(errors.errorsPath(ralphDir), content, 'utf8');
+
+     expect(errors.readEntries(ralphDir)).toMatchObject([
+       {
+         iteration: 1,
+         task: 'legacy task',
+         exitCode: 1,
+         stderr: 'legacy stderr',
+         stdout: 'legacy stdout',
+       },
+       {
+         iteration: 2,
+         task: 'hardened task',
+         exitCode: 2,
+         stderr: 'hardened stderr\n---',
+         stdout: 'hardened stdout',
+       },
+     ]);
+   });
+
   test('returns bounded most recent entries in chronological order', () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     fs.mkdirSync(ralphDir);
@@ -164,9 +258,9 @@ describe('errors.append()', () => {
     expect(content).toContain('Task: 2.1 Implement handler');
     expect(content).toContain('Exit Code: 1');
     expect(content).toContain('### stderr');
-    expect(content).toContain('stack trace');
+    expect(content).toContain('    stack trace');
     expect(content).toContain('### stdout');
-    expect(content).toContain('output');
+    expect(content).toContain('    output');
   });
 
   test('appends multiple entries with --- delimiter', () => {
@@ -187,6 +281,23 @@ describe('errors.append()', () => {
     expect(content).toContain('### stderr\n\n');
     expect(content).toContain('### stdout\n\n');
   });
+
+   test('indents each persisted stream line to keep delimiters literal', () => {
+     const ralphDir = path.join(tmpDir, '.ralph');
+     fs.mkdirSync(ralphDir);
+     errors.append(ralphDir, {
+       iteration: 1,
+       task: 'test',
+       exitCode: 1,
+       stderr: '---\n### stderr\n\n### stdout',
+       stdout: 'plain',
+     });
+
+     const content = fs.readFileSync(errors.errorsPath(ralphDir), 'utf8');
+
+     expect(content).toContain('### stderr\n    ---\n    ### stderr\n    \n    ### stdout\n');
+     expect((content.match(/^---$/gm) || []).length).toBe(1);
+   });
 
   test('uses ISO 8601 timestamp', () => {
     const ralphDir = path.join(tmpDir, '.ralph');
