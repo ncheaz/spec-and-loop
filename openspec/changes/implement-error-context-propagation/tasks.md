@@ -5,7 +5,7 @@
 
 ## 2. Invoker Enhancement
 
-- [ ] 2.1 Add `stderr` field to `invoker.invoke()` return value (add `stderr: result.stderr` to the return object at `lib/mini-ralph/invoker.js:68-73`), add a test verifying `stderr` is present in the result, and confirm all existing invoker tests still pass. The field is additive — no existing consumer breaks because nothing currently reads `stderr` from the result.
+- [x] 2.1 Add `stderr` field to `invoker.invoke()` return value (add `stderr: result.stderr` to the return object at `lib/mini-ralph/invoker.js:68-73`), add a test verifying `stderr` is present in the result, and confirm all existing invoker tests still pass. The field is additive — no existing consumer breaks because nothing currently reads `stderr` from the result.
   - Done when: `npx jest tests/unit/javascript/mini-ralph-invoker.test.js --verbose` passes with a new `stderr` assertion and all existing tests unchanged.
 
 ## 3. Runner Integration

@@ -94,6 +94,23 @@ describe('mini-ralph invoker', () => {
     );
   });
 
+  test('invoke returns stderr in the result object', async () => {
+    spawn.mockReturnValue(
+      makeChildProcess({
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>\n',
+        stderr: 'some warning message\n',
+        exitCode: 0,
+      })
+    );
+
+    const result = await invoker.invoke({
+      prompt: 'Do the work.',
+      ralphDir: '/tmp/ralph',
+    });
+
+    expect(result.stderr).toBe('some warning message\n');
+  });
+
   test('invoke throws a clear error when opencode prints CLI help', async () => {
     const helpText = [
       'Commands:',
