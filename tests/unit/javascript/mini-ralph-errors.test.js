@@ -70,6 +70,81 @@ describe('errors.read()', () => {
   });
 });
 
+describe('errors.readEntries()', () => {
+  test('returns empty array when errors file does not exist', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+    expect(errors.readEntries(ralphDir)).toEqual([]);
+  });
+
+  test('returns parsed entries in chronological order', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+    errors.append(ralphDir, { iteration: 1, task: 'task a', exitCode: 1, stderr: 'err1', stdout: 'out1' });
+    errors.append(ralphDir, { iteration: 2, task: 'task b', exitCode: 2, stderr: 'err2', stdout: 'out2' });
+
+    const result = errors.readEntries(ralphDir);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ iteration: 1, task: 'task a', exitCode: 1, stderr: 'err1', stdout: 'out1' });
+    expect(result[1]).toMatchObject({ iteration: 2, task: 'task b', exitCode: 2, stderr: 'err2', stdout: 'out2' });
+    expect(result[0].timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test('returns bounded most recent entries in chronological order', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+    for (let i = 1; i <= 5; i++) {
+      errors.append(ralphDir, { iteration: i, task: `task ${i}`, exitCode: i, stderr: `err${i}`, stdout: '' });
+    }
+
+    const result = errors.readEntries(ralphDir, 3);
+
+    expect(result).toHaveLength(3);
+    expect(result.map((entry) => entry.iteration)).toEqual([3, 4, 5]);
+  });
+});
+
+describe('errors.count()', () => {
+  test('returns 0 when errors file does not exist', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+    expect(errors.count(ralphDir)).toBe(0);
+  });
+
+  test('counts all persisted entries', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+    for (let i = 1; i <= 5; i++) {
+      errors.append(ralphDir, { iteration: i, task: `task ${i}`, exitCode: 1, stderr: `err${i}`, stdout: '' });
+    }
+    expect(errors.count(ralphDir)).toBe(5);
+  });
+});
+
+describe('errors.latest()', () => {
+  test('returns null when errors file does not exist', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+    expect(errors.latest(ralphDir)).toBeNull();
+  });
+
+  test('returns the most recent parsed entry', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+    errors.append(ralphDir, { iteration: 1, task: 'task a', exitCode: 1, stderr: 'err1', stdout: '' });
+    errors.append(ralphDir, { iteration: 2, task: 'task b', exitCode: 2, stderr: '', stdout: 'out2' });
+
+    expect(errors.latest(ralphDir)).toMatchObject({
+      iteration: 2,
+      task: 'task b',
+      exitCode: 2,
+      stderr: '',
+      stdout: 'out2',
+    });
+  });
+});
+
 describe('errors.append()', () => {
   test('creates ralphDir if it does not exist', () => {
     const ralphDir = path.join(tmpDir, '.ralph-new');
@@ -177,8 +252,37 @@ describe('index.js exports _errors', () => {
     expect(miniRalph._errors).toBeDefined();
     expect(miniRalph._errors.errorsPath).toBeInstanceOf(Function);
     expect(miniRalph._errors.read).toBeInstanceOf(Function);
+    expect(miniRalph._errors.readEntries).toBeInstanceOf(Function);
+    expect(miniRalph._errors.count).toBeInstanceOf(Function);
+    expect(miniRalph._errors.latest).toBeInstanceOf(Function);
     expect(miniRalph._errors.append).toBeInstanceOf(Function);
     expect(miniRalph._errors.clear).toBeInstanceOf(Function);
     expect(miniRalph._errors.archive).toBeInstanceOf(Function);
+  });
+
+  test('mini-ralph index context and status wrappers work', () => {
+    const miniRalph = require('../../../lib/mini-ralph');
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+
+    miniRalph.addContext(ralphDir, 'wrapper context');
+    expect(miniRalph._context.read(ralphDir)).toBe('wrapper context');
+
+    miniRalph.clearContext(ralphDir);
+    expect(miniRalph._context.read(ralphDir)).toBe('');
+
+    expect(miniRalph.getStatus(ralphDir)).toContain('No active or recent loop state found');
+  });
+
+  test('mini-ralph index run delegates to runner', async () => {
+    const miniRalph = require('../../../lib/mini-ralph');
+    const runSpy = jest.spyOn(miniRalph._runner, 'run').mockResolvedValue({ completed: true });
+
+    try {
+      await expect(miniRalph.run({ some: 'option' })).resolves.toEqual({ completed: true });
+      expect(runSpy).toHaveBeenCalledWith({ some: 'option' });
+    } finally {
+      runSpy.mockRestore();
+    }
   });
 });

@@ -28,6 +28,7 @@ const state = require('../../../lib/mini-ralph/state');
 const history = require('../../../lib/mini-ralph/history');
 const context = require('../../../lib/mini-ralph/context');
 const errors = require('../../../lib/mini-ralph/errors');
+const invokerHelpers = require('../../../lib/mini-ralph/invoker');
 
 let tmpDir;
 
@@ -76,6 +77,161 @@ describe('_containsPromise()', () => {
 
   test('is case-sensitive', () => {
     expect(_containsPromise('<promise>complete</promise>', 'COMPLETE')).toBe(false);
+  });
+});
+
+describe('invoker helpers', () => {
+  test('_looksLikeCliHelp detects CLI help output', () => {
+    expect(invokerHelpers._looksLikeCliHelp('Commands:\nrun opencode with a message\nOptions:\nopencode run [message..]')).toBe(true);
+    expect(invokerHelpers._looksLikeCliHelp('normal output')).toBe(false);
+  });
+
+  test('_extractToolUsage summarizes known tool names', () => {
+    expect(invokerHelpers._extractToolUsage('Read\nBash\nRead\nTask')).toEqual([
+      { tool: 'Read', count: 2 },
+      { tool: 'Bash', count: 1 },
+      { tool: 'Task', count: 1 },
+    ]);
+    expect(invokerHelpers._extractToolUsage('')).toEqual([]);
+  });
+
+  test('_diffSnapshots reports added and removed files', () => {
+    const pre = new Set(['a.js', 'b.js']);
+    const post = new Set(['b.js', 'c.js']);
+    expect(invokerHelpers._diffSnapshots(pre, post).sort()).toEqual(['a.js', 'c.js']);
+  });
+
+  test('_gitSnapshot returns tracked changes and falls back to empty set on git errors', () => {
+    jest.resetModules();
+    jest.doMock('child_process', () => ({
+      spawn: jest.fn(),
+      execFileSync: jest.fn()
+        .mockReturnValueOnce(' M lib/file.js\n?? new-file.js\n')
+        .mockImplementationOnce(() => { throw new Error('git failed'); }),
+    }));
+
+    const isolatedInvoker = require('../../../lib/mini-ralph/invoker');
+
+    expect(Array.from(isolatedInvoker._gitSnapshot()).sort()).toEqual(['lib/file.js', 'new-file.js']);
+    expect(Array.from(isolatedInvoker._gitSnapshot())).toEqual([]);
+
+    jest.dontMock('child_process');
+  });
+
+  test('_spawnOpenCode streams output and resolves exit code', async () => {
+    jest.resetModules();
+    const events = require('events');
+    const stdout = new events.EventEmitter();
+    const stderr = new events.EventEmitter();
+    const child = new events.EventEmitter();
+    child.stdout = stdout;
+    child.stderr = stderr;
+
+    const mockSpawn = jest.fn(() => child);
+    jest.doMock('child_process', () => ({ spawn: mockSpawn, execFileSync: jest.fn() }));
+
+    const isolatedInvoker = require('../../../lib/mini-ralph/invoker');
+    const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      const pending = isolatedInvoker._spawnOpenCode(['run', 'prompt'], false);
+      stdout.emit('data', Buffer.from('hello'));
+      stderr.emit('data', Buffer.from('warn'));
+      child.emit('close', 2);
+
+      await expect(pending).resolves.toEqual({ stdout: 'hello', stderr: 'warn', exitCode: 2 });
+      expect(mockSpawn).toHaveBeenCalledWith('opencode', ['run', 'prompt'], expect.any(Object));
+      expect(stdoutSpy).toHaveBeenCalled();
+      expect(stderrSpy).toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+      jest.dontMock('child_process');
+    }
+  });
+
+  test('_spawnOpenCode wraps startup errors', async () => {
+    jest.resetModules();
+    const events = require('events');
+    const child = new events.EventEmitter();
+    child.stdout = new events.EventEmitter();
+    child.stderr = new events.EventEmitter();
+
+    jest.doMock('child_process', () => ({ spawn: jest.fn(() => child), execFileSync: jest.fn() }));
+
+    const isolatedInvoker = require('../../../lib/mini-ralph/invoker');
+
+    try {
+      const pending = isolatedInvoker._spawnOpenCode(['run', 'prompt'], false);
+      child.emit('error', Object.assign(new Error('missing'), { code: 'ENOENT' }));
+      await expect(pending).rejects.toThrow(/opencode CLI not found/);
+
+      const child2 = new events.EventEmitter();
+      child2.stdout = new events.EventEmitter();
+      child2.stderr = new events.EventEmitter();
+      jest.resetModules();
+      jest.doMock('child_process', () => ({ spawn: jest.fn(() => child2), execFileSync: jest.fn() }));
+      const isolatedInvoker2 = require('../../../lib/mini-ralph/invoker');
+      const pending2 = isolatedInvoker2._spawnOpenCode(['run', 'prompt'], false);
+      child2.emit('error', new Error('boom'));
+      await expect(pending2).rejects.toThrow(/failed to start opencode: boom/);
+    } finally {
+      jest.dontMock('child_process');
+    }
+  });
+
+  test('invoke validates prompt, handles verbose logging, help output, and returns tool usage', async () => {
+    await expect(invokerHelpers.invoke({ prompt: '   ' })).rejects.toThrow(/prompt is empty/);
+
+    jest.resetModules();
+    const events = require('events');
+    const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const child = new events.EventEmitter();
+    child.stdout = new events.EventEmitter();
+    child.stderr = new events.EventEmitter();
+    const mockExec = jest.fn()
+      .mockReturnValueOnce(' M a.js\n')
+      .mockReturnValueOnce(' M a.js\n?? b.js\n');
+    const mockSpawn = jest.fn(() => child);
+    jest.doMock('child_process', () => ({ spawn: mockSpawn, execFileSync: mockExec }));
+    const isolatedInvoker = require('../../../lib/mini-ralph/invoker');
+
+    try {
+      const pending = isolatedInvoker.invoke({ prompt: 'Hello', model: 'gpt', verbose: true });
+      child.stdout.emit('data', Buffer.from('Read\n<promise>COMPLETE</promise>'));
+      child.emit('close', 0);
+
+      await expect(pending).resolves.toEqual({
+        stdout: 'Read\n<promise>COMPLETE</promise>',
+        stderr: '',
+        exitCode: 0,
+        toolUsage: [{ tool: 'Read', count: 1 }],
+        filesChanged: ['b.js'],
+      });
+      expect(mockSpawn).toHaveBeenCalledWith('opencode', ['run', '--model', 'gpt', 'Hello'], expect.any(Object));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('invoking: opencode run --model gpt <prompt>'));
+
+      jest.resetModules();
+      const helpChild = new events.EventEmitter();
+      helpChild.stdout = new events.EventEmitter();
+      helpChild.stderr = new events.EventEmitter();
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn(() => helpChild),
+        execFileSync: jest.fn().mockReturnValue(''),
+      }));
+      const helpInvoker = require('../../../lib/mini-ralph/invoker');
+      const helpPending = helpInvoker.invoke({ prompt: 'Hello' });
+      helpChild.stdout.emit('data', Buffer.from('Commands:\nOptions:\nopencode run [message..]'));
+      helpChild.emit('close', 0);
+      await expect(helpPending).rejects.toThrow(/printed CLI help/);
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+      jest.dontMock('child_process');
+    }
   });
 });
 
@@ -299,21 +455,14 @@ describe('_buildIterationFeedback()', () => {
   });
 
   test('includes error output when errorContent matches a failed iteration', () => {
-    const errorContent = [
-      '---',
-      'Timestamp: 2026-04-11T16:30:00Z',
-      'Iteration: 2',
-      'Task: 1.1 Do something',
-      'Exit Code: 1',
-      '',
-      '### stderr',
-      'TypeError: Cannot read property of undefined',
-      '  at foo (bar.js:10:5)',
-      '',
-      '### stdout',
-      'some output',
-      '',
-    ].join('\n');
+    const errorContent = [{
+      timestamp: '2026-04-11T16:30:00Z',
+      iteration: 2,
+      task: '1.1 Do something',
+      exitCode: 1,
+      stderr: 'TypeError: Cannot read property of undefined\n  at foo (bar.js:10:5)',
+      stdout: 'some output',
+    }];
 
     const feedback = _buildIterationFeedback([
       { iteration: 2, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
@@ -338,20 +487,14 @@ describe('_buildIterationFeedback()', () => {
     const longStderr = 'x'.repeat(2500);
     const longStdout = 'y'.repeat(800);
 
-    const errorContent = [
-      '---',
-      'Timestamp: 2026-04-11T16:30:00Z',
-      'Iteration: 1',
-      'Task: test',
-      'Exit Code: 1',
-      '',
-      '### stderr',
-      longStderr,
-      '',
-      '### stdout',
-      longStdout,
-      '',
-    ].join('\n');
+    const errorContent = [{
+      timestamp: '2026-04-11T16:30:00Z',
+      iteration: 1,
+      task: 'test',
+      exitCode: 1,
+      stderr: longStderr,
+      stdout: longStdout,
+    }];
 
     const feedback = _buildIterationFeedback([
       { iteration: 1, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
@@ -379,20 +522,14 @@ describe('_buildIterationFeedback()', () => {
 
 describe('_extractErrorForIteration()', () => {
   test('extracts stderr and stdout for a matching iteration', () => {
-    const errorContent = [
-      '---',
-      'Timestamp: 2026-04-11T16:30:00Z',
-      'Iteration: 3',
-      'Task: test task',
-      'Exit Code: 1',
-      '',
-      '### stderr',
-      'some error text',
-      '',
-      '### stdout',
-      'some output text',
-      '',
-    ].join('\n');
+    const errorContent = [{
+      timestamp: '2026-04-11T16:30:00Z',
+      iteration: 3,
+      task: 'test task',
+      exitCode: 1,
+      stderr: 'some error text',
+      stdout: 'some output text',
+    }];
 
     const result = _extractErrorForIteration(errorContent, 3);
     expect(result).not.toBeNull();
@@ -401,17 +538,12 @@ describe('_extractErrorForIteration()', () => {
   });
 
   test('returns null when no matching iteration', () => {
-    const errorContent = [
-      '---',
-      'Iteration: 2',
-      'Exit Code: 1',
-      '',
-      '### stderr',
-      'error',
-      '',
-      '### stdout',
-      '',
-    ].join('\n');
+    const errorContent = [{
+      iteration: 2,
+      exitCode: 1,
+      stderr: 'error',
+      stdout: '',
+    }];
 
     expect(_extractErrorForIteration(errorContent, 5)).toBeNull();
   });
@@ -423,17 +555,12 @@ describe('_extractErrorForIteration()', () => {
 
   test('truncates stderr to 2000 chars', () => {
     const longStderr = 'e'.repeat(2500);
-    const errorContent = [
-      '---',
-      'Iteration: 1',
-      'Exit Code: 1',
-      '',
-      '### stderr',
-      longStderr,
-      '',
-      '### stdout',
-      '',
-    ].join('\n');
+    const errorContent = [{
+      iteration: 1,
+      exitCode: 1,
+      stderr: longStderr,
+      stdout: '',
+    }];
 
     const result = _extractErrorForIteration(errorContent, 1);
     expect(result.stderr.length).toBe(2003);
@@ -442,18 +569,12 @@ describe('_extractErrorForIteration()', () => {
 
   test('truncates stdout to 500 chars', () => {
     const longStdout = 'o'.repeat(800);
-    const errorContent = [
-      '---',
-      'Iteration: 1',
-      'Exit Code: 1',
-      '',
-      '### stderr',
-      '',
-      '',
-      '### stdout',
-      longStdout,
-      '',
-    ].join('\n');
+    const errorContent = [{
+      iteration: 1,
+      exitCode: 1,
+      stderr: '',
+      stdout: longStdout,
+    }];
 
     const result = _extractErrorForIteration(errorContent, 1);
     expect(result.stdout.length).toBe(503);
@@ -975,6 +1096,38 @@ describe('run() with mocked invoker', () => {
       await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
       const errorContent = errors.read(ralphDir, 3);
       expect(errorContent).toContain('Task: 1.1 Task one');
+    } finally {
+      restore();
+    }
+  });
+
+  test('uses only recent parsed error entries for prompt feedback lookup', async () => {
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+      if (callCount <= 4) {
+        return {
+          stdout: 'no promise',
+          stderr: `critical failure ${callCount}`,
+          exitCode: 1,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ maxIterations: 5, noCommit: true }));
+      expect(prompts[4]).toContain('critical failure 4');
+      expect(prompts[4]).not.toContain('critical failure 1');
     } finally {
       restore();
     }
