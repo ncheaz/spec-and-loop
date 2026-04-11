@@ -11,7 +11,16 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { render, _elapsed, _detectStruggles, _formatToolUsage, _formatErrorPreview, _latestCommitAnomaly } = require('../../../lib/mini-ralph/status');
+const {
+  render,
+  _elapsed,
+  _detectStruggles,
+  _formatToolUsage,
+  _formatErrorPreview,
+  _latestCommitAnomaly,
+  _formatHistoryFailure,
+  _isFailedHistoryEntry,
+} = require('../../../lib/mini-ralph/status');
 const state = require('../../../lib/mini-ralph/state');
 const history = require('../../../lib/mini-ralph/history');
 const context = require('../../../lib/mini-ralph/context');
@@ -100,6 +109,33 @@ describe('_formatErrorPreview()', () => {
   test('bounds preview to 200 characters', () => {
     const preview = _formatErrorPreview({ stderr: 'x'.repeat(300), stdout: '' });
     expect(preview).toHaveLength(200);
+  });
+
+  test('includes signal and failure stage metadata in the preview', () => {
+    expect(_formatErrorPreview({
+      stderr: 'terminated by signal',
+      stdout: '',
+      signal: 'SIGTERM',
+      failureStage: 'invoke_contract',
+    })).toBe('signal SIGTERM | stage invoke_contract | terminated by signal');
+  });
+});
+
+describe('_formatHistoryFailure()', () => {
+  test('formats signal, failure stage, and exit code failures', () => {
+    expect(_formatHistoryFailure({ signal: 'SIGTERM' })).toBe('signal SIGTERM');
+    expect(_formatHistoryFailure({ signal: '', failureStage: 'prompt_render' })).toBe('stage prompt_render');
+    expect(_formatHistoryFailure({ signal: '', failureStage: '', exitCode: 7 })).toBe('exit code 7');
+    expect(_formatHistoryFailure({ signal: '', failureStage: '', exitCode: 0 })).toBe('');
+  });
+});
+
+describe('_isFailedHistoryEntry()', () => {
+  test('treats signal and failure-stage entries as failures', () => {
+    expect(_isFailedHistoryEntry({ exitCode: 0, signal: 'SIGTERM', failureStage: '' })).toBe(true);
+    expect(_isFailedHistoryEntry({ exitCode: null, signal: '', failureStage: 'prompt_render' })).toBe(true);
+    expect(_isFailedHistoryEntry({ exitCode: 1, signal: '', failureStage: '' })).toBe(true);
+    expect(_isFailedHistoryEntry({ exitCode: 0, signal: '', failureStage: '' })).toBe(false);
   });
 });
 
@@ -511,6 +547,41 @@ describe('render()', () => {
     expect(output).toContain('[COMPLETE]');
   });
 
+  test('shows failure summaries for signal and fatal-stage history entries', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 2,
+      maxIterations: 5,
+      startedAt: new Date().toISOString(),
+    });
+    history.append(ralphDir, {
+      iteration: 1,
+      duration: 1200,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: null,
+      signal: 'SIGTERM',
+      failureStage: '',
+    });
+    history.append(ralphDir, {
+      iteration: 2,
+      duration: 250,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: null,
+      signal: '',
+      failureStage: 'prompt_render',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('failure: signal SIGTERM');
+    expect(output).toContain('failure: stage prompt_render');
+  });
+
   test('surfaces the latest commit anomaly in status and recent history', () => {
     state.init(ralphDir, {
       active: false,
@@ -693,7 +764,41 @@ describe('render()', () => {
     const output = render(ralphDir);
     expect(output).toContain('Exit reason:   fatal_error');
     expect(output).toContain('Iteration 4');
+    expect(output).toContain('failure: stage prompt_render');
+    expect(output).toContain('Most recent: stage prompt_render | template expansion failed');
     expect(output).toContain('template expansion failed');
+  });
+
+  test('keeps delimiter-like error text intact while surfacing signal metadata', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 3,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+    });
+    history.append(ralphDir, {
+      iteration: 3,
+      duration: 900,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: null,
+      signal: 'SIGTERM',
+      failureStage: '',
+    });
+    errors.append(ralphDir, {
+      iteration: 3,
+      task: '3.1 Surface signal failures',
+      signal: 'SIGTERM',
+      stderr: '---\n### stdout\nliteral delimiter',
+      stdout: '',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('Errors: 1');
+    expect(output).toContain('Most recent: signal SIGTERM | ---');
+    expect(output).toContain('failure: signal SIGTERM');
   });
 
   test('uses stdout preview when latest stderr is empty', () => {

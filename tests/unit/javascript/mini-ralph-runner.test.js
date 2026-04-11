@@ -625,6 +625,24 @@ describe('_buildIterationFeedback()', () => {
     expect(feedback).toContain('stdout: some output');
   });
 
+  test('includes signal and failure-stage metadata in failed iteration feedback', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 2, exitCode: null, signal: 'SIGTERM', filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 3, exitCode: null, signal: '', failureStage: 'prompt_render', filesChanged: [], completionDetected: false, taskDetected: false },
+    ], [
+      { iteration: 2, stderr: '---\n### stdout\nterminated by signal', stdout: 'partial output', signal: 'SIGTERM', failureStage: '' },
+      { iteration: 3, stderr: 'template expansion failed', stdout: '', signal: '', failureStage: 'prompt_render' },
+    ]);
+
+    expect(feedback).toContain('Iteration 2: opencode exited via signal SIGTERM');
+    expect(feedback).toContain('signal: SIGTERM');
+    expect(feedback).toContain('---');
+    expect(feedback).toContain('stdout: partial output');
+    expect(feedback).toContain('Iteration 3: iteration aborted during prompt_render');
+    expect(feedback).toContain('failure stage: prompt_render');
+    expect(feedback).toContain('template expansion failed');
+  });
+
   test('does not include error output when no matching error entry exists', () => {
     const feedback = _buildIterationFeedback([
       { iteration: 5, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
@@ -746,10 +764,14 @@ describe('_extractErrorForIteration()', () => {
     expect(_extractErrorForIteration(errorContent, 1)).toEqual({
       stderr: 'newer iteration one',
       stdout: 'latest stdout',
+      signal: '',
+      failureStage: '',
     });
     expect(_extractErrorForIteration(errorContent, 12)).toEqual({
       stderr: 'iteration twelve',
       stdout: '',
+      signal: '',
+      failureStage: '',
     });
   });
 
@@ -784,6 +806,26 @@ describe('_extractErrorForIteration()', () => {
     const result = _extractErrorForIteration(errorContent, 1);
     expect(result.stdout.length).toBe(503);
     expect(result.stdout.endsWith('...')).toBe(true);
+  });
+
+  test('preserves signal and failure stage metadata for matching iteration entries', () => {
+    const result = _extractErrorForIteration([
+      {
+        iteration: 4,
+        exitCode: null,
+        signal: 'SIGTERM',
+        failureStage: 'invoke_contract',
+        stderr: 'signal failure',
+        stdout: 'partial output',
+      },
+    ], 4);
+
+    expect(result).toEqual({
+      stderr: 'signal failure',
+      stdout: 'partial output',
+      signal: 'SIGTERM',
+      failureStage: 'invoke_contract',
+    });
   });
 });
 
@@ -1310,6 +1352,44 @@ describe('run() with mocked invoker', () => {
       await run(makeOptions({ maxIterations: 2, noCommit: true }));
       expect(prompts[1]).toContain('## Recent Loop Signals');
       expect(prompts[1]).toContain('Iteration 1: opencode exited with code 1');
+    } finally {
+      restore();
+    }
+  });
+
+  test('injects signal and fatal-stage diagnostics into follow-up iterations', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+
+      if (callCount === 1) {
+        return {
+          stdout: 'partial output',
+          stderr: '---\n### stdout\nterminated by signal',
+          exitCode: null,
+          signal: 'SIGTERM',
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      expect(prompts[1]).toContain('Iteration 1: opencode exited via signal SIGTERM');
+      expect(prompts[1]).toContain('signal: SIGTERM');
+      expect(prompts[1]).toContain('---');
+      expect(prompts[1]).toContain('stdout: partial output');
     } finally {
       restore();
     }

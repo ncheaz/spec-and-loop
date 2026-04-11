@@ -20,7 +20,7 @@
 
 ## 3. Observability and Regression Validation
 
-- [ ] 3.1 Update `lib/mini-ralph/status.js` and runner feedback assembly to surface signal- and failure-stage-aware parsed error data without regressing the current bounded previews and struggle indicators.
+- [x] 3.1 Update `lib/mini-ralph/status.js` and runner feedback assembly to surface signal- and failure-stage-aware parsed error data without regressing the current bounded previews and struggle indicators.
   - Verify by: run `npx jest --runInBand tests/unit/javascript/mini-ralph-runner.test.js tests/unit/javascript/mini-ralph-status.test.js` with cases for delimiter-like error text, signal failures, and fatal aborts.
   - Stop and hand off if: trustworthy status output requires changing the documented `ralph-run --status` sections instead of tightening the current sections.
 
