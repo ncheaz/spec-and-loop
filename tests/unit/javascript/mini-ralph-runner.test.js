@@ -40,6 +40,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.restoreAllMocks();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -776,6 +777,11 @@ describe('run() with mocked invoker', () => {
       expect(result.completed).toBe(false);
       expect(result.iterations).toBe(3);
       expect(result.exitReason).toBe('max_iterations');
+      const persistedState = state.read(path.join(tmpDir, '.ralph'));
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.completedAt).toBeNull();
+      expect(persistedState.stoppedAt).toBeTruthy();
+      expect(persistedState.exitReason).toBe('max_iterations');
     } finally {
       restore();
     }
@@ -798,6 +804,11 @@ describe('run() with mocked invoker', () => {
       expect(result.completed).toBe(true);
       expect(result.iterations).toBe(2);
       expect(result.exitReason).toBe('completion_promise');
+      const persistedState = state.read(path.join(tmpDir, '.ralph'));
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.completedAt).toBeTruthy();
+      expect(persistedState.stoppedAt).toBeNull();
+      expect(persistedState.exitReason).toBe('completion_promise');
     } finally {
       restore();
     }
@@ -839,6 +850,19 @@ describe('run() with mocked invoker', () => {
     } finally {
       restore();
     }
+  });
+
+  test('fatal invoker failure clears active state and records incomplete exit metadata', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const invokeSpy = jest.spyOn(invoker, 'invoke').mockRejectedValue(new Error('invoke exploded'));
+
+    await expect(run(makeOptions({ ralphDir, maxIterations: 1 }))).rejects.toThrow('invoke exploded');
+    const persistedState = state.read(ralphDir);
+    expect(persistedState.active).toBe(false);
+    expect(persistedState.completedAt).toBeNull();
+    expect(persistedState.stoppedAt).toBeTruthy();
+    expect(persistedState.exitReason).toBe('fatal_error');
+    expect(invokeSpy).toHaveBeenCalledTimes(1);
   });
 
   test('syncs the managed tasks symlink in tasks mode', async () => {

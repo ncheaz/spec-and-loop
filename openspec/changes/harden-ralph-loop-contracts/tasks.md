@@ -22,7 +22,7 @@
   - Verify by: unit coverage for live-lock rejection and stale-lock recovery behavior.
   - Stop and hand off if: reliable stale-lock detection requires unsupported OS-specific process inspection beyond documented Linux/macOS semantics.
 
-- [ ] 2.2 Separate completed and stopped state metadata so max-iteration and fatal-error exits clear `active` without writing false completion timestamps.
+- [x] 2.2 Separate completed and stopped state metadata so max-iteration and fatal-error exits clear `active` without writing false completion timestamps.
   - Done when: successful runs record completion metadata, incomplete runs record stop metadata and exit reason, and thrown prompt/invoker failures still leave the loop inactive.
   - Verify by: targeted runner/state/status tests for completion, max-iteration, and thrown-failure exits.
   - Stop and hand off if: existing validated behavior depends on incomplete runs retaining `completedAt` or staying marked active.

@@ -373,7 +373,26 @@ describe('render()', () => {
     });
     const output = render(ralphDir);
     expect(output).toContain('INACTIVE');
+    expect(output).toContain('Lifecycle:     completed');
     expect(output).toContain('Completed:');
+  });
+
+  test('shows stopped incomplete lifecycle, stop timestamp, and exit reason', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 5,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+      stoppedAt: '2026-04-11T12:34:56.000Z',
+      exitReason: 'max_iterations',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('INACTIVE');
+    expect(output).toContain('Lifecycle:     stopped (incomplete)');
+    expect(output).toContain('Stopped:       2026-04-11T12:34:56.000Z');
+    expect(output).toContain('Exit reason:   max_iterations');
+    expect(output).not.toContain('Completed:');
   });
 
   test('shows iteration and maxIterations', () => {

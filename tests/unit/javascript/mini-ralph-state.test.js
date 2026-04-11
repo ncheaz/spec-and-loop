@@ -117,6 +117,30 @@ describe('state.update()', () => {
     state.update(ralphDir, { foo: 'bar' });
     expect(fs.existsSync(ralphDir)).toBe(true);
   });
+
+  test('preserves explicit stopped and completion lifecycle fields', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    state.init(ralphDir, {
+      active: true,
+      iteration: 1,
+      completedAt: '2026-04-11T00:00:00.000Z',
+      stoppedAt: null,
+      exitReason: null,
+    });
+
+    state.update(ralphDir, {
+      active: false,
+      completedAt: null,
+      stoppedAt: '2026-04-11T01:00:00.000Z',
+      exitReason: 'max_iterations',
+    });
+
+    const result = state.read(ralphDir);
+    expect(result.active).toBe(false);
+    expect(result.completedAt).toBeNull();
+    expect(result.stoppedAt).toBe('2026-04-11T01:00:00.000Z');
+    expect(result.exitReason).toBe('max_iterations');
+  });
 });
 
 describe('state.remove()', () => {
