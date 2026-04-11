@@ -56,7 +56,7 @@
   - Verify by: manual doc review plus targeted assertions for setup/help output where automated coverage already exists.
   - Stop and hand off if: doc alignment uncovers a required CLI or platform support change beyond preserving the current Linux/macOS contract.
 
-- [ ] 4.2 Run focused JavaScript/Bash suites and the full regression pass needed to prove the change preserves the documented public surface on the current OS and across existing Linux/macOS-oriented paths.
+- [x] 4.2 Run focused JavaScript/Bash suites and the full regression pass needed to prove the change preserves the documented public surface on the current OS and across existing Linux/macOS-oriented paths.
   - Done when: targeted new tests pass, `npm test` stays green, and the change introduces no intentional breaking changes to the documented `ralph-run` interface.
   - Verify by: focused Jest/Bats commands during development, then final `npm test`.
   - Stop and hand off if: regression failures reveal unrelated pre-existing breakage outside this change's scope.
