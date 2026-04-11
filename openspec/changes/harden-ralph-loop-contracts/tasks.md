@@ -10,7 +10,7 @@
   - Verify by: `tests/unit/javascript/mini-ralph-runner-autocommit.test.js` plus new dirty-worktree coverage.
   - Stop and hand off if: safe per-iteration staging cannot be implemented without destructive git operations or widening the documented CLI surface.
 
-- [ ] 1.3 Protect OpenSpec source-of-truth artifacts from loop-managed commits and surface commit failures as operator-visible anomalies.
+- [x] 1.3 Protect OpenSpec source-of-truth artifacts from loop-managed commits and surface commit failures as operator-visible anomalies.
   - Done when: loop-managed commits warn or fail instead of silently including `proposal.md`, `design.md`, or `specs/**/spec.md`, and failed auto-commit attempts are visible in recent history and status.
   - Verify by: targeted runner/status tests for protected-artifact and commit-failure scenarios.
   - Stop and hand off if: artifact protection would block non-loop manual documentation edits outside the loop-managed commit path.

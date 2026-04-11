@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { render, _elapsed, _detectStruggles, _formatToolUsage, _formatErrorPreview } = require('../../../lib/mini-ralph/status');
+const { render, _elapsed, _detectStruggles, _formatToolUsage, _formatErrorPreview, _latestCommitAnomaly } = require('../../../lib/mini-ralph/status');
 const state = require('../../../lib/mini-ralph/state');
 const history = require('../../../lib/mini-ralph/history');
 const context = require('../../../lib/mini-ralph/context');
@@ -100,6 +100,20 @@ describe('_formatErrorPreview()', () => {
   test('bounds preview to 200 characters', () => {
     const preview = _formatErrorPreview({ stderr: 'x'.repeat(300), stdout: '' });
     expect(preview).toHaveLength(200);
+  });
+});
+
+describe('_latestCommitAnomaly()', () => {
+  test('returns the newest history entry with a commit anomaly', () => {
+    expect(_latestCommitAnomaly([
+      { iteration: 1, commitAnomaly: '' },
+      { iteration: 2, commitAnomaly: 'older anomaly' },
+      { iteration: 3, commitAnomaly: 'newest anomaly' },
+    ])).toEqual(expect.objectContaining({ iteration: 3 }));
+  });
+
+  test('returns null when recent history has no commit anomaly', () => {
+    expect(_latestCommitAnomaly([{ iteration: 1, commitAnomaly: '' }])).toBeNull();
   });
 });
 
@@ -440,6 +454,30 @@ describe('render()', () => {
     expect(output).toContain('[TASK]');
     expect(output).toContain('Iteration 2');
     expect(output).toContain('[COMPLETE]');
+  });
+
+  test('surfaces the latest commit anomaly in status and recent history', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 2,
+      maxIterations: 5,
+      startedAt: new Date().toISOString(),
+    });
+    history.append(ralphDir, {
+      iteration: 1,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: true,
+      toolUsage: [],
+      filesChanged: ['a.js'],
+      exitCode: 0,
+      commitAnomaly: 'Auto-commit failed: simulated commit failure',
+      commitAnomalyType: 'commit_failed',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('Commit issue:  Auto-commit failed: simulated commit failure');
+    expect(output).toContain('commit: Auto-commit failed: simulated commit failure');
   });
 
   test('shows task progress when tasksFile is provided and readable', () => {

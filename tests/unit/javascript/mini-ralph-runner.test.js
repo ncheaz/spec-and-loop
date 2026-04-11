@@ -22,6 +22,8 @@ const {
   _buildIterationFeedback,
   _extractErrorForIteration,
   _getCurrentTaskDescription,
+  _detectProtectedCommitArtifacts,
+  _gitErrorMessage,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -454,6 +456,47 @@ describe('_buildAutoCommitAllowlist()', () => {
         tasksFile
       ).sort()
     ).toEqual(['openspec/change/tasks.md', 'src/current.js']);
+  });
+});
+
+describe('_detectProtectedCommitArtifacts()', () => {
+  test('detects protected proposal, design, and spec artifacts for the active change', () => {
+    const tasksFile = path.join(process.cwd(), 'openspec/changes/demo/tasks.md');
+
+    expect(
+      _detectProtectedCommitArtifacts([
+        'openspec/changes/demo/tasks.md',
+        'openspec/changes/demo/proposal.md',
+        'openspec/changes/demo/design.md',
+        'openspec/changes/demo/specs/demo/spec.md',
+        'src/app.js',
+      ], tasksFile)
+    ).toEqual([
+      'openspec/changes/demo/proposal.md',
+      'openspec/changes/demo/design.md',
+      'openspec/changes/demo/specs/demo/spec.md',
+    ]);
+  });
+
+  test('returns empty for unrelated paths or missing tasks file context', () => {
+    expect(
+      _detectProtectedCommitArtifacts(['openspec/changes/demo/proposal.md'], null)
+    ).toEqual([]);
+
+    expect(
+      _detectProtectedCommitArtifacts([
+        'openspec/changes/other/specs/demo/spec.md',
+        'src/app.js',
+      ], path.join(process.cwd(), 'openspec/changes/demo/tasks.md'))
+    ).toEqual([]);
+  });
+});
+
+describe('_gitErrorMessage()', () => {
+  test('prefers stderr, then stdout, then message', () => {
+    expect(_gitErrorMessage({ stderr: Buffer.from('stderr detail\n'), stdout: 'stdout detail', message: 'fallback' })).toBe('stderr detail');
+    expect(_gitErrorMessage({ stderr: '', stdout: 'stdout detail', message: 'fallback' })).toBe('stdout detail');
+    expect(_gitErrorMessage(new Error('fallback'))).toBe('fallback');
   });
 });
 
@@ -1005,6 +1048,81 @@ describe('run() with mocked invoker', () => {
       expect(prompts[1]).toContain('Iteration 1: opencode exited with code 1');
     } finally {
       restore();
+    }
+  });
+
+  test('records protected-artifact auto-commit anomalies in history', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'openspec', 'changes', 'demo', 'tasks.md');
+    fs.mkdirSync(path.dirname(tasksFile), { recursive: true });
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [
+          path.join(tmpDir, 'openspec', 'changes', 'demo', 'proposal.md'),
+          path.join(tmpDir, 'src', 'app.js'),
+        ],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitAnomalyType).toBe('protected_artifacts');
+      expect(entries[0].commitAnomaly).toContain('protected OpenSpec artifacts');
+      expect(entries[0].protectedArtifacts).toEqual(['openspec/changes/demo/proposal.md']);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('protected OpenSpec artifacts'));
+    } finally {
+      restore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  test('records failed auto-commit anomalies in history', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return 'tasks.md\nsrc/app.js\n';
+      if (command === 'git' && args[0] === 'commit') throw new Error('simulated commit failure');
+      return '';
+    });
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [path.join(tmpDir, 'src', 'app.js')],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitAttempted).toBe(true);
+      expect(entries[0].commitCreated).toBe(false);
+      expect(entries[0].commitAnomalyType).toBe('commit_failed');
+      expect(entries[0].commitAnomaly).toContain('simulated commit failure');
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('simulated commit failure'));
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
     }
   });
 
