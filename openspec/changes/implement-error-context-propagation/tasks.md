@@ -15,7 +15,7 @@
 
 ## 4. Status Dashboard Enhancement
 
-- [ ] 4.1 Add error summary to `status.js render()`. Import `errors` module. Between the recent history and struggle indicators sections, add an `--- Error History ---` section that appears only when `.ralph/errors.md` exists: show the count of error entries and a preview (first 200 characters) of the most recent error. Write tests in `tests/unit/javascript/mini-ralph-status.test.js` for: error summary shown when errors exist, no error section when errors file absent. All existing status tests must pass unchanged.
+- [x] 4.1 Add error summary to `status.js render()`. Import `errors` module. Between the recent history and struggle indicators sections, add an `--- Error History ---` section that appears only when `.ralph/errors.md` exists: show the count of error entries and a preview (first 200 characters) of the most recent error. Write tests in `tests/unit/javascript/mini-ralph-status.test.js` for: error summary shown when errors exist, no error section when errors file absent. All existing status tests must pass unchanged.
   - Done when: `npx jest tests/unit/javascript/mini-ralph-status.test.js --verbose` passes with new tests green and all existing tests green.
 
 ## 5. Final Integration
