@@ -14,5 +14,5 @@
 
 ## 3. Regression Validation
 
-- [ ] 3.1 Run the full regression suite and confirm the hardening pass preserves the documented external surface.
+- [x] 3.1 Run the full regression suite and confirm the hardening pass preserves the documented external surface.
   - Done when: `npm test` passes and the change introduces no new dependencies, CLI flags, or `.ralph/errors.md` format changes.
