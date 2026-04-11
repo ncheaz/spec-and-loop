@@ -105,6 +105,11 @@ cat openspec/changes/add-hello-world/.ralph/PRD.md
 ralph-run --status
 ```
 
+`PRD.md` is a loop-start snapshot of `proposal.md`, `design.md`, and
+`specs/*/spec.md`. During the run, `ralph-run` keeps refreshing `tasks.md`,
+recent loop signals, and pending injected context each iteration, but it does
+not regenerate `PRD.md` on every pass.
+
 ## Common Commands
 
 ### OpenSpec Commands

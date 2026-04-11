@@ -259,16 +259,26 @@ integration coverage.
 #### P17 — Prompt sources and templating
 
 `lib/mini-ralph/prompt.js:33-53` — `loadBase()` supports both inline
-`promptText` and file-based `promptFile` loading.  `prompt.js:64-101` —
-`render()` applies `promptTemplate` substitution for `{{iteration}}`,
-`{{max_iterations}}`, `{{tasks}}`, `{{task_context}}`, `{{task_promise}}`,
-`{{completion_promise}}`, and `{{context}}`.
+`promptText` and file-based `promptFile` loading. `prompt.js` now exposes that
+underlying content explicitly as `{{base_prompt}}` when a prompt template is
+used, so template-mode output includes the wrapped prompt body rather than
+silently dropping it. `render()` also applies `promptTemplate` substitution for
+`{{iteration}}`, `{{max_iterations}}`, `{{tasks}}`, `{{task_context}}`,
+`{{task_promise}}`, `{{completion_promise}}`, and `{{context}}`.
 `scripts/ralph-run.sh:735-843` — `create_prompt_template()` writes
-`prompt-template.md` embedding all template variables.
+`prompt-template.md` embedding all template variables, including an explicit
+invocation-time PRD snapshot section.
 `tests/unit/javascript/mini-ralph-prompt.test.js` — `_renderTemplate()` suite
 (lines 30–69) and `render()` suite (lines 104–217) cover all variables.
 `tests/unit/bash/test-create-prompt-template.bats` confirms each placeholder is
 present in the generated template.
+
+The freshness contract is intentionally narrower than a full per-iteration PRD
+rebuild: `scripts/ralph-run.sh:968-979` writes `.ralph/PRD.md` before the loop
+starts, while `lib/mini-ralph/prompt.js` and `lib/mini-ralph/tasks.js` refresh
+task-derived context on each iteration. Documentation should therefore describe
+`.ralph/PRD.md` as an invocation-time snapshot, not as a file regenerated on
+every pass.
 
 #### P18 — `ralph-run` as the sole documented end-user interface
 

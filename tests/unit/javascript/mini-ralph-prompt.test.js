@@ -111,9 +111,8 @@ describe('render()', () => {
     const templateFile = path.join(tmpDir, 'template.md');
     fs.writeFileSync(
       templateFile,
-      'Iteration {{iteration}} of {{max_iterations}}. Prompt: {{prompt}}'
+      'Iteration {{iteration}} of {{max_iterations}}. Base: {{base_prompt}}. Prompt: {{prompt}}'
     );
-    // `prompt` is not a built-in var — should be left intact
     const result = render(
       {
         promptText: 'Do the task.',
@@ -125,7 +124,26 @@ describe('render()', () => {
       2
     );
     expect(result).toContain('Iteration 2 of 10');
+    expect(result).toContain('Base: Do the task.');
     expect(result).toContain('{{prompt}}'); // unknown var stays intact
+  });
+
+  test('includes the base prompt content when rendering a template around promptFile input', () => {
+    const promptFile = path.join(tmpDir, 'prompt.md');
+    const templateFile = path.join(tmpDir, 'template.md');
+    fs.writeFileSync(promptFile, '# Product Requirements Document\n\nSnapshot body');
+    fs.writeFileSync(templateFile, 'Snapshot:\n{{base_prompt}}');
+
+    const result = render(
+      {
+        promptFile,
+        promptTemplate: templateFile,
+      },
+      1
+    );
+
+    expect(result).toContain('# Product Requirements Document');
+    expect(result).toContain('Snapshot body');
   });
 
   test('injects tasks content when tasksFile is present', () => {

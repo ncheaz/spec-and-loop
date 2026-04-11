@@ -176,6 +176,27 @@ teardown() {
   rm -rf "$test_dir"
 }
 
+@test "create_prompt_template: includes explicit base prompt snapshot section" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  cd "$test_dir" || return 1
+
+  local change_dir="$test_dir/openspec/changes/test-change"
+  local template_file="$test_dir/template.txt"
+
+  mkdir -p "$change_dir/specs"
+
+  run create_prompt_template "$change_dir" "$template_file"
+
+  [ "$status" -eq 0 ]
+
+  grep -q "## Invocation-Time PRD Snapshot" "$template_file"
+  grep -q "{{base_prompt}}" "$template_file"
+
+  cd - > /dev/null
+  rm -rf "$test_dir"
+}
+
 @test "create_prompt_template: includes instructions section" {
   local test_dir
   test_dir=$(setup_test_dir)

@@ -183,7 +183,7 @@ describe('prompt helpers', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     const templateFile = path.join(tmpDir, 'template.md');
     fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [ ] 1.2 Next task\n');
-    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{tasks}}\n{{task_context}}\n{{task_promise}} {{completion_promise}} {{change_dir}} {{context}}');
+    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{base_prompt}}\n{{tasks}}\n{{task_context}}\n{{task_promise}} {{completion_promise}} {{change_dir}} {{context}}');
 
     const rendered = prompt.render({
       promptText: 'Base prompt',
@@ -196,6 +196,7 @@ describe('prompt helpers', () => {
     }, 3);
 
     expect(rendered).toContain('Iter 3/7');
+    expect(rendered).toContain('Base prompt');
     expect(rendered).toContain('- [x] 1.1 Done task');
     expect(rendered).toContain('## Current Task');
     expect(rendered).toContain('READY DONE /tmp/change');

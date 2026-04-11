@@ -317,14 +317,18 @@ The important repo-specific points are:
 
 - `ralph-run` uses an internal mini Ralph runtime rather than depending on an
   external `ralph` binary
-- each loop regenerates `.ralph/PRD.md` from `proposal.md`, `design.md`, and
-  `specs/**/spec.md`
+- each `ralph-run` invocation generates `.ralph/PRD.md` once from
+  `proposal.md`, `design.md`, and `specs/**/spec.md`
 - the runtime also appends fresh task context and recent loop signals
 - `tasks.md` remains the source of truth for execution state
 - `.ralph/` stores transient runtime state, history, errors, output capture, and
   optional injected context
 - `--status`, `--add-context`, and `--clear-context` are part of the operational
   model for steering the loop without rewriting the whole harness
+
+Within that run, the PRD is a snapshot. The loop keeps re-reading `tasks.md`,
+recent signals, and pending context each iteration, but it does not regenerate
+`.ralph/PRD.md` on every pass.
 
 So the current repo model is:
 

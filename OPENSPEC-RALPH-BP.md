@@ -25,14 +25,19 @@ core lessons are the same:
 Before writing tasks, it helps to remember what the loop actually does.
 
 - Each iteration starts with fresh model context.
-- `ralph-run` regenerates `.ralph/PRD.md` from `proposal.md`, `design.md`, and
-  `specs/**/spec.md`.
+- `ralph-run` generates `.ralph/PRD.md` once at loop start from `proposal.md`,
+  `design.md`, and `specs/**/spec.md`.
 - The runtime appends fresh task context and recent loop signals.
 - `tasks.md` is the source of truth for execution state.
 - `.ralph/ralph-tasks.md` is a symlink back to `tasks.md`.
 - `.ralph/` stores transient runtime state, history, pending context, and error
   output. It is not the product source of truth.
 - The loop is happiest when one iteration can complete one task and prove it.
+
+Within a single run, treat `.ralph/PRD.md` as an invocation-time snapshot rather
+than a live mirror of the OpenSpec artifacts. Freshness during later iterations
+comes from the live `tasks.md` read, recent loop signals, and any pending
+injected context.
 
 The question to keep asking is:
 

@@ -757,6 +757,10 @@ Include full context from openspec artifacts in {{change_dir}}:
 - Read {{change_dir}}/design.md for the technical design approach
 - Read {{change_dir}}/specs/*/spec.md for the detailed specifications
 
+## Invocation-Time PRD Snapshot
+
+{{base_prompt}}
+
 ## Task List
 
 {{tasks}}

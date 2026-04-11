@@ -44,7 +44,7 @@
   - Verify by: `tests/unit/javascript/mini-ralph-status.test.js` plus new status render cases.
   - Stop and hand off if: the necessary status changes would break a documented stable interface beyond this repository's own maintained surfaces.
 
-- [ ] 3.3 Make template-mode prompt rendering explicitly include the base prompt content and document the invocation-time PRD snapshot contract.
+- [x] 3.3 Make template-mode prompt rendering explicitly include the base prompt content and document the invocation-time PRD snapshot contract.
   - Done when: template rendering has an explicit base-prompt variable/section, tests prove the combined prompt contract, and docs stop claiming freshness guarantees the runtime does not actually provide.
   - Verify by: `tests/unit/javascript/mini-ralph-prompt.test.js`, `tests/unit/bash/test-create-prompt-template.bats`, and related documentation assertions.
   - Stop and hand off if: including the base prompt correctly requires per-iteration PRD regeneration or a broader prompt architecture redesign.

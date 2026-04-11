@@ -346,6 +346,10 @@ ralph-run --verbose --change my-feature
 cat openspec/changes/my-feature/.ralph/PRD.md
 ```
 
+`PRD.md` is generated once when `ralph-run` starts and reused for the rest of
+that run. Per-iteration freshness comes from re-reading `tasks.md`, recent loop
+signals, and any pending `--add-context` injection.
+
 ### Review Loop Output
 
 ```bash
@@ -379,7 +383,7 @@ This package integrates:
 ### Context Propagation
 
 Each task execution includes:
-- **OpenSpec artifacts**: Proposal, design, and spec content from the generated PRD
+- **Invocation-time PRD snapshot**: Proposal, design, and spec content captured in `.ralph/PRD.md` when the current `ralph-run` invocation starts
 - **Fresh task snapshot**: Raw `tasks.md` content plus the current task and completed-task summary rendered each iteration
 - **Recent loop signals**: Compact reminders about prior failed or no-progress iterations
 - **Pending context**: Any `--add-context` injection
@@ -404,7 +408,7 @@ openspec/changes/<name>/
 │   └── api/
 │       └── spec.md
 └── .ralph/              # Internal loop state (auto-generated, per change)
-    ├── PRD.md                    # Generated product requirements document
+    ├── PRD.md                    # Generated prompt snapshot from loop start
     ├── prompt-template.md       # Template used for generating prompts
     ├── ralph-history.json       # Iteration history and state
     ├── ralph-loop.state.json    # Current loop state and iteration count
