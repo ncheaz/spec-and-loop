@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { render, _elapsed, _detectStruggles, _formatToolUsage, _formatErrorPreview } = require('../../../lib/mini-ralph/status');
+const { render, _elapsed, _detectStruggles, _formatToolUsage, _formatErrorPreview, _latestCommitAnomaly } = require('../../../lib/mini-ralph/status');
 const state = require('../../../lib/mini-ralph/state');
 const history = require('../../../lib/mini-ralph/history');
 const context = require('../../../lib/mini-ralph/context');
@@ -103,6 +103,20 @@ describe('_formatErrorPreview()', () => {
   });
 });
 
+describe('_latestCommitAnomaly()', () => {
+  test('returns the newest history entry with a commit anomaly', () => {
+    expect(_latestCommitAnomaly([
+      { iteration: 1, commitAnomaly: '' },
+      { iteration: 2, commitAnomaly: 'older anomaly' },
+      { iteration: 3, commitAnomaly: 'newest anomaly' },
+    ])).toEqual(expect.objectContaining({ iteration: 3 }));
+  });
+
+  test('returns null when recent history has no commit anomaly', () => {
+    expect(_latestCommitAnomaly([{ iteration: 1, commitAnomaly: '' }])).toBeNull();
+  });
+});
+
 describe('tasks helpers', () => {
   test('parseTasks extracts statuses and descriptions', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
@@ -169,7 +183,7 @@ describe('prompt helpers', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     const templateFile = path.join(tmpDir, 'template.md');
     fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [ ] 1.2 Next task\n');
-    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{tasks}}\n{{task_context}}\n{{task_promise}} {{completion_promise}} {{change_dir}} {{context}}');
+    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{base_prompt}}\n{{tasks}}\n{{task_context}}\n{{task_promise}} {{completion_promise}} {{change_dir}} {{context}}');
 
     const rendered = prompt.render({
       promptText: 'Base prompt',
@@ -182,6 +196,7 @@ describe('prompt helpers', () => {
     }, 3);
 
     expect(rendered).toContain('Iter 3/7');
+    expect(rendered).toContain('Base prompt');
     expect(rendered).toContain('- [x] 1.1 Done task');
     expect(rendered).toContain('## Current Task');
     expect(rendered).toContain('READY DONE /tmp/change');
@@ -293,22 +308,39 @@ describe('_detectStruggles()', () => {
     expect(warnings.some((w) => w.includes('No file changes'))).toBe(false);
   });
 
-  test('detects repeated errors when 2 or more non-zero exit codes', () => {
+  test('detects repeated errors when recent failures share the same error signature', () => {
     const entries = [
-      { filesChanged: [], exitCode: 1 },
-      { filesChanged: [], exitCode: 1 },
+      { iteration: 3, filesChanged: [], exitCode: 1 },
+      { iteration: 4, filesChanged: [], exitCode: 1 },
     ];
-    const warnings = _detectStruggles(entries);
-    expect(warnings.some((w) => w.includes('exited with errors'))).toBe(true);
+    const warnings = _detectStruggles(entries, [
+      { iteration: 3, stderr: 'TypeError: Cannot read properties of undefined at foo (/tmp/a.js:10:5)', stdout: '' },
+      { iteration: 4, stderr: 'TypeError: Cannot read properties of undefined at foo (/tmp/b.js:20:9)', stdout: '' },
+    ]);
+    expect(warnings.some((w) => w.includes('Repeated error detected'))).toBe(true);
   });
 
-  test('does not flag errors for a single non-zero exit code', () => {
+  test('does not flag repeated errors for distinct failures', () => {
     const entries = [
-      { filesChanged: ['x.js'], exitCode: 0 },
-      { filesChanged: [], exitCode: 1 },
+      { iteration: 3, filesChanged: [], exitCode: 1 },
+      { iteration: 4, filesChanged: [], exitCode: 1 },
     ];
-    const warnings = _detectStruggles(entries);
-    expect(warnings.some((w) => w.includes('exited with errors'))).toBe(false);
+    const warnings = _detectStruggles(entries, [
+      { iteration: 3, stderr: 'TypeError: Cannot read properties of undefined', stdout: '' },
+      { iteration: 4, stderr: 'ReferenceError: handler is not defined', stdout: '' },
+    ]);
+    expect(warnings.some((w) => w.includes('Repeated error detected'))).toBe(false);
+  });
+
+  test('does not flag repeated errors for a single non-zero exit code', () => {
+    const entries = [
+      { iteration: 3, filesChanged: ['x.js'], exitCode: 0 },
+      { iteration: 4, filesChanged: [], exitCode: 1 },
+    ];
+    const warnings = _detectStruggles(entries, [
+      { iteration: 4, stderr: 'TypeError: Cannot read properties of undefined', stdout: '' },
+    ]);
+    expect(warnings.some((w) => w.includes('Repeated error detected'))).toBe(false);
   });
 });
 
@@ -359,7 +391,44 @@ describe('render()', () => {
     });
     const output = render(ralphDir);
     expect(output).toContain('INACTIVE');
+    expect(output).toContain('Lifecycle:     completed');
     expect(output).toContain('Completed:');
+    expect(output).not.toContain('Stopped:');
+  });
+
+  test('shows stopped incomplete lifecycle, stop timestamp, and exit reason', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 5,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+      stoppedAt: '2026-04-11T12:34:56.000Z',
+      exitReason: 'max_iterations',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('INACTIVE');
+    expect(output).toContain('Lifecycle:     stopped (incomplete)');
+    expect(output).toContain('Stopped:       2026-04-11T12:34:56.000Z');
+    expect(output).toContain('Exit reason:   max_iterations');
+    expect(output).not.toContain('Completed:');
+  });
+
+  test('prefers completed lifecycle over stale stopped metadata', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 7,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+      completedAt: '2026-04-11T12:35:56.000Z',
+      stoppedAt: '2026-04-11T12:34:56.000Z',
+      exitReason: 'completion_promise',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('Lifecycle:     completed');
+    expect(output).toContain('Completed:     2026-04-11T12:35:56.000Z');
+    expect(output).not.toContain('Stopped:       2026-04-11T12:34:56.000Z');
   });
 
   test('shows iteration and maxIterations', () => {
@@ -442,6 +511,30 @@ describe('render()', () => {
     expect(output).toContain('[COMPLETE]');
   });
 
+  test('surfaces the latest commit anomaly in status and recent history', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 2,
+      maxIterations: 5,
+      startedAt: new Date().toISOString(),
+    });
+    history.append(ralphDir, {
+      iteration: 1,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: true,
+      toolUsage: [],
+      filesChanged: ['a.js'],
+      exitCode: 0,
+      commitAnomaly: 'Auto-commit failed: simulated commit failure',
+      commitAnomalyType: 'commit_failed',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('Commit issue:  Auto-commit failed: simulated commit failure');
+    expect(output).toContain('commit: Auto-commit failed: simulated commit failure');
+  });
+
   test('shows task progress when tasksFile is provided and readable', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     fs.writeFileSync(
@@ -483,6 +576,46 @@ describe('render()', () => {
     const output = render(ralphDir);
     expect(output).toContain('Struggle Indicators');
     expect(output).toContain('No file changes');
+  });
+
+  test('does not show no-progress warning when a meaningful dirty-file change exists in the recent window', () => {
+    state.init(ralphDir, {
+      active: true,
+      iteration: 3,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+    });
+
+    history.append(ralphDir, {
+      iteration: 1,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: 0,
+    });
+    history.append(ralphDir, {
+      iteration: 2,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: true,
+      toolUsage: [],
+      filesChanged: ['already-dirty.js'],
+      exitCode: 0,
+    });
+    history.append(ralphDir, {
+      iteration: 3,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: 0,
+    });
+
+    const output = render(ralphDir);
+    expect(output).not.toContain('No file changes detected');
   });
 
   test('shows error summary when errors exist', () => {

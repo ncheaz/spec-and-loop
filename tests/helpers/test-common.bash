@@ -16,6 +16,29 @@ detect_os() {
   fi
 }
 
+# Skip a Bats test (or setup_file hook) unless it is running on the
+# expected platform. This keeps platform-specific suites visible in the
+# output while preventing cross-platform failures.
+skip_unless_os() {
+  local expected_os="$1"
+  local actual_os
+  actual_os=$(detect_os)
+
+  if [[ "$actual_os" != "$expected_os" ]]; then
+    skip "Test is ${expected_os}-specific, running on ${actual_os}"
+  fi
+}
+
+# Set the script-level OS variable used by sourced bash helpers to the
+# current runtime platform. Skip if the platform is unknown.
+set_script_os_to_current() {
+  OS=$(detect_os)
+
+  if [[ "$OS" == "Unknown" ]]; then
+    skip "Unsupported test OS: $OS"
+  fi
+}
+
 get_test_temp_root() {
   local temp_root="${TMPDIR:-/tmp}"
   temp_root="${temp_root%/}"
@@ -302,6 +325,8 @@ assert_symlink_target() {
 
 # Export all functions for use in Bats tests
 export -f detect_os
+export -f skip_unless_os
+export -f set_script_os_to_current
 export -f get_test_temp_root
 export -f setup_test_dir
 export -f cleanup_test_dir

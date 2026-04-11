@@ -17,10 +17,13 @@ const {
   _validateOptions,
   _resolveStartIteration,
   _completedTaskDelta,
+  _buildAutoCommitAllowlist,
   _formatAutoCommitMessage,
   _buildIterationFeedback,
   _extractErrorForIteration,
   _getCurrentTaskDescription,
+  _detectProtectedCommitArtifacts,
+  _gitErrorMessage,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -37,6 +40,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.restoreAllMocks();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -53,6 +57,10 @@ describe('_containsPromise()', () => {
     expect(
       _containsPromise('some output\n<promise>READY_FOR_NEXT_TASK</promise>\nmore', 'READY_FOR_NEXT_TASK')
     ).toBe(true);
+  });
+
+  test('returns true for a standalone promise line with surrounding whitespace', () => {
+    expect(_containsPromise('  \t<promise>COMPLETE</promise>  ', 'COMPLETE')).toBe(true);
   });
 
   test('returns false when promise tag is absent', () => {
@@ -77,6 +85,22 @@ describe('_containsPromise()', () => {
 
   test('is case-sensitive', () => {
     expect(_containsPromise('<promise>complete</promise>', 'COMPLETE')).toBe(false);
+  });
+
+  test('returns false when the promise tag is quoted in prose', () => {
+    expect(_containsPromise('Write `<promise>COMPLETE</promise>` when you finish.', 'COMPLETE')).toBe(false);
+  });
+
+  test('returns false when the promise tag appears in explanatory text', () => {
+    expect(
+      _containsPromise('The control line is <promise>COMPLETE</promise> once all tasks are done.', 'COMPLETE')
+    ).toBe(false);
+  });
+
+  test('returns false when the promise tag appears in diff-like output', () => {
+    expect(
+      _containsPromise('+ <promise>COMPLETE</promise>\n- <promise>READY_FOR_NEXT_TASK</promise>', 'COMPLETE')
+    ).toBe(false);
   });
 });
 
@@ -112,14 +136,24 @@ describe('invoker helpers', () => {
     expect(invokerHelpers._extractToolUsage('')).toEqual([]);
   });
 
-  test('_diffSnapshots reports added and removed files', () => {
-    const pre = new Set(['a.js', 'b.js']);
-    const post = new Set(['b.js', 'c.js']);
-    expect(invokerHelpers._diffSnapshots(pre, post).sort()).toEqual(['a.js', 'c.js']);
+  test('_diffSnapshots reports added, removed, and re-fingerprinted files', () => {
+    const pre = new Map([
+      ['a.js', 'file:before-a'],
+      ['b.js', 'file:before-b'],
+    ]);
+    const post = new Map([
+      ['b.js', 'file:after-b'],
+      ['c.js', 'file:new-c'],
+    ]);
+    expect(invokerHelpers._diffSnapshots(pre, post)).toEqual(['a.js', 'b.js', 'c.js']);
   });
 
-  test('_gitSnapshot returns tracked changes and falls back to empty set on git errors', () => {
+  test('_gitSnapshot returns tracked changes with fingerprints and falls back to empty map on git errors', () => {
     jest.resetModules();
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    fs.mkdirSync(path.join(tmpDir, 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'lib', 'file.js'), 'tracked change\n', 'utf8');
+    fs.writeFileSync(path.join(tmpDir, 'new-file.js'), 'new file\n', 'utf8');
     jest.doMock('child_process', () => ({
       spawn: jest.fn(),
       execFileSync: jest.fn()
@@ -129,9 +163,10 @@ describe('invoker helpers', () => {
 
     const isolatedInvoker = require('../../../lib/mini-ralph/invoker');
 
-    expect(Array.from(isolatedInvoker._gitSnapshot()).sort()).toEqual(['lib/file.js', 'new-file.js']);
+    expect(Array.from(isolatedInvoker._gitSnapshot().keys()).sort()).toEqual(['lib/file.js', 'new-file.js']);
     expect(Array.from(isolatedInvoker._gitSnapshot())).toEqual([]);
 
+    cwdSpy.mockRestore();
     jest.dontMock('child_process');
   });
 
@@ -401,6 +436,99 @@ describe('_completedTaskDelta()', () => {
     ];
 
     expect(_completedTaskDelta(before, after)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _buildAutoCommitAllowlist
+// ---------------------------------------------------------------------------
+
+describe('_buildAutoCommitAllowlist()', () => {
+  test('includes current iteration files and the completed task-state update', () => {
+    const tasksFile = path.join(process.cwd(), 'openspec/change/tasks.md');
+
+    expect(
+      _buildAutoCommitAllowlist(
+        ['src/app.js', 'openspec/change/tasks.md'],
+        [{ number: '1.2', description: 'Task', fullDescription: '1.2 Task', status: 'completed' }],
+        tasksFile
+      ).sort()
+    ).toEqual(['openspec/change/tasks.md', 'src/app.js']);
+  });
+
+  test('adds tasks file even if invoker did not report it in filesChanged', () => {
+    const tasksFile = path.join(process.cwd(), 'openspec/change/tasks.md');
+
+    expect(
+      _buildAutoCommitAllowlist(
+        ['src/app.js'],
+        [{ number: '1.2', description: 'Task', fullDescription: '1.2 Task', status: 'completed' }],
+        tasksFile
+      ).sort()
+    ).toEqual(['openspec/change/tasks.md', 'src/app.js']);
+  });
+
+  test('ignores files outside the current repo', () => {
+    expect(
+      _buildAutoCommitAllowlist(
+        ['/tmp/outside.txt', 'src/app.js'],
+        [{ number: '1.2', description: 'Task', fullDescription: '1.2 Task', status: 'completed' }],
+        '/tmp/outside-tasks.md'
+      )
+    ).toEqual(['src/app.js']);
+  });
+
+  test('excludes unrelated dirty worktree files not attributed to the iteration', () => {
+    const tasksFile = path.join(process.cwd(), 'openspec/change/tasks.md');
+
+    expect(
+      _buildAutoCommitAllowlist(
+        ['src/current.js'],
+        [{ number: '1.2', description: 'Task', fullDescription: '1.2 Task', status: 'completed' }],
+        tasksFile
+      ).sort()
+    ).toEqual(['openspec/change/tasks.md', 'src/current.js']);
+  });
+});
+
+describe('_detectProtectedCommitArtifacts()', () => {
+  test('detects protected proposal, design, and spec artifacts for the active change', () => {
+    const tasksFile = path.join(process.cwd(), 'openspec/changes/demo/tasks.md');
+
+    expect(
+      _detectProtectedCommitArtifacts([
+        'openspec/changes/demo/tasks.md',
+        'openspec/changes/demo/proposal.md',
+        'openspec/changes/demo/design.md',
+        'openspec/changes/demo/specs/demo/spec.md',
+        'src/app.js',
+      ], tasksFile)
+    ).toEqual([
+      'openspec/changes/demo/proposal.md',
+      'openspec/changes/demo/design.md',
+      'openspec/changes/demo/specs/demo/spec.md',
+    ]);
+  });
+
+  test('returns empty for unrelated paths or missing tasks file context', () => {
+    expect(
+      _detectProtectedCommitArtifacts(['openspec/changes/demo/proposal.md'], null)
+    ).toEqual([]);
+
+    expect(
+      _detectProtectedCommitArtifacts([
+        'openspec/changes/other/specs/demo/spec.md',
+        'src/app.js',
+      ], path.join(process.cwd(), 'openspec/changes/demo/tasks.md'))
+    ).toEqual([]);
+  });
+});
+
+describe('_gitErrorMessage()', () => {
+  test('prefers stderr, then stdout, then message', () => {
+    expect(_gitErrorMessage({ stderr: Buffer.from('stderr detail\n'), stdout: 'stdout detail', message: 'fallback' })).toBe('stderr detail');
+    expect(_gitErrorMessage({ stderr: '', stdout: 'stdout detail', message: 'fallback' })).toBe('stdout detail');
+    expect(_gitErrorMessage(new Error('fallback'))).toBe('fallback');
   });
 });
 
@@ -680,6 +808,11 @@ describe('run() with mocked invoker', () => {
       expect(result.completed).toBe(false);
       expect(result.iterations).toBe(3);
       expect(result.exitReason).toBe('max_iterations');
+      const persistedState = state.read(path.join(tmpDir, '.ralph'));
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.completedAt).toBeNull();
+      expect(persistedState.stoppedAt).toBeTruthy();
+      expect(persistedState.exitReason).toBe('max_iterations');
     } finally {
       restore();
     }
@@ -702,6 +835,11 @@ describe('run() with mocked invoker', () => {
       expect(result.completed).toBe(true);
       expect(result.iterations).toBe(2);
       expect(result.exitReason).toBe('completion_promise');
+      const persistedState = state.read(path.join(tmpDir, '.ralph'));
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.completedAt).toBeTruthy();
+      expect(persistedState.stoppedAt).toBeNull();
+      expect(persistedState.exitReason).toBe('completion_promise');
     } finally {
       restore();
     }
@@ -743,6 +881,19 @@ describe('run() with mocked invoker', () => {
     } finally {
       restore();
     }
+  });
+
+  test('fatal invoker failure clears active state and records incomplete exit metadata', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const invokeSpy = jest.spyOn(invoker, 'invoke').mockRejectedValue(new Error('invoke exploded'));
+
+    await expect(run(makeOptions({ ralphDir, maxIterations: 1 }))).rejects.toThrow('invoke exploded');
+    const persistedState = state.read(ralphDir);
+    expect(persistedState.active).toBe(false);
+    expect(persistedState.completedAt).toBeNull();
+    expect(persistedState.stoppedAt).toBeTruthy();
+    expect(persistedState.exitReason).toBe('fatal_error');
+    expect(invokeSpy).toHaveBeenCalledTimes(1);
   });
 
   test('syncs the managed tasks symlink in tasks mode', async () => {
@@ -807,6 +958,36 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('records meaningful changes when an already-dirty file changes during the iteration', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 3.1 Track dirty file fingerprints\n', 'utf8');
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 3.1 Track dirty file fingerprints\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: ['src/already-dirty.js', 'src/new-file.js', 'src/deleted-file.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1, noCommit: true }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].filesChanged).toEqual([
+        'src/already-dirty.js',
+        'src/new-file.js',
+        'src/deleted-file.js',
+      ]);
+      expect(entries[0].completedTasks).toEqual(['3.1 Track dirty file fingerprints']);
+    } finally {
+      restore();
+    }
+  });
+
   test('injects pending context into prompt', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     fs.mkdirSync(ralphDir, { recursive: true });
@@ -822,6 +1003,51 @@ describe('run() with mocked invoker', () => {
       await run(makeOptions({ ralphDir, maxIterations: 1 }));
       expect(prompts[0]).toContain('extra guidance here');
       expect(prompts[0]).toContain('Injected Context');
+    } finally {
+      restore();
+    }
+  });
+
+  test('renders the default runner-owned commit contract into the invoked prompt', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const templateFile = path.join(tmpDir, 'template.md');
+    fs.writeFileSync(templateFile, '{{base_prompt}}\n{{commit_contract}}', 'utf8');
+
+    const prompts = [];
+    const restore = mockInvoker(invoker, async (opts) => {
+      prompts.push(opts.prompt);
+      return { stdout: '<promise>COMPLETE</promise>', exitCode: 0, filesChanged: [], toolUsage: [] };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, promptTemplate: templateFile, maxIterations: 1 }));
+      expect(prompts[0]).toContain('Do the thing.');
+      expect(prompts[0]).toContain('Do not create git commits yourself');
+      expect(prompts[0]).toContain('Ralph runner manages automatic task commits');
+      expect(prompts[0]).not.toContain('Create a git commit');
+    } finally {
+      restore();
+    }
+  });
+
+  test('renders an explicit no-commit contract into the invoked prompt', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const templateFile = path.join(tmpDir, 'template.md');
+    fs.writeFileSync(templateFile, '{{base_prompt}}\n{{commit_contract}}', 'utf8');
+
+    const prompts = [];
+    const restore = mockInvoker(invoker, async (opts) => {
+      prompts.push(opts.prompt);
+      return { stdout: '<promise>COMPLETE</promise>', exitCode: 0, filesChanged: [], toolUsage: [] };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, promptTemplate: templateFile, maxIterations: 1, noCommit: true }));
+      expect(prompts[0]).toContain('Do the thing.');
+      expect(prompts[0]).toContain('Do not create, amend, or finalize git commits in this run');
+      expect(prompts[0]).toContain('`--no-commit` is active');
+      expect(prompts[0]).toContain('Do not run `git add` or `git commit`');
+      expect(prompts[0]).not.toContain('The Ralph runner manages automatic task commits');
     } finally {
       restore();
     }
@@ -879,6 +1105,43 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('ignores quoted and diff-like promise mentions until a standalone control line appears', async () => {
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+
+      if (callCount === 1) {
+        return {
+          stdout: [
+            'Document the promise tag `<promise>COMPLETE</promise>` in the README.',
+            'diff --git a/file b/file',
+            '+ <promise>COMPLETE</promise>',
+            'The completion line is <promise>COMPLETE</promise> when all work is done.',
+          ].join('\n'),
+          exitCode: 0,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+
+      return {
+        stdout: '  <promise>COMPLETE</promise>  ',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({ maxIterations: 5 }));
+      expect(result.completed).toBe(true);
+      expect(result.iterations).toBe(2);
+      expect(result.exitReason).toBe('completion_promise');
+    } finally {
+      restore();
+    }
+  });
+
   test('injects recent loop signals into follow-up iterations', async () => {
     const prompts = [];
     let callCount = 0;
@@ -909,6 +1172,81 @@ describe('run() with mocked invoker', () => {
       expect(prompts[1]).toContain('Iteration 1: opencode exited with code 1');
     } finally {
       restore();
+    }
+  });
+
+  test('records protected-artifact auto-commit anomalies in history', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'openspec', 'changes', 'demo', 'tasks.md');
+    fs.mkdirSync(path.dirname(tasksFile), { recursive: true });
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [
+          path.join(tmpDir, 'openspec', 'changes', 'demo', 'proposal.md'),
+          path.join(tmpDir, 'src', 'app.js'),
+        ],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitAnomalyType).toBe('protected_artifacts');
+      expect(entries[0].commitAnomaly).toContain('protected OpenSpec artifacts');
+      expect(entries[0].protectedArtifacts).toEqual(['openspec/changes/demo/proposal.md']);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('protected OpenSpec artifacts'));
+    } finally {
+      restore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  test('records failed auto-commit anomalies in history', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return 'tasks.md\nsrc/app.js\n';
+      if (command === 'git' && args[0] === 'commit') throw new Error('simulated commit failure');
+      return '';
+    });
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [path.join(tmpDir, 'src', 'app.js')],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitAttempted).toBe(true);
+      expect(entries[0].commitCreated).toBe(false);
+      expect(entries[0].commitAnomalyType).toBe('commit_failed');
+      expect(entries[0].commitAnomaly).toContain('simulated commit failure');
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('simulated commit failure'));
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
     }
   });
 
@@ -954,6 +1292,67 @@ describe('run() with mocked invoker', () => {
     } finally {
       restore();
       stderrSpy.mockRestore();
+    }
+  });
+
+  test('rejects a second live loop before mutating state', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(
+      state.lockPath(ralphDir),
+      JSON.stringify({ pid: 42424, acquiredAt: '2026-01-01T00:00:00.000Z' }, null, 2),
+      'utf8'
+    );
+
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true);
+    const promptSpy = jest.spyOn(require('../../../lib/mini-ralph/prompt'), 'render');
+    const invokeSpy = jest.spyOn(invoker, 'invoke');
+
+    try {
+      await expect(run(makeOptions({ ralphDir, maxIterations: 1 }))).rejects.toThrow(/already active/);
+      expect(state.read(ralphDir)).toBeNull();
+      expect(promptSpy).not.toHaveBeenCalled();
+      expect(invokeSpy).not.toHaveBeenCalled();
+      expect(state.readRunLock(ralphDir)).toMatchObject({ pid: 42424 });
+    } finally {
+      killSpy.mockRestore();
+      promptSpy.mockRestore();
+      invokeSpy.mockRestore();
+    }
+  });
+
+  test('recovers a stale lock and releases the replacement after the run', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(
+      state.lockPath(ralphDir),
+      JSON.stringify({ pid: 42424, acquiredAt: '2026-01-01T00:00:00.000Z' }, null, 2),
+      'utf8'
+    );
+
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation((pid) => {
+      if (pid === 42424) {
+        const err = new Error('no such process');
+        err.code = 'ESRCH';
+        throw err;
+      }
+      return true;
+    });
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+      expect(result.completed).toBe(true);
+      expect(state.read(ralphDir).active).toBe(false);
+      expect(fs.existsSync(state.lockPath(ralphDir))).toBe(false);
+    } finally {
+      restore();
+      killSpy.mockRestore();
     }
   });
 

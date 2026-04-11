@@ -4,6 +4,7 @@ describe('runner._autoCommit()', () => {
   let execFileSync;
   let runner;
   let stderrSpy;
+  let cwdSpy;
 
   const completedTask = {
     number: '1.1',
@@ -21,6 +22,7 @@ describe('runner._autoCommit()', () => {
 
     runner = require('../../../lib/mini-ralph/runner');
     stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue('/repo');
   });
 
   afterEach(() => {
@@ -36,6 +38,19 @@ describe('runner._autoCommit()', () => {
     );
   });
 
+  test('skips when there are no iteration files to stage', () => {
+    runner._autoCommit(2, {
+      completedTasks: [completedTask],
+      filesToStage: [],
+      verbose: true,
+    });
+
+    expect(execFileSync).not.toHaveBeenCalled();
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('no iteration files to stage')
+    );
+  });
+
   test('skips when nothing is staged after git add', () => {
     execFileSync.mockImplementation((command, args) => {
       if (command === 'git' && args[0] === 'diff') {
@@ -44,11 +59,15 @@ describe('runner._autoCommit()', () => {
       return '';
     });
 
-    runner._autoCommit(2, { completedTasks: [completedTask], verbose: true });
+    runner._autoCommit(2, {
+      completedTasks: [completedTask],
+      filesToStage: ['tasks.md', 'src/app.js'],
+      verbose: true,
+    });
 
     expect(execFileSync).toHaveBeenCalledWith(
       'git',
-      ['add', '-A'],
+      ['add', '--', 'tasks.md', 'src/app.js'],
       expect.any(Object)
     );
     expect(execFileSync).toHaveBeenCalledWith(
@@ -70,12 +89,16 @@ describe('runner._autoCommit()', () => {
       return '';
     });
 
-    runner._autoCommit(5, { completedTasks: [completedTask], verbose: false });
+    const result = runner._autoCommit(5, {
+      completedTasks: [completedTask],
+      filesToStage: ['tasks.md', 'src/app.js'],
+      verbose: false,
+    });
 
     expect(execFileSync).toHaveBeenNthCalledWith(
       1,
       'git',
-      ['add', '-A'],
+      ['add', '--', 'tasks.md', 'src/app.js'],
       expect.any(Object)
     );
     expect(execFileSync).toHaveBeenNthCalledWith(
@@ -88,9 +111,10 @@ describe('runner._autoCommit()', () => {
     expect(execFileSync.mock.calls[2][1][0]).toBe('commit');
     expect(execFileSync.mock.calls[2][1][2]).toContain('Ralph iteration 5: Implement feature');
     expect(execFileSync.mock.calls[2][1][2]).toContain('- [x] 1.1 Implement feature');
+    expect(result).toEqual({ attempted: true, committed: true, anomaly: null });
   });
 
-  test('logs and swallows commit failures', () => {
+  test('returns a commit anomaly when git commit fails', () => {
     execFileSync.mockImplementation((command, args) => {
       if (command === 'git' && args[0] === 'add') {
         return '';
@@ -101,12 +125,74 @@ describe('runner._autoCommit()', () => {
       throw new Error('commit failed');
     });
 
-    expect(() => {
-      runner._autoCommit(3, { completedTasks: [completedTask], verbose: true });
-    }).not.toThrow();
+    const result = runner._autoCommit(3, {
+      completedTasks: [completedTask],
+      filesToStage: ['tasks.md'],
+      verbose: true,
+    });
 
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('commit failed')
+      expect.stringContaining('Auto-commit failed: commit failed')
     );
+    expect(result).toEqual({
+      attempted: true,
+      committed: false,
+      anomaly: {
+        type: 'commit_failed',
+        message: 'Auto-commit failed: commit failed',
+      },
+    });
+  });
+
+  test('stages only the provided allowlist', () => {
+    execFileSync.mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'diff') {
+        return 'tasks.md\nsrc/app.js\n';
+      }
+      return '';
+    });
+
+    runner._autoCommit(6, {
+      completedTasks: [completedTask],
+      filesToStage: ['tasks.md', 'src/app.js'],
+      verbose: false,
+    });
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      'git',
+      ['add', '--', 'tasks.md', 'src/app.js'],
+      expect.any(Object)
+    );
+    expect(execFileSync).not.toHaveBeenCalledWith(
+      'git',
+      ['add', '-A'],
+      expect.any(Object)
+    );
+  });
+
+  test('blocks protected OpenSpec artifacts from loop-managed commits', () => {
+    const result = runner._autoCommit(6, {
+      completedTasks: [completedTask],
+      filesToStage: [
+        'openspec/changes/demo/tasks.md',
+        'openspec/changes/demo/proposal.md',
+        'src/app.js',
+      ],
+      tasksFile: '/repo/openspec/changes/demo/tasks.md',
+      verbose: false,
+    });
+
+    expect(execFileSync).not.toHaveBeenCalled();
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('cannot include protected OpenSpec artifacts')
+    );
+    expect(result).toEqual({
+      attempted: true,
+      committed: false,
+      anomaly: expect.objectContaining({
+        type: 'protected_artifacts',
+        protectedArtifacts: ['openspec/changes/demo/proposal.md'],
+      }),
+    });
   });
 });

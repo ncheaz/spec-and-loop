@@ -6,28 +6,29 @@ OpenSpec + Ralph Loop integration for iterative development with opencode.
 ![Coverage](https://img.shields.io/badge/coverage-0%25-red)
 [![npm version](https://badge.fury.io/js/spec-and-loop.svg)](https://badge.fury.io/js/spec-and-loop.svg)
 
-**Version:** spec-and-loop 2.0.0 + OpenSpec 1.2.0
-
 **[Quick Start Guide](./QUICKSTART.md)** - Get up and running in 5 minutes!
 
 ## Why This Exists
 
-OpenSpec provides excellent structure for planning (proposal → specs → design → tasks) but leaves execution manual. This package provides an iterative development loop — execute → commit → repeat — driven by an internal mini Ralph implementation that works with OpenCode and eliminates the need for any external Ralph runtime.
+OpenSpec provides excellent structure for planning (proposal → specs → design → tasks) but leaves execution manual. This package provides an iterative development loop driven by an internal mini Ralph implementation that works with OpenCode and eliminates the need for any external Ralph runtime. When auto-commit is enabled, the runner owns task commits; when `--no-commit` is enabled, the prompt contract and runtime both leave changes uncommitted.
 
-The runtime prompt is self-contained: it does not depend on Cursor-only slash commands or editor-local skills.
+The runtime prompt is self-contained: it does not depend on Cursor-only slash
+commands or editor-local skills.
 
-**Version Requirements:** This documentation applies to OpenSpec 1.2.0 and spec-and-loop 2.0.0.
+Examples below assume current published releases of `spec-and-loop`,
+`@fission-ai/openspec`, and `opencode-ai`. `Node.js >=24` is required.
+The supported OS contract is Linux and macOS.
 
 ## Installation
 
 ```bash
-npm install -g spec-and-loop@2.0.0
+npm install -g spec-and-loop
 ```
 
 **Prerequisites:** You need OpenSpec and the OpenCode AI agent installed:
 
 ```bash
-npm install -g @fission-ai/openspec@1.2.0 opencode-ai
+npm install -g @fission-ai/openspec opencode-ai
 ```
 
 Alternative OpenCode install methods:
@@ -63,8 +64,6 @@ For detailed step-by-step instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 ## Testing
 
-*Testing suite for spec-and-loop 2.0.0*
-
 Spec-and-loop includes a comprehensive test suite to ensure reliability and cross-platform compatibility.
 
 **[Testing Guide](./TESTING.md)** - Detailed instructions for running tests
@@ -98,8 +97,6 @@ All tests are run automatically via GitHub Actions on every push and pull reques
 
 ## Prerequisites
 
-*Required for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
-
 Before using spec-and-loop, ensure you have:
 
  1. **Node.js** - For package installation (requires >=24.0.0)
@@ -107,9 +104,9 @@ Before using spec-and-loop, ensure you have:
     node --version  # Should be >=24.0.0
     ```
 
- 2. **openspec** - OpenSpec CLI for specification workflow (requires 1.2.0)
+ 2. **openspec** - OpenSpec CLI for specification workflow
     ```bash
-    npm install -g @fission-ai/openspec@1.2.0
+    npm install -g @fission-ai/openspec
     ```
 
 3. **opencode** - Agentic coding assistant
@@ -135,13 +132,15 @@ For complete installation instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 ## Commands
 
-*Documentation applies to OpenSpec 1.2.0 and spec-and-loop 2.0.0*
-
 ### OpenSpec Commands
 
 - `openspec init` - Initialize OpenSpec in current directory
 - `openspec new change <name>` - Create a new change with artifact templates
-- `openspec --help` - View all available commands and their syntax
+- `openspec list` - List active changes
+- `openspec status --change <name>` - Show artifact completion status for a change
+- `openspec show <item-name>` - Display a change or spec in detail
+- `openspec validate <item-name>` - Validate a change or spec
+- `openspec archive <change-name>` - Archive a completed change
 
 ### Ralph Loop Commands
 
@@ -162,8 +161,6 @@ OBSERVABILITY AND CONTROL:
 ```
 
 ## How It Works
-
-*Workflow for OpenSpec 1.2.0 + spec-and-loop 2.0.0*
 
 ### Step 1: Create Spec with OpenSpec
 
@@ -201,11 +198,12 @@ ralph-run --change my-feature
 2. **PRD Generation**: Converts proposal + specs + design → PRD format for internal use
 3. **Setup**: Creates .ralph directory, syncs tasks symlink, and sets up output capture
 4. **Task Execution**: For each incomplete task:
-   - Generates context-rich prompt (full OpenSpec artifacts + a fresh task snapshot + recent loop signals)
+   - Generates a context-rich prompt from the invocation-time PRD snapshot plus a fresh task snapshot and recent loop signals
    - Runs `opencode` with the prompt via the internal mini Ralph engine
    - Captures output to temp directory for review and debugging
    - Logs any errors to `.ralph/errors.md` with timestamps
-   - Creates git commit with task description (unless `--no-commit`)
+   - Expects standalone control lines: `<promise>READY_FOR_NEXT_TASK</promise>` for task completion and `<promise>COMPLETE</promise>` when all tasks are done
+   - Creates a runner-managed git commit for task-scoped changes when auto-commit is enabled; if the commit is blocked or fails, the anomaly is recorded in history and surfaced by `--status`
    - Marks task complete in tasks.md
 5. **Cleanup**: Automatically removes old output directories (older than 7 days)
 6. **Completion**: All tasks done
@@ -227,8 +225,6 @@ ralph-run --add-context "Prefer async/await over callbacks"
 ```
 
 ## Example Workflow
-
-*Example workflow for OpenSpec 1.2.0 and spec-and-loop 2.0.0*
 
 ```bash
 # 1. Initialize OpenSpec in your project
@@ -264,7 +260,7 @@ git diff HEAD~15   # See full implementation
 | **Agentic Execution** | opencode executes tasks with full context |
 | **Iterative Loop** | Each task builds on previous commits |
 | **Iteration Feedback** | Recent failures and no-progress iterations inform the next pass |
-| **Granular History** | One git commit per task |
+| **Granular History** | Runner-managed commit per completed task when auto-commit succeeds |
 | **Auto-Resume** | Interrupted? Run again — picks up where left off |
 | **Context Injection** | `--add-context` injects guidance into the next iteration |
 | **Loop Status** | `--status` shows active state, history, and struggle indicators |
@@ -274,8 +270,6 @@ git diff HEAD~15   # See full implementation
 | **No External Ralph** | Self-contained mini Ralph engine — no external `ralph` CLI needed |
 
 ## Features
-
-*Features available in spec-and-loop 2.0.0 with OpenSpec 1.2.0*
 
 ### Mini Ralph Loop Engine
 
@@ -313,8 +307,6 @@ this repository's OpenSpec-first workflow (multi-agent rotation, plugin toggles,
 
 ## Advanced Usage
 
-*Advanced features for spec-and-loop 2.0.0*
-
 ### Context Injection
 
 Inject custom instructions into the next iteration:
@@ -336,7 +328,7 @@ ralph-run --status
 ```
 
 Shows: active loop state, current task, prompt summary, pending context, iteration history,
-and struggle indicators if the loop appears stuck.
+and struggle indicators if the loop appears stuck. Inactive runs are distinguished as completed or stopped-incomplete, and the latest unresolved auto-commit anomaly is shown when present.
 
 ### No-Commit Mode
 
@@ -345,6 +337,8 @@ Run without automatic git commits (useful for reviewing changes before committin
 ```bash
 ralph-run --change my-feature --no-commit
 ```
+
+In this mode the runner does not create commits, and the rendered prompt explicitly forbids the agent from running `git add` or `git commit`.
 
 ### Verbose Mode
 
@@ -358,6 +352,17 @@ ralph-run --verbose --change my-feature
 
 ```bash
 cat openspec/changes/my-feature/.ralph/PRD.md
+```
+
+`PRD.md` is generated once when `ralph-run` starts and reused for the rest of
+that run. Per-iteration freshness comes from re-reading `tasks.md`, recent loop
+signals, and any pending `--add-context` injection.
+
+If you customize the prompt template, preserve the standalone promise-line contract so only literal control lines advance the loop:
+
+```text
+<promise>READY_FOR_NEXT_TASK</promise>
+<promise>COMPLETE</promise>
 ```
 
 ### Review Loop Output
@@ -385,8 +390,6 @@ ls openspec/changes/my-feature/.ralph/errors_*.md
 
 ## Architecture
 
-*Architecture for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
-
 This package integrates:
 - **OpenSpec**: Structured specification workflow
 - **opencode**: Agentic coding assistant for task execution
@@ -395,7 +398,7 @@ This package integrates:
 ### Context Propagation
 
 Each task execution includes:
-- **OpenSpec artifacts**: Proposal, design, and spec content from the generated PRD
+- **Invocation-time PRD snapshot**: Proposal, design, and spec content captured in `.ralph/PRD.md` when the current `ralph-run` invocation starts
 - **Fresh task snapshot**: Raw `tasks.md` content plus the current task and completed-task summary rendered each iteration
 - **Recent loop signals**: Compact reminders about prior failed or no-progress iterations
 - **Pending context**: Any `--add-context` injection
@@ -420,7 +423,7 @@ openspec/changes/<name>/
 │   └── api/
 │       └── spec.md
 └── .ralph/              # Internal loop state (auto-generated, per change)
-    ├── PRD.md                    # Generated product requirements document
+    ├── PRD.md                    # Generated prompt snapshot from loop start
     ├── prompt-template.md       # Template used for generating prompts
     ├── ralph-history.json       # Iteration history and state
     ├── ralph-loop.state.json    # Current loop state and iteration count
@@ -439,9 +442,7 @@ openspec/changes/<name>/
 
 ### Cross-Platform Support
 
-*Cross-platform support verified for spec-and-loop 2.0.0*
-
-`spec-and-loop` is designed to work seamlessly on both Linux and macOS. The script includes portable implementations for:
+`spec-and-loop` is designed to work on both Linux and macOS. The script includes portable implementations for:
 
 - **File modification times**: Uses `stat -f %m` on macOS and `stat -c %Y` on Linux
 - **MD5 hashing**: Supports both `md5sum` (Linux) and `md5 -q` (macOS)
@@ -449,11 +450,9 @@ openspec/changes/<name>/
 - **Temp directories**: Uses `TMPDIR` environment variable or `/tmp` as fallback
 - **Cleanup**: Portable `find` and `rm` operations for old output directories
 
-All features work identically on both platforms without requiring platform-specific configuration.
+Windows is not currently part of the supported runtime contract.
 
 ## Troubleshooting
-
-*Troubleshooting guide for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
 
 For common issues and solutions, see [QUICKSTART.md#troubleshooting](./QUICKSTART.md#troubleshooting).
 
@@ -477,6 +476,9 @@ export PATH="$PATH:$(npm root -g)/.bin"
 
 - [OpenSpec](https://openspec.ai) - Structured specification workflow
 - [opencode](https://opencode.ai) - Agentic coding assistant
+- [Ralph-Friendly OpenSpec Best Practices](./OPENSPEC-RALPH-BP.md) - How to author loop-safe artifacts and tasks
+- [OpenSpec + Ralph Wiggum BOTW](./OPENSPEC-RALPH-WIGGUM-BOTW.md) - Strengths, tradeoffs, and best-fit guidance
+- [Ralph Methodology Assessment](./RALPH-METHODOLOGY-ASSESSMENT.md) - Repository-specific methodology review
 
 ## License
 

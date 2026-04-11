@@ -1,6 +1,9 @@
 'use strict';
 
 const { EventEmitter } = require('events');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 describe('mini-ralph invoker', () => {
   let spawn;
@@ -8,6 +11,7 @@ describe('mini-ralph invoker', () => {
   let invoker;
   let stdoutSpy;
   let stderrSpy;
+  let tmpDir;
 
   function makeChildProcess({ stdout = '', stderr = '', exitCode = 0 }) {
     const child = new EventEmitter();
@@ -29,6 +33,7 @@ describe('mini-ralph invoker', () => {
 
   beforeEach(() => {
     jest.resetModules();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mini-ralph-invoker-'));
 
     spawn = jest.fn();
     execFileSync = jest.fn().mockReturnValue('');
@@ -45,6 +50,7 @@ describe('mini-ralph invoker', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   test('_looksLikeCliHelp detects the opencode help banner', () => {
@@ -168,10 +174,10 @@ describe('mini-ralph invoker', () => {
 
     spawn.mockReturnValue(
       makeChildProcess({
-        stdout,
-        exitCode: 0,
-      })
-    );
+      stdout,
+      exitCode: 0,
+    })
+  );
 
     await expect(
       invoker.invoke({
@@ -182,5 +188,45 @@ describe('mini-ralph invoker', () => {
       exitCode: 0,
       stdout,
     });
+  });
+
+  test('invoke fingerprints already-dirty, untouched dirty, deleted, and new untracked paths', async () => {
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const dirtyPath = path.join(tmpDir, 'dirty.js');
+    const untouchedPath = path.join(tmpDir, 'untouched.js');
+    const deletedPath = path.join(tmpDir, 'deleted.js');
+    const newPath = path.join(tmpDir, 'new.js');
+
+    fs.writeFileSync(dirtyPath, 'before\n', 'utf8');
+    fs.writeFileSync(untouchedPath, 'same\n', 'utf8');
+    fs.writeFileSync(deletedPath, 'remove me\n', 'utf8');
+
+    execFileSync
+      .mockReturnValueOnce(' M dirty.js\n M untouched.js\n M deleted.js\n')
+      .mockReturnValueOnce(' M dirty.js\n M untouched.js\n D deleted.js\n?? new.js\n');
+
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    spawn.mockReturnValue(child);
+
+    try {
+      const pending = invoker.invoke({
+        prompt: 'Do the work.',
+        ralphDir: path.join(tmpDir, '.ralph'),
+      });
+
+      fs.writeFileSync(dirtyPath, 'after\n', 'utf8');
+      fs.rmSync(deletedPath);
+      fs.writeFileSync(newPath, 'brand new\n', 'utf8');
+      child.emit('close', 0);
+
+      await expect(pending).resolves.toMatchObject({
+        exitCode: 0,
+        filesChanged: ['deleted.js', 'dirty.js', 'new.js'],
+      });
+    } finally {
+      cwdSpy.mockRestore();
+    }
   });
 });
