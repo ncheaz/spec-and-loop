@@ -6,28 +6,28 @@ OpenSpec + Ralph Loop integration for iterative development with opencode.
 ![Coverage](https://img.shields.io/badge/coverage-0%25-red)
 [![npm version](https://badge.fury.io/js/spec-and-loop.svg)](https://badge.fury.io/js/spec-and-loop.svg)
 
-**Version:** spec-and-loop 2.0.0 + OpenSpec 1.2.0
-
 **[Quick Start Guide](./QUICKSTART.md)** - Get up and running in 5 minutes!
 
 ## Why This Exists
 
 OpenSpec provides excellent structure for planning (proposal → specs → design → tasks) but leaves execution manual. This package provides an iterative development loop — execute → commit → repeat — driven by an internal mini Ralph implementation that works with OpenCode and eliminates the need for any external Ralph runtime.
 
-The runtime prompt is self-contained: it does not depend on Cursor-only slash commands or editor-local skills.
+The runtime prompt is self-contained: it does not depend on Cursor-only slash
+commands or editor-local skills.
 
-**Version Requirements:** This documentation applies to OpenSpec 1.2.0 and spec-and-loop 2.0.0.
+Examples below assume current published releases of `spec-and-loop`,
+`@fission-ai/openspec`, and `opencode-ai`. `Node.js >=24` is required.
 
 ## Installation
 
 ```bash
-npm install -g spec-and-loop@2.0.0
+npm install -g spec-and-loop
 ```
 
 **Prerequisites:** You need OpenSpec and the OpenCode AI agent installed:
 
 ```bash
-npm install -g @fission-ai/openspec@1.2.0 opencode-ai
+npm install -g @fission-ai/openspec opencode-ai
 ```
 
 Alternative OpenCode install methods:
@@ -63,8 +63,6 @@ For detailed step-by-step instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 ## Testing
 
-*Testing suite for spec-and-loop 2.0.0*
-
 Spec-and-loop includes a comprehensive test suite to ensure reliability and cross-platform compatibility.
 
 **[Testing Guide](./TESTING.md)** - Detailed instructions for running tests
@@ -98,8 +96,6 @@ All tests are run automatically via GitHub Actions on every push and pull reques
 
 ## Prerequisites
 
-*Required for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
-
 Before using spec-and-loop, ensure you have:
 
  1. **Node.js** - For package installation (requires >=24.0.0)
@@ -107,9 +103,9 @@ Before using spec-and-loop, ensure you have:
     node --version  # Should be >=24.0.0
     ```
 
- 2. **openspec** - OpenSpec CLI for specification workflow (requires 1.2.0)
+ 2. **openspec** - OpenSpec CLI for specification workflow
     ```bash
-    npm install -g @fission-ai/openspec@1.2.0
+    npm install -g @fission-ai/openspec
     ```
 
 3. **opencode** - Agentic coding assistant
@@ -134,8 +130,6 @@ Before using spec-and-loop, ensure you have:
 For complete installation instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 ## Commands
-
-*Documentation applies to OpenSpec 1.2.0 and spec-and-loop 2.0.0*
 
 ### OpenSpec Commands
 
@@ -162,8 +156,6 @@ OBSERVABILITY AND CONTROL:
 ```
 
 ## How It Works
-
-*Workflow for OpenSpec 1.2.0 + spec-and-loop 2.0.0*
 
 ### Step 1: Create Spec with OpenSpec
 
@@ -228,8 +220,6 @@ ralph-run --add-context "Prefer async/await over callbacks"
 
 ## Example Workflow
 
-*Example workflow for OpenSpec 1.2.0 and spec-and-loop 2.0.0*
-
 ```bash
 # 1. Initialize OpenSpec in your project
 cd my-web-app
@@ -275,8 +265,6 @@ git diff HEAD~15   # See full implementation
 
 ## Features
 
-*Features available in spec-and-loop 2.0.0 with OpenSpec 1.2.0*
-
 ### Mini Ralph Loop Engine
 
 `spec-and-loop` includes a first-party mini Ralph implementation (`lib/mini-ralph/`) that
@@ -312,8 +300,6 @@ this repository's OpenSpec-first workflow (multi-agent rotation, plugin toggles,
 - **Idempotent**: Run multiple times safely
 
 ## Advanced Usage
-
-*Advanced features for spec-and-loop 2.0.0*
 
 ### Context Injection
 
@@ -385,8 +371,6 @@ ls openspec/changes/my-feature/.ralph/errors_*.md
 
 ## Architecture
 
-*Architecture for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
-
 This package integrates:
 - **OpenSpec**: Structured specification workflow
 - **opencode**: Agentic coding assistant for task execution
@@ -439,8 +423,6 @@ openspec/changes/<name>/
 
 ### Cross-Platform Support
 
-*Cross-platform support verified for spec-and-loop 2.0.0*
-
 `spec-and-loop` is designed to work seamlessly on both Linux and macOS. The script includes portable implementations for:
 
 - **File modification times**: Uses `stat -f %m` on macOS and `stat -c %Y` on Linux
@@ -452,8 +434,6 @@ openspec/changes/<name>/
 All features work identically on both platforms without requiring platform-specific configuration.
 
 ## Troubleshooting
-
-*Troubleshooting guide for spec-and-loop 2.0.0 with OpenSpec 1.2.0*
 
 For common issues and solutions, see [QUICKSTART.md#troubleshooting](./QUICKSTART.md#troubleshooting).
 

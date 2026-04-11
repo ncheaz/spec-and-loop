@@ -132,7 +132,7 @@ teardown() {
   local os
   os=$(detect_os)
   if [[ "$os" != "macOS" ]]; then
-    skip "Test is Linux-specific, running on $os"
+    skip "Test is macOS-specific, running on $os"
   fi
   
   create_git_repo

@@ -1,553 +1,491 @@
-# Writing Ralph-Friendly OpenSpec Proposals
+# Writing Ralph-Friendly OpenSpec Artifacts and Task Lists
 
 ## Purpose
 
-This note distills:
+This note explains how to author OpenSpec changes that run cleanly under
+`ralph-run` without getting stuck in a loop. The emphasis is on `tasks.md`, but
+safe tasks depend on good upstream artifacts:
 
-- prior Ralph-loop review work done in this repo
-- repo-local Ralph/OpenSpec guidance
-- external Ralph-style loop guidance from Anthropic, Geoffrey Huntley, and Ralph TUI docs
+- `proposal.md` defines why and boundaries
+- `design.md` settles important decisions
+- `specs/**/spec.md` defines required behavior
+- `tasks.md` translates that into loop-safe increments
 
-The goal is practical:
+Historical note: older Ralph guidance often assumed an external `ralph` CLI. In
+this repo the runtime is the internal mini Ralph engine plus `opencode`, but the
+core lessons are the same:
 
-- help write OpenSpec changes that are usable, thorough, and actionable
-- help those changes turn into good Ralph tasks and good loop instructions
-- reduce the chance that a fresh-session loop gets stuck on ambiguity, hidden policy, or missing verification
+- fresh-session execution
+- strong backpressure
+- one meaningful task per loop
+- durable artifacts on disk
 
-The original need behind this writeup was not just "make the spec better." It was:
+## The current execution model in this repo
 
-- make an OpenSpec change safe for a fresh-session autonomous loop
-- prevent the loop from getting stuck on ambiguity, rollout gates, or hidden policy choices
-- shape work into atomic but still worthwhile increments
-- preserve human/operator judgment where needed, but document it explicitly outside the loop
+Before writing tasks, it helps to remember what the loop actually does.
 
-In short, a "Ralph-friendly OpenSpec proposal" means the durable artifacts on disk, not chat history, carry enough intent and enough boundaries that a loop can make steady progress without inventing requirements.
+- Each iteration starts with fresh model context.
+- `ralph-run` regenerates `.ralph/PRD.md` from `proposal.md`, `design.md`, and
+  `specs/**/spec.md`.
+- The runtime appends fresh task context and recent loop signals.
+- `tasks.md` is the source of truth for execution state.
+- `.ralph/ralph-tasks.md` is a symlink back to `tasks.md`.
+- `.ralph/` stores transient runtime state, history, pending context, and error
+  output. It is not the product source of truth.
+- The loop is happiest when one iteration can complete one task and prove it.
 
-## The core idea
+The question to keep asking is:
 
-Ralph loops work because each iteration starts fresh, re-reads the prompt and repo state, and uses objective backpressure such as tests, typechecks, render checks, browser checks, or other validators.
+> Can a fresh-session agent read the artifacts, choose the next safe increment,
+> verify it objectively, and either finish honestly or stop honestly?
 
-That means the loop is only as good as the artifacts it reloads every time.
+If the answer is "not really," the change is not Ralph-friendly yet.
 
-The most important principle from that prior review work is this:
+## What "Ralph-friendly" means
 
-**Ralph does not want the smallest tasks. Ralph wants the coarsest task that is still unambiguous and objectively verifiable.**
-
-Another way to say it:
-
-- too broad: the agent has to make hidden design decisions and will thrash
-- too granular: the loop wastes iterations on bookkeeping and repeated context reload
-- best size: one coherent behavior slice, one main risk, one clear completion check
-
-## The authoring target
-
-When people say "proposal" in a Ralph/OpenSpec workflow, the loop usually depends on a package of artifacts, not one file.
-
-A good package looks like this:
-
-- `proposal.md`: why this change exists, what is in scope, what is out of scope
-- `design.md`: the important decisions the agent should not have to invent
-- `specs/**/spec.md`: the required behaviors and scenarios
-- `tasks.md`: the ordered execution plan
-- loop instructions or wrapper prompt: how Ralph loads context, verifies work, marks progress, and stops on blockers
-
-The right question is not "is the proposal detailed?" It is:
-
-**Can a fresh-session agent read the artifact set, pick the next safe increment, verify it, and either finish honestly or stop honestly?**
-
-## Lessons from prior Ralph-loop reviews
-
-The `tenant-scoped-content-versioning` example clarified several practical rules.
-
-### 1. Medium atomic tasks beat both vague tasks and micro-tasks
-
-The earlier task list had the worst of both worlds:
-
-- tiny mechanical subtasks that should have been done together
-- broad ambiguous tasks that still required design decisions
-
-The better version merged obvious same-file mechanical work and split only the tasks that still hid policy or control-flow decisions.
-
-### 2. Human handoffs must be documented, but not executed by the loop
-
-Stage rollout validation, signoff, or production-only checks are not good autonomous loop tasks.
-
-Best practice:
-
-- keep them in the artifacts
-- put them in a dedicated `Human Handoff` or `Operator Handoff` section
-- keep them outside the checkbox path the loop consumes
-
-Do not rely on "we discussed this in chat." The handoff must live in `proposal.md`, `design.md`, or a clearly marked non-loop section of `tasks.md`.
-
-### 3. Unresolved policy questions become loop churn
-
-Those prior reviews repeatedly found the same failure mode:
-
-- design says "reuse the current staged version for the same release cycle"
-- task says "validate critical failures"
-- deployment says something "may be shared or tenant-specific"
-
-Those phrases are acceptable in human planning, but bad for a Ralph loop. A fresh-session agent will treat them as missing decisions.
-
-Before running the loop, resolve or explicitly defer:
-
-- algorithms
-- fallback behavior
-- retention math
-- config shape
-- exact failure taxonomy
-- compatibility-window behavior
-
-### 4. Every wide task needs explicit "done when" signals
-
-Tasks became safer once wider items gained acceptance bullets such as:
-
-- what behavior changed
-- what file or artifact was updated
-- what command or check proves the task is done
-
-Verbs like `ensure`, `validate`, `keep`, or `support` are too soft on their own.
-
-### 5. Full OpenSpec context is better than raw task-file mode
-
-Repo guidance strongly favors `./scripts/ralph-run.sh tasks <change>` over raw `tasks.md` mode because `opsx-apply` reloads:
-
-- proposal
-- design
-- specs
-- tasks
-
-This is important: a task list can be shorter when the design/specs fully resolve the tricky decisions, but only if the loop actually reloads those artifacts each iteration.
-
-If you run raw `prd.json` or raw `tasks.md` mode, more detail must be pushed down into each item.
-
-## What "Ralph-friendly" means in practice
-
-A Ralph-friendly spec or task set has these properties:
-
-1. One loop item equals one coherent slice of behavior.
-2. "Done" is frozen up front and not negotiated mid-run.
+1. One checkbox equals one coherent slice of behavior.
+2. "Done" is defined before execution starts, not negotiated during the loop.
 3. Verification is explicit and runnable.
-4. The agent is not asked to choose product or rollout policy.
-5. Human-only checks are durable but excluded from autonomous execution.
-6. Repeated failure patterns can be corrected by editing the artifact, not by hoping the next session "remembers."
-7. The loop can stop honestly with a blocker rather than improvise.
+4. The task does not force the loop to invent product policy.
+5. Human-only work is durable but kept outside the autonomous checkbox path.
+6. If the loop struggles, the answer is usually better artifacts or better
+   checks, not more chat history.
 
-## A complete Ralph-friendly OpenSpec package
+## Where the truth should live
 
-To be genuinely usable in a loop, the artifact set should answer five different questions:
+### `proposal.md`
 
-### 1. Why are we doing this?
+Use `proposal.md` for:
 
-Handled in `proposal.md`:
+- why the change exists
+- scope and non-goals
+- first-rollout boundaries
+- follow-up or deferred work
+- operator, reviewer, or stakeholder handoffs
 
-- business or operator value
-- problem statement
-- scope
-- non-goals
-- rollout boundaries
+### `design.md`
 
-### 2. What exactly must be true when we are done?
+Use `design.md` for:
 
-Handled in `specs/**/spec.md`:
-
-- required behaviors
-- failure cases
-- scenarios
-- first-rollout versus deferred behavior
-
-### 3. How should the system behave internally?
-
-Handled in `design.md`:
-
-- algorithms
-- config shapes
+- algorithms and decision rules
+- config shape and allowed values
+- failure semantics and fallback behavior
+- compatibility and migration behavior
 - ownership boundaries
-- compatibility behavior
-- retention and cleanup semantics
-- handoff flow
+- exact human handoff flow where needed
 
-### 4. What is the next safe increment?
+### `specs/**/spec.md`
 
-Handled in `tasks.md`:
+Use specs for:
 
-- one coherent increment at a time
-- explicit ordering
-- objective completion checks
+- MUST/SHALL behavior
+- success and failure scenarios
+- observable outcomes
+- distinctions between first rollout and later follow-up work
+
+### `tasks.md`
+
+Use `tasks.md` for:
+
+- ordered execution plan
+- one coherent increment per checkbox
+- explicit verification
+- no hidden policy decisions
+
+## The main task-sizing rule
+
+Ralph does **not** want the smallest possible tasks.
+
+Ralph wants the **coarsest task that is still unambiguous and objectively
+verifiable**.
+
+That usually means:
+
+- one behavior slice
+- one main risk
+- one validation mode
+- one honest stopping point
+
+Too broad:
+
+- the loop has to invent design or rollout policy
+
+Too small:
+
+- the loop burns iterations on bookkeeping, context reload, and commit churn
+
+Best size:
+
+- enough work to matter
+- small enough that "done" can still be proven in one focused pass
+
+## Task authoring rules that matter most
+
+### 1. Write outcomes, not editing motions
+
+Bad:
+
+```markdown
+- [ ] Update `src/api.py` and tests
+```
+
+Better:
+
+```markdown
+- [ ] Reject promote requests when required staged rows are missing for the target tenant version.
+```
+
+The loop should understand the behavior that must become true, not just where to
+type.
+
+### 2. Keep one main concern per checkbox
+
+A task that mixes:
+
+- schema changes
+- API semantics
+- rollout coordination
+- docs
+- browser validation
+
+is usually too broad.
+
+A task may touch multiple files, but it should still resolve one main outcome.
+
+### 3. Add explicit verification
+
+If a task can finish without the agent proving anything, it is not loop-safe.
+
+Good tasks usually answer:
+
+- what command to run
+- what scenario to exercise
+- what state must be observed
+- what must remain unchanged
+
+### 4. Remove policy decisions before the loop starts
+
+Bad task:
+
+```markdown
+- [ ] Decide whether cleanup is shared or tenant-specific.
+```
+
+That is not implementation. That is unresolved design.
+
+Resolve it in `design.md` or explicitly defer it before the loop runs.
+
+### 5. Keep human-only work outside the checkbox path
+
+Do not ask the autonomous loop to do tasks that require:
+
+- manual approval
+- stage or prod credentials
+- stakeholder signoff
+- subjective go/no-go review
+
+Keep these in a `Human Handoff` or `Operator Handoff` section outside the loop's
+normal checklist.
+
+### 6. Order tasks by dependency, not by discovery
+
+If you already know the dependency graph, put it in the task list. Do not make
+the loop infer obvious ordering from scratch.
+
+### 7. Prefer medium-sized behavior slices over micro-tasks
+
+These are often too small:
+
+- add enum
+- rename variable
+- add one unit test
+- update comment
+
+unless that tiny unit is genuinely the full coherent checkpoint.
+
+Usually the better task is the combined slice:
+
+- implement the behavior change and the validation that proves it
+
+### 8. Use sharp verbs and observables
+
+Weak verbs create loop churn:
+
+- ensure
+- support
+- handle
+- keep
+- validate
+
+Use them only when followed by a concrete observable.
+
+Stronger phrasing:
+
+- reject
+- return
+- persist
+- skip
+- preserve
+- archive
+- emit
+- leave unchanged
+
+### 9. Give the loop an honest stopping condition
+
+Tasks should make it clear when to stop and hand off instead of improvising.
+
+Examples:
+
+- stop if this requires changing public API semantics not already covered in
+  `design.md`
+- stop if the only remaining validation requires stage access
+- stop if a spec conflict is discovered and no source-of-truth artifact resolves
+  it
+
+### 10. Treat repeated loop failure as an artifact bug
+
+If the loop keeps missing, the default conclusion should be:
+
+- task too broad
+- verification too weak
+- policy unresolved
+- specs unclear
+- harness missing a needed check
+
+Do not assume the next fresh session will magically infer the missing intent.
+
+## A practical task template
+
+Use a pattern like this inside `tasks.md`:
+
+```markdown
+- [ ] Change X behavior in Y area so that Z becomes true.
+  Verify by: run C and confirm D.
+  Stop and hand off if: E.
+```
+
+You do not need this exact wording every time, but the information should exist.
+
+## Good and bad examples
+
+### Example 1: bad task
+
+```markdown
+- [ ] Add versioning support.
+```
+
+Why it is bad:
+
+- too broad
+- unclear scope
+- unclear files
+- unclear verification
+- hides multiple design decisions
+
+### Example 2: better task
+
+```markdown
+- [ ] Refuse standalone promote when the target tenant version is missing required staged rows.
+  Verify by: run the standalone promote path against a tenant with an incomplete staged version and confirm the command fails while the active version remains unchanged.
+```
+
+Why it is better:
+
+- one clear behavior change
+- negative case is explicit
+- verification is objective
 - no hidden policy choice
 
-### 5. How should the loop operate?
+### Example 3: docs or config task done well
 
-Handled in the prompt or wrapper instructions:
-
-- reload context every iteration
-- implement one task only
-- run the relevant checks
-- keep task state in sync
-- stop on blockers instead of guessing
-
-If any one of those five questions is under-specified, the loop tends to compensate by making assumptions.
-
-## Best practices for a Ralph-friendly `prd.json`
-
-In this repo, the local JSON template is intentionally minimal:
-
-```json
-{
-  "features": [
-    {
-      "category": "functional",
-      "description": "Description of the feature requirement",
-      "steps": [
-        "Step 1 to verify",
-        "Step 2 to verify"
-      ],
-      "passes": false
-    }
-  ]
-}
+```markdown
+- [ ] Document the new promote failure mode and the operator recovery path in the change docs.
+  Verify by: confirm `proposal.md` and `design.md` describe the failure condition, the non-goal of auto-recovery, and the manual recovery path consistently.
 ```
 
-That minimalism matters. Because the schema is small, most of the real quality comes from how `description` and `steps` are written.
+Why it works:
 
-### The local contract
-
-Based on `scripts/RALPHY-OPENSPEC-RUNNING.md`, the intended usage is:
-
-- the JSON defines the feature list
-- the loop works through each feature
-- the agent changes only `passes`
-- the agent must **not** rewrite `description` or `steps`
-
-That is consistent with Anthropic's long-running harness guidance:
-
-- keep a structured feature list
-- mark items as passing only after real verification
-- use JSON because models are less likely to casually rewrite it than markdown
-
-### Strong rules for `prd.json`
-
-#### 1. Treat `description` and `steps` as immutable truth
-
-The loop should update only:
-
-- `passes: false -> true`
-
-Do not let the agent redefine the requirement while implementing it. If the requirement is wrong, a human should edit it deliberately.
-
-#### 2. Make each feature a behavior slice, not a file chore
-
-Good:
-
-- "Tenant-scoped promotion refuses to activate a staged version when same-command ingest produced errors"
-
-Bad:
-
-- "Edit `src/ingestion/run.py`"
-- "Add one field to model"
-
-The feature should describe the user-visible or system-visible outcome, not the editing motion.
-
-#### 3. Write `steps` as verification steps
-
-In a Ralph-friendly JSON, `steps` should answer:
-
-- how to observe the behavior
-- what to run
-- what to compare
-- what must be true for `passes` to become `true`
-
-Good `steps` are ordered, observable, and testable.
-
-Bad `steps` are vague:
-
-- "make sure it works"
-- "confirm behavior"
-
-#### 4. Keep each feature completable in one session
-
-External guidance from Ralph TUI and Anthropic converges on the same rule:
-
-- one story or feature should fit in one focused session or one context window
-
-If a feature needs multiple unrelated edits, multiple policy decisions, and several different verification modes, split it.
-
-#### 5. Include real quality gates in the feature itself or its companion prompt
-
-If the schema is too small to carry separate quality-gate fields, encode them in `steps` or in the loop prompt:
-
-- run the relevant test selector
-- run lint/typecheck
-- run build if needed
-- run browser verification for UI work
-
-Broader Ralph ecosystems often append quality gates to every story automatically. The local schema does not, so you must compensate in authoring.
-
-#### 6. Prefer end-to-end verification over code-only verification
-
-Anthropic's harness guidance highlights a common failure mode:
-
-- the agent changes code
-- unit tests pass
-- the real feature still does not work end-to-end
-
-For UI or workflow changes, include steps that simulate a real user path or at least a realistic system check.
-
-#### 7. Put manual or operator-only items elsewhere
-
-Do not put stage validation, approvals, or privileged rollout steps into the same autonomous JSON list unless they are clearly marked as manual and excluded from execution.
-
-If the loop cannot honestly complete the item without a human or a protected environment, it should not be a normal `passes` item.
-
-#### 8. Order items by dependency and implementation readiness
-
-Even with the simple local schema, ordering matters:
-
-- schema and primitives first
-- then behavior
-- then integration
-- then docs
-
-Do not make the agent infer the dependency graph from scratch if you already know it.
-
-#### 9. Do not encode unresolved design choices as feature items
-
-Bad:
-
-- "Decide whether cleanup is shared or tenant-specific"
-
-That is a design question, not an implementation feature for Ralph.
-
-Resolve it in the design or explicitly defer it before the JSON is generated.
-
-#### 10. Keep JSON concise and move rationale to companion docs
-
-The JSON should carry execution truth, not every design nuance.
-
-Use companion artifacts for:
-
-- motivation
-- scope and non-goals
-- architecture
-- follow-up work
-- handoff instructions
-
-## A good local `prd.json` item
-
-```json
-{
-  "category": "ingestion",
-  "description": "Standalone promote refuses to activate a staged tenant version when required staged rows are missing",
-  "steps": [
-    "Create or identify a tenant with a staged target version but missing required staged rows",
-    "Run the standalone promote path for that tenant",
-    "Verify the command exits non-zero or returns the documented failure outcome",
-    "Verify tenant active version is unchanged",
-    "Run the relevant test selector and confirm it passes"
-  ],
-  "passes": false
-}
-```
-
-Why this is good:
-
-- outcome-based description
-- deterministic steps
-- explicit negative behavior
-- includes verification
+- still outcome-based
+- names the artifacts to update
+- verification is concrete
 - no hidden product decision
 
-## What this means for OpenSpec
+## Anti-patterns that create loop churn
 
-The best OpenSpec artifacts are the ones that can be flattened into a stable `prd.json` or task list without losing important intent.
+Watch for these before running `ralph-run`:
 
-### Proposal best practices
+- vague tasks with no observable success condition
+- tasks that bundle implementation, rollout, and manual validation together
+- tasks that require the loop to decide policy mid-flight
+- tasks that are really research spikes disguised as implementation
+- tasks that require stage, prod, or manual access but are not marked as handoff work
+- proposal or design language that still says "may", "could", or "one option is"
+  for core behavior
+- checkboxes that split a single same-file mechanical change into many tiny
+  increments with no real checkpoint
+- checkboxes that say "write tests" separately when those tests are part of
+  proving the same behavior slice
+- tasks that depend on context injected in chat rather than artifacts on disk
 
-Use `proposal.md` to lock down the "why" and the boundaries.
+## When to split a task
 
-A Ralph-friendly proposal should clearly state:
+Split when a single checkbox hides:
 
-- the problem being solved
-- the intended user or operator value
-- the in-scope first rollout
-- explicit non-goals
-- operational impact
-- deferred work and follow-up changes
-- human handoff summary when needed
+- more than one major behavior
+- more than one verification mode
+- an unresolved design choice
+- unrelated files or subsystems
+- a likely human handoff in the middle
 
-Avoid proposal language like:
+Typical signs a task is too big:
 
-- "may be either"
-- "one option is"
-- "could support later"
+- it would need "and also" several times
+- it needs both design interpretation and implementation
+- it changes persistence, API behavior, and operator docs all at once
+- it cannot be honestly completed in one focused iteration
 
-Those phrases are fine while exploring, but once the proposal becomes loop input, they create ambiguity.
+## When to merge tasks
 
-### Design best practices
+Merge when the split creates no meaningful checkpoint.
 
-Use `design.md` to remove interpretation work from the loop.
+Typical merge candidates:
 
-The design should settle:
+- same-file mechanical edits that must land together
+- behavior change plus the focused test that proves it
+- doc updates that simply record the exact change just implemented
+- tiny follow-up edits that cannot stand alone as a validated increment
 
-- algorithms and resolution rules
-- config keys and allowed values
-- failure semantics
-- compatibility-window behavior
-- retention or cleanup math
-- ownership boundaries
-- exact human/operator handoff flow
+## What to do with unresolved questions
 
-If a task would otherwise force the agent to choose a policy, the design has not done enough work yet.
+If something is not settled, do not bury it in a checkbox.
 
-### Spec best practices
+Instead:
 
-Use delta specs to express objective behavior with scenario-level precision.
+- resolve it in `design.md`
+- capture it as a non-goal or deferred item in `proposal.md`
+- turn it into a named spike or handoff item outside the normal autonomous path
 
-Good Ralph-friendly specs:
+A task list is a poor place to discover product truth.
 
-- use clear MUST/SHALL language
-- define failure and success conditions explicitly
-- distinguish first rollout from deferred improvements
-- provide scenarios that imply runnable tests
+## How `--add-context` should be used
 
-If multiple good implementers could read the spec and make materially different choices, the spec is not loop-safe yet.
+`ralph-run --add-context` is useful, but it is not a substitute for fixing the
+artifacts.
 
-### Task-list best practices
+Use `--add-context` for:
 
-`tasks.md` is where the OpenSpec work most directly maps to a loop.
+- one-off steering
+- reminding the next loop about a local preference
+- temporary guidance that does not change source-of-truth requirements
 
-Best practices:
+Do **not** use `--add-context` as the only place where:
 
-- one checkbox equals one coherent loop increment
-- use the coarsest atomic unit, not the smallest possible edit
-- prefer one main behavior slice or one tightly related same-file cluster
-- include `Done when:` or `Verify by:` bullets for wider tasks
-- name concrete files for docs/config tasks
-- keep operator-only steps in a separate non-checkbox section
-- split tasks that hide design or rollout decisions
-- merge tasks that create no meaningful checkpoint between them
+- scope changes
+- design decisions are settled
+- new failure semantics are defined
+- rollout policy is changed
 
-### Instruction and prompt best practices
+If the truth changed, update `proposal.md`, `design.md`, `specs/**/spec.md`, or
+`tasks.md`.
 
-Even a good task list can fail if the loop instructions are weak.
+## How `--status` helps when the loop feels stuck
 
-A Ralph-friendly prompt or wrapper should tell the agent to:
+Use `ralph-run --status` to inspect:
 
-- load the full OpenSpec context, not just the task list, when that context matters
-- inspect prior iteration state before starting new work
-- implement one task per iteration
-- run the exact validators relevant to that task
-- mark progress only after verification succeeds
-- stop and request help on ambiguity, contradictions, missing dependencies, or unresolved failures
-- avoid inventing new requirements or silently redefining "done"
+- the current task
+- recent iteration history
+- struggle indicators
+- pending injected context
 
-At minimum, the loop instructions should make these rules explicit:
+This is useful because it tells you whether the loop is:
 
-- read `proposal.md`, `design.md`, `specs/**`, and `tasks.md`
-- do not guess when the artifacts are unclear
-- do not mix multiple tasks into one iteration
-- do not mark a task complete until the stated checks pass
-- preserve human handoff items as handoff items
+- genuinely making progress
+- bouncing on the same failure
+- blocked by missing context
+- working on the wrong task size
 
-### A useful task formula
+## If the loop is already stuck
 
-Write tasks like this:
+A simple recovery sequence is:
 
-> Change X behavior in Y area so that Z becomes true.  
-> Verify by running C and confirming D.  
-> Stop and hand off if E occurs.
+1. Run `ralph-run --status`.
+2. Decide whether the blocker is:
+   - missing design decision
+   - weak or missing verification
+   - bad task size
+   - actual code bug
+3. If the blocker is missing truth, edit the source artifacts.
+4. If the blocker is task size, rewrite `tasks.md`.
+5. If the blocker is a small temporary steering issue, use `--add-context`.
+6. Re-run the loop.
+7. If the same failure repeats again, treat that as proof the artifacts still are
+   not good enough.
 
-That is much better than:
+The key mindset is:
 
-> Ensure support for X.
+- repeated failure usually means the loop is faithfully exposing missing guidance
 
-## Mapping `prd.json` concepts to OpenSpec artifacts
+## If you still use feature JSON or PRD-style feature lists
 
-| Ralph/JSON need | Best OpenSpec home | What to write |
-| --- | --- | --- |
-| Stable statement of what must be true | `specs/**/spec.md` | Requirement and scenario with clear behavior |
-| Why this work exists | `proposal.md` | Problem, value, scope, non-goals |
-| One loop-safe increment | `tasks.md` | One checkbox with one outcome and one verification target |
-| Frozen success definition | `tasks.md` plus specs | `Done when:` bullets tied to observable checks |
-| Quality gates | `tasks.md`, project test docs, or prompt | Exact test, lint, typecheck, build, browser, or query commands |
-| Human-only validation | `proposal.md` or `design.md` | Explicit `Human Handoff` section outside loop tasks |
-| Deferred work | `proposal.md` and `design.md` | Named follow-up change or explicitly deferred item |
-| Dependency order | `tasks.md` and design | Put prerequisites earlier; do not rely on the agent to invent ordering |
-| Rationale for tricky checks | `design.md` or spec notes | Explain why the behavior matters so future fresh sessions do not undo it |
+This repo is strongest in OpenSpec `tasks.md` mode, but the same ideas apply to
+feature JSON:
 
-## Anti-patterns to avoid
+- keep each feature as one behavior slice
+- keep `description` stable
+- write `steps` as ordered verification steps
+- let the loop update only status fields such as `passes`
+- prefer OpenSpec task mode when design and spec context matter heavily
 
-- Using vague verbs with no observable output.
-- Asking the loop to decide policy mid-implementation.
-- Mixing implementation, rollout, and manual validation in one checkbox.
-- Splitting one migration or one tightly related refactor into many tiny loop iterations with no independent verification point.
-- Hiding critical instructions only in chat history.
-- Letting the agent rewrite feature definitions instead of only updating status.
-- Declaring done from unit tests alone when the real behavior is end-to-end.
-- Leaving "maybe this, maybe that" wording in design or proposal once implementation is about to start.
+In other words, the feature list should be execution truth, not a place where the
+agent renegotiates requirements.
 
-## Recommended workflow for Ralph-safe OpenSpec authoring
+## Pre-flight checklist
 
-1. Explore first. Do not start the loop while major policy questions are still open.
-2. Write the proposal to define value, scope, non-goals, and handoff boundaries.
-3. Write the design to settle algorithms, config shapes, failure semantics, and retention math.
-4. Write specs with scenario-level, testable behavior.
-5. Translate specs into medium-sized tasks with explicit verification.
-6. If you also want a `prd.json`, derive it from those same requirements and keep it immutable except for `passes`.
-7. Prefer `./scripts/ralph-run.sh tasks <change>` when the design/spec context matters.
-8. Watch the loop, and when repeated failures appear, update the artifacts with a better "sign" rather than hoping the next run will infer the missing intent.
+Before you call a change "Ralph-friendly," check:
 
-## Practical checklist
-
-Before calling an OpenSpec change "Ralph-friendly," check all of these:
-
-- [ ] The proposal clearly states scope, non-goals, and first-rollout boundaries.
-- [ ] The design does not leave core policy choices unresolved.
-- [ ] Specs are specific enough that two implementers would not make materially different choices.
-- [ ] Each task is atomic in the semantic sense, not merely tiny.
-- [ ] Each task has an explicit verification target.
-- [ ] Human/operator work is documented outside the autonomous checkbox path.
-- [ ] No task depends on stage/prod/manual access unless it is explicitly a handoff item.
-- [ ] If using `prd.json`, the loop is instructed to modify only `passes`.
-- [ ] The artifacts on disk contain all critical guidance that a fresh session needs.
-- [ ] The loop instructions explicitly say to reload context, do one task, verify it, and stop on blockers.
-
-## Source notes
-
-Durable repo-local sources used:
-
-- `scripts/RALPHY-OPENSPEC-RUNNING.md`
-- `scripts/templates/features-template.json`
-- `scripts/templates/prd-template.md`
-- `scripts/ralph-run.sh`
-- `hidden/RALPH-WIGGUM-OPENSPEC.md`
-- `hidden/RALPH-WIGGUM-CURSOR.md`
-
-Prior internal Ralph-loop review conversations also informed this note, but their temporary exports are intentionally not cited by file path here.
-
-External references consulted:
-
-- Anthropic, "Effective harnesses for long-running agents"  
-  `https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents`
-- Geoffrey Huntley, "Ralph Wiggum as a software engineer"  
-  `https://ghuntley.com/ralph/`
-- Geoffrey Huntley, "everything is a ralph loop"  
-  `https://ghuntley.com/loop/`
-- Ralph TUI docs: `create-prd` and `convert`  
-  `https://ralph-tui.com/docs/cli/create-prd`  
-  `https://ralph-tui.com/docs/cli/convert`
+- [ ] `proposal.md` clearly states scope, non-goals, and rollout boundaries.
+- [ ] `design.md` settles core policy, fallback behavior, and operator boundaries.
+- [ ] `specs/**/spec.md` define success and failure clearly enough that two
+      implementers would not diverge materially.
+- [ ] Each checkbox is a coherent behavior slice, not a file chore.
+- [ ] Each checkbox has an explicit verification path.
+- [ ] Human-only work is outside the autonomous checkbox path.
+- [ ] No task requires privileged or manual access unless it is clearly a handoff item.
+- [ ] The task order reflects dependencies you already know.
+- [ ] Critical guidance lives on disk, not only in chat.
+- [ ] You would be comfortable giving the change to a fresh-session agent with no
+      prior memory.
 
 ## Bottom line
 
-The best Ralph-friendly OpenSpec proposal is not the most detailed artifact in the abstract. It is the artifact set that leaves the loop with the fewest judgment calls.
+A Ralph-friendly OpenSpec change is not the most verbose artifact set. It is the
+artifact set that leaves the loop with the fewest judgment calls.
 
 If a fresh-session agent can:
 
-- read the artifacts
-- pick one coherent increment
+- reload the artifacts
+- identify the next safe task
+- make the change
 - verify it objectively
 - stop honestly on blockers
-- leave the repo in a clean state
 
-then the proposal is Ralph-friendly.
+then the change is ready for `ralph-run`.
+
+## Source notes
+
+Repo-local sources used for this update:
+
+- `scripts/ralph-run.sh`
+- `README.md`
+- `QUICKSTART.md`
+- `package.json`
+- `scripts/templates/features-template.json`
+
+External references used for this update:
+
+- Geoffrey Huntley, "Ralph Wiggum as a software engineer"
+  `https://ghuntley.com/ralph/`
+- Geoffrey Huntley, "everything is a ralph loop"
+  `https://ghuntley.com/loop/`
+- Anthropic, "Effective harnesses for long-running agents"
+  `https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents`

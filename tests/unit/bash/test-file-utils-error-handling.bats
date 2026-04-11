@@ -14,6 +14,7 @@ teardown() {
 }
 
 @test "error handling: get_file_mtime returns 0 for missing file on Linux" {
+  skip_unless_os "Linux"
   OS="Linux"
   
   # Try to get mtime of non-existent file
@@ -25,6 +26,7 @@ teardown() {
 }
 
 @test "error handling: get_file_mtime returns 0 for missing file on macOS" {
+  skip_unless_os "macOS"
   OS="macOS"
   
   # Try to get mtime of non-existent file
@@ -36,7 +38,7 @@ teardown() {
 }
 
 @test "error handling: get_file_mtime handles permission denied" {
-  OS="Linux"
+  set_script_os_to_current
   
   # Create a file and make it unreadable
   local test_file="$TEST_DIR/no-read.txt"
@@ -47,8 +49,9 @@ teardown() {
   local mtime
   mtime=$(get_file_mtime "$test_file" 2>/dev/null || echo "0")
   
-  # Verify returns 0 or handles error
-  [ "$mtime" = "0" ]
+  # Some platforms can still read file metadata even when file contents are not
+  # readable, so accept either a graceful fallback or a valid timestamp.
+  [ "$mtime" = "0" ] || [[ "$mtime" =~ ^[0-9]+$ ]]
 }
 
 @test "error handling: get_file_md5 returns 0 for missing file" {
@@ -108,7 +111,7 @@ teardown() {
 }
 
 @test "error handling: get_file_mtime handles special characters in filename" {
-  OS="Linux"
+  set_script_os_to_current
   
   # Create a file with special characters
   local test_file="$TEST_DIR/test@#\$%^&*().txt"
@@ -163,7 +166,7 @@ teardown() {
 }
 
 @test "error handling: get_file_mtime handles device files" {
-  OS="macOS"
+  set_script_os_to_current
   
   # Try to get mtime of /dev/null (may fail depending on permissions)
   local mtime
@@ -174,7 +177,7 @@ teardown() {
 }
 
 @test "error handling: functions handle empty input" {
-  OS="Linux"
+  set_script_os_to_current
   
   # Mock commands
   command() {
@@ -214,7 +217,7 @@ teardown() {
 }
 
 @test "error handling: get_file_mtime handles very long paths" {
-  OS="Linux"
+  set_script_os_to_current
   
   # Create a deeply nested directory structure
   local deep_path="$TEST_DIR"

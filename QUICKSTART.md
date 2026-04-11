@@ -1,33 +1,36 @@
 # Quick Start Guide
 
-> **Version Compatibility:** OpenSpec 1.2.0 | spec-and-loop 2.0.0
-
 Get up and running with **spec-and-loop** in 5 minutes!
+
+> **Compatibility note:** Examples assume recent releases of `spec-and-loop`,
+> `@fission-ai/openspec`, and `opencode-ai`. `Node.js >=24` is required.
 
 ## Prerequisites
 
 Install these tools (one-time setup):
 
 ```bash
-# 1. Install openspec (OpenSpec CLI) - pinned to version 1.2.0
-npm install -g @fission-ai/openspec@1.2.0
+# 1. Ensure Node.js >=24
+node --version
 
-# 2. Install opencode (agentic coding assistant)
+# 2. Install openspec (OpenSpec CLI)
+npm install -g @fission-ai/openspec
+
+# 3. Install opencode (agentic coding assistant)
 npm install -g opencode-ai
 
-# 3. Install jq (command-line JSON processor)
+# 4. Install jq (command-line JSON processor)
 # Ubuntu/Debian:
 sudo apt install jq
 
 # macOS:
 brew install jq
 
-# 4. Git (if not already installed)
+# 5. Git (if not already installed)
 git init
 ```
 
-> **Note:** This guide is for OpenSpec 1.2.0 and spec-and-loop 2.0.0.
-> No external `ralph` CLI needed — `spec-and-loop` includes its own internal
+> **Note:** No external `ralph` CLI is needed - `spec-and-loop` includes its own internal
 > mini Ralph loop engine. Just install `opencode` and you're ready to go. The
 > runtime prompt is self-contained and does not depend on editor-specific slash
 > commands or local-only skills.
@@ -35,7 +38,7 @@ git init
 ## Installation
 
 ```bash
-npm install -g spec-and-loop@2.0.0
+npm install -g spec-and-loop
 ```
 
 ## Quick Demo (5 Minutes)
@@ -190,8 +193,8 @@ git diff HEAD~15        # See full implementation
 
 **Solution:**
 ```bash
-# Install with pinned version (recommended)
-npm install -g @fission-ai/openspec@1.2.0
+# Install OpenSpec
+npm install -g @fission-ai/openspec
 
 # Verify installation
 openspec --version

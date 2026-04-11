@@ -200,6 +200,41 @@ describe('render()', () => {
     expect(result).toBe('task=READY_FOR_NEXT_TASK done=COMPLETE');
   });
 
+  test('renders the default runner-owned commit contract', () => {
+    const templateFile = path.join(tmpDir, 'template.md');
+    fs.writeFileSync(templateFile, '{{commit_contract}}');
+
+    const result = render(
+      {
+        promptText: 'p',
+        promptTemplate: templateFile,
+      },
+      1
+    );
+
+    expect(result).toContain('Do not create git commits yourself');
+    expect(result).toContain('Ralph runner manages automatic task commits');
+    expect(result).not.toContain('Create a git commit');
+  });
+
+  test('renders an explicit no-commit contract when noCommit is enabled', () => {
+    const templateFile = path.join(tmpDir, 'template.md');
+    fs.writeFileSync(templateFile, '{{commit_contract}}');
+
+    const result = render(
+      {
+        promptText: 'p',
+        promptTemplate: templateFile,
+        noCommit: true,
+      },
+      1
+    );
+
+    expect(result).toContain('Do not create, amend, or finalize git commits in this run');
+    expect(result).toContain('`--no-commit` is active');
+    expect(result).toContain('Do not run `git add` or `git commit`');
+  });
+
   test('throws when template file does not exist', () => {
     expect(() =>
       render({ promptText: 'p', promptTemplate: '/nonexistent/template.md' }, 1)
