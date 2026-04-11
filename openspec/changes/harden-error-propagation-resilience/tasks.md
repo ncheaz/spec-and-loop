@@ -14,7 +14,7 @@
   - Verify by: run `npx jest --runInBand tests/unit/javascript/mini-ralph-invoker.test.js tests/unit/javascript/mini-ralph-runner.test.js` with signal-exit coverage.
   - Stop and hand off if: supported macOS/Linux signal behavior diverges in a way the current design does not already settle.
 
-- [ ] 2.2 Record fatal prompt-render and invoker-abort failures as iteration-aligned error/history entries while preserving the existing run-level `fatal_error` outcome and inactive final state.
+- [x] 2.2 Record fatal prompt-render and invoker-abort failures as iteration-aligned error/history entries while preserving the existing run-level `fatal_error` outcome and inactive final state.
   - Verify by: run `npx jest --runInBand tests/unit/javascript/mini-ralph-runner.test.js tests/unit/javascript/mini-ralph-status.test.js` with prompt-render and invoker-rejection cases that assert persisted failure metadata.
   - Stop and hand off if: preserving fatal aborts in history would require changing the documented loop result contract rather than tightening the current one.
 

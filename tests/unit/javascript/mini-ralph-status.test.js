@@ -662,6 +662,40 @@ describe('render()', () => {
     expect(output).not.toContain('older stderr 1');
   });
 
+  test('surfaces fatal abort metadata through recent history and error summary', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 4,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+      stoppedAt: '2026-04-11T12:34:56.000Z',
+      exitReason: 'fatal_error',
+    });
+    history.append(ralphDir, {
+      iteration: 4,
+      duration: 250,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: null,
+      signal: '',
+      failureStage: 'prompt_render',
+    });
+    errors.append(ralphDir, {
+      iteration: 4,
+      task: '2.2 Persist fatal failures',
+      failureStage: 'prompt_render',
+      stderr: 'template expansion failed',
+      stdout: '',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('Exit reason:   fatal_error');
+    expect(output).toContain('Iteration 4');
+    expect(output).toContain('template expansion failed');
+  });
+
   test('uses stdout preview when latest stderr is empty', () => {
     state.init(ralphDir, {
       active: true,

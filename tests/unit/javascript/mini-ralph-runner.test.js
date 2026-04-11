@@ -953,6 +953,89 @@ describe('run() with mocked invoker', () => {
     expect(invokeSpy).toHaveBeenCalledTimes(1);
   });
 
+  test('persists prompt render failures as iteration-aligned error and history entries', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const invokeSpy = jest.spyOn(invoker, 'invoke');
+
+    try {
+      await expect(run(makeOptions({
+        ralphDir,
+        promptText: undefined,
+        promptFile: path.join(tmpDir, 'missing-prompt.md'),
+        maxIterations: 1,
+      }))).rejects.toThrow('prompt file not found');
+
+      const persistedState = state.read(ralphDir);
+      const errorEntries = errors.readEntries(ralphDir);
+      const historyEntries = history.recent(ralphDir, 1);
+
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.exitReason).toBe('fatal_error');
+      expect(invokeSpy).not.toHaveBeenCalled();
+      expect(errorEntries).toHaveLength(1);
+      expect(errorEntries[0]).toMatchObject({
+        iteration: 1,
+        task: 'N/A',
+        signal: '',
+        failureStage: 'prompt_render',
+        stdout: '',
+      });
+      expect(errorEntries[0].stderr).toContain('prompt file not found');
+      expect(Number.isNaN(errorEntries[0].exitCode)).toBe(true);
+      expect(historyEntries[0]).toMatchObject({
+        iteration: 1,
+        completionDetected: false,
+        taskDetected: false,
+        exitCode: null,
+        signal: '',
+        failureStage: 'prompt_render',
+        completedTasks: [],
+      });
+    } finally {
+      invokeSpy.mockRestore();
+    }
+  });
+
+  test('persists invoker abort failures as iteration-aligned error and history entries', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const invokeSpy = jest.spyOn(invoker, 'invoke').mockRejectedValue(
+      Object.assign(new Error('opencode printed CLI help'), { failureStage: 'invoke_contract' })
+    );
+
+    try {
+      await expect(run(makeOptions({ ralphDir, maxIterations: 1 }))).rejects.toThrow('opencode printed CLI help');
+
+      const persistedState = state.read(ralphDir);
+      const errorEntries = errors.readEntries(ralphDir);
+      const historyEntries = history.recent(ralphDir, 1);
+
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.exitReason).toBe('fatal_error');
+      expect(invokeSpy).toHaveBeenCalledTimes(1);
+      expect(errorEntries).toHaveLength(1);
+      expect(errorEntries[0]).toMatchObject({
+        iteration: 1,
+        task: 'N/A',
+        signal: '',
+        failureStage: 'invoke_contract',
+        stdout: '',
+      });
+      expect(errorEntries[0].stderr).toContain('opencode printed CLI help');
+      expect(Number.isNaN(errorEntries[0].exitCode)).toBe(true);
+      expect(historyEntries[0]).toMatchObject({
+        iteration: 1,
+        completionDetected: false,
+        taskDetected: false,
+        exitCode: null,
+        signal: '',
+        failureStage: 'invoke_contract',
+        completedTasks: [],
+      });
+    } finally {
+      invokeSpy.mockRestore();
+    }
+  });
+
   test('syncs the managed tasks symlink in tasks mode', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     const tasksFile = path.join(tmpDir, 'tasks.md');
