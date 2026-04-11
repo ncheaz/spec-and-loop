@@ -59,6 +59,10 @@ describe('_containsPromise()', () => {
     ).toBe(true);
   });
 
+  test('returns true for a standalone promise line with surrounding whitespace', () => {
+    expect(_containsPromise('  \t<promise>COMPLETE</promise>  ', 'COMPLETE')).toBe(true);
+  });
+
   test('returns false when promise tag is absent', () => {
     expect(_containsPromise('no promise here', 'COMPLETE')).toBe(false);
   });
@@ -81,6 +85,22 @@ describe('_containsPromise()', () => {
 
   test('is case-sensitive', () => {
     expect(_containsPromise('<promise>complete</promise>', 'COMPLETE')).toBe(false);
+  });
+
+  test('returns false when the promise tag is quoted in prose', () => {
+    expect(_containsPromise('Write `<promise>COMPLETE</promise>` when you finish.', 'COMPLETE')).toBe(false);
+  });
+
+  test('returns false when the promise tag appears in explanatory text', () => {
+    expect(
+      _containsPromise('The control line is <promise>COMPLETE</promise> once all tasks are done.', 'COMPLETE')
+    ).toBe(false);
+  });
+
+  test('returns false when the promise tag appears in diff-like output', () => {
+    expect(
+      _containsPromise('+ <promise>COMPLETE</promise>\n- <promise>READY_FOR_NEXT_TASK</promise>', 'COMPLETE')
+    ).toBe(false);
   });
 });
 
@@ -1037,6 +1057,43 @@ describe('run() with mocked invoker', () => {
       }));
       expect(result.completed).toBe(true);
       expect(result.iterations).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('ignores quoted and diff-like promise mentions until a standalone control line appears', async () => {
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+
+      if (callCount === 1) {
+        return {
+          stdout: [
+            'Document the promise tag `<promise>COMPLETE</promise>` in the README.',
+            'diff --git a/file b/file',
+            '+ <promise>COMPLETE</promise>',
+            'The completion line is <promise>COMPLETE</promise> when all work is done.',
+          ].join('\n'),
+          exitCode: 0,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+
+      return {
+        stdout: '  <promise>COMPLETE</promise>  ',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({ maxIterations: 5 }));
+      expect(result.completed).toBe(true);
+      expect(result.iterations).toBe(2);
+      expect(result.exitReason).toBe('completion_promise');
     } finally {
       restore();
     }

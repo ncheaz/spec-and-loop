@@ -27,7 +27,7 @@
   - Verify by: targeted runner/state/status tests for completion, max-iteration, and thrown-failure exits.
   - Stop and hand off if: existing validated behavior depends on incomplete runs retaining `completedAt` or staying marked active.
 
-- [ ] 2.3 Tighten promise parsing to standalone control lines and add negative coverage for quoted, explanatory, or diff-like promise-tag mentions.
+- [x] 2.3 Tighten promise parsing to standalone control lines and add negative coverage for quoted, explanatory, or diff-like promise-tag mentions.
   - Done when: only valid control-line promise output advances or completes the loop, without changing the existing promise names.
   - Verify by: `tests/unit/javascript/mini-ralph-runner.test.js` coverage for positive and negative promise parsing cases.
   - Stop and hand off if: stricter parsing would require a new public control protocol instead of the existing promise tags.
