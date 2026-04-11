@@ -19,12 +19,15 @@ const {
   _completedTaskDelta,
   _formatAutoCommitMessage,
   _buildIterationFeedback,
+  _extractErrorForIteration,
+  _getCurrentTaskDescription,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
 const state = require('../../../lib/mini-ralph/state');
 const history = require('../../../lib/mini-ralph/history');
 const context = require('../../../lib/mini-ralph/context');
+const errors = require('../../../lib/mini-ralph/errors');
 
 let tmpDir;
 
@@ -293,6 +296,204 @@ describe('_buildIterationFeedback()', () => {
     ]);
 
     expect(feedback).toBe('');
+  });
+
+  test('includes error output when errorContent matches a failed iteration', () => {
+    const errorContent = [
+      '---',
+      'Timestamp: 2026-04-11T16:30:00Z',
+      'Iteration: 2',
+      'Task: 1.1 Do something',
+      'Exit Code: 1',
+      '',
+      '### stderr',
+      'TypeError: Cannot read property of undefined',
+      '  at foo (bar.js:10:5)',
+      '',
+      '### stdout',
+      'some output',
+      '',
+    ].join('\n');
+
+    const feedback = _buildIterationFeedback([
+      { iteration: 2, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
+    ], errorContent);
+
+    expect(feedback).toContain('Iteration 2: opencode exited with code 1');
+    expect(feedback).toContain('Error output:');
+    expect(feedback).toContain('TypeError: Cannot read property of undefined');
+    expect(feedback).toContain('stdout: some output');
+  });
+
+  test('does not include error output when no matching error entry exists', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 5, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
+    ], '');
+
+    expect(feedback).toContain('Iteration 5: opencode exited with code 1');
+    expect(feedback).not.toContain('Error output:');
+  });
+
+  test('truncates stderr to 2000 chars and stdout to 500 chars', () => {
+    const longStderr = 'x'.repeat(2500);
+    const longStdout = 'y'.repeat(800);
+
+    const errorContent = [
+      '---',
+      'Timestamp: 2026-04-11T16:30:00Z',
+      'Iteration: 1',
+      'Task: test',
+      'Exit Code: 1',
+      '',
+      '### stderr',
+      longStderr,
+      '',
+      '### stdout',
+      longStdout,
+      '',
+    ].join('\n');
+
+    const feedback = _buildIterationFeedback([
+      { iteration: 1, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
+    ], errorContent);
+
+    expect(feedback).toContain('Error output:');
+    const stderrPart = feedback.match(/Error output:\n  (.*)\n  stdout:/s);
+    expect(stderrPart).toBeTruthy();
+    expect(stderrPart[1].length).toBeLessThanOrEqual(2003);
+  });
+
+  test('backward compat: no errorContent = existing behavior', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 2, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
+    ]);
+
+    expect(feedback).toContain('Iteration 2: opencode exited with code 1');
+    expect(feedback).not.toContain('Error output:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _extractErrorForIteration
+// ---------------------------------------------------------------------------
+
+describe('_extractErrorForIteration()', () => {
+  test('extracts stderr and stdout for a matching iteration', () => {
+    const errorContent = [
+      '---',
+      'Timestamp: 2026-04-11T16:30:00Z',
+      'Iteration: 3',
+      'Task: test task',
+      'Exit Code: 1',
+      '',
+      '### stderr',
+      'some error text',
+      '',
+      '### stdout',
+      'some output text',
+      '',
+    ].join('\n');
+
+    const result = _extractErrorForIteration(errorContent, 3);
+    expect(result).not.toBeNull();
+    expect(result.stderr).toBe('some error text');
+    expect(result.stdout).toBe('some output text');
+  });
+
+  test('returns null when no matching iteration', () => {
+    const errorContent = [
+      '---',
+      'Iteration: 2',
+      'Exit Code: 1',
+      '',
+      '### stderr',
+      'error',
+      '',
+      '### stdout',
+      '',
+    ].join('\n');
+
+    expect(_extractErrorForIteration(errorContent, 5)).toBeNull();
+  });
+
+  test('returns null for empty errorContent', () => {
+    expect(_extractErrorForIteration('', 1)).toBeNull();
+    expect(_extractErrorForIteration(null, 1)).toBeNull();
+  });
+
+  test('truncates stderr to 2000 chars', () => {
+    const longStderr = 'e'.repeat(2500);
+    const errorContent = [
+      '---',
+      'Iteration: 1',
+      'Exit Code: 1',
+      '',
+      '### stderr',
+      longStderr,
+      '',
+      '### stdout',
+      '',
+    ].join('\n');
+
+    const result = _extractErrorForIteration(errorContent, 1);
+    expect(result.stderr.length).toBe(2003);
+    expect(result.stderr.endsWith('...')).toBe(true);
+  });
+
+  test('truncates stdout to 500 chars', () => {
+    const longStdout = 'o'.repeat(800);
+    const errorContent = [
+      '---',
+      'Iteration: 1',
+      'Exit Code: 1',
+      '',
+      '### stderr',
+      '',
+      '',
+      '### stdout',
+      longStdout,
+      '',
+    ].join('\n');
+
+    const result = _extractErrorForIteration(errorContent, 1);
+    expect(result.stdout.length).toBe(503);
+    expect(result.stdout.endsWith('...')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _getCurrentTaskDescription
+// ---------------------------------------------------------------------------
+
+describe('_getCurrentTaskDescription()', () => {
+  test('returns first incomplete task description', () => {
+    const tasks = [
+      { description: 'Done', fullDescription: '1.1 Done', status: 'completed' },
+      { description: 'Pending', fullDescription: '1.2 Pending', status: 'incomplete' },
+    ];
+    expect(_getCurrentTaskDescription(tasks)).toBe('1.2 Pending');
+  });
+
+  test('returns N/A for empty array', () => {
+    expect(_getCurrentTaskDescription([])).toBe('N/A');
+  });
+
+  test('returns N/A for non-array', () => {
+    expect(_getCurrentTaskDescription(null)).toBe('N/A');
+  });
+
+  test('returns N/A when all tasks are completed', () => {
+    const tasks = [
+      { description: 'Done', fullDescription: '1.1 Done', status: 'completed' },
+    ];
+    expect(_getCurrentTaskDescription(tasks)).toBe('N/A');
+  });
+
+  test('falls back to description when fullDescription absent', () => {
+    const tasks = [
+      { description: 'Pending task', status: 'incomplete' },
+    ];
+    expect(_getCurrentTaskDescription(tasks)).toBe('Pending task');
   });
 });
 
@@ -612,6 +813,170 @@ describe('run() with mocked invoker', () => {
     } finally {
       restore();
       stderrSpy.mockRestore();
+    }
+  });
+
+  test('writes error entry on non-zero exit code', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: 'no promise',
+      stderr: 'some error happened',
+      exitCode: 1,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1 }));
+      const errorContent = errors.read(ralphDir, 3);
+      expect(errorContent).toContain('Iteration: 1');
+      expect(errorContent).toContain('Exit Code: 1');
+      expect(errorContent).toContain('some error happened');
+    } finally {
+      restore();
+    }
+  });
+
+  test('error content injected into next iteration prompt', async () => {
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+      if (callCount === 1) {
+        return {
+          stdout: 'no promise',
+          stderr: 'critical failure',
+          exitCode: 1,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ maxIterations: 2, noCommit: true }));
+      expect(prompts[1]).toContain('## Recent Loop Signals');
+      expect(prompts[1]).toContain('Error output:');
+      expect(prompts[1]).toContain('critical failure');
+    } finally {
+      restore();
+    }
+  });
+
+  test('errors archived and cleared on successful completion', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          stdout: 'no promise',
+          stderr: 'some error',
+          exitCode: 1,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      expect(fs.existsSync(errors.errorsPath(ralphDir))).toBe(false);
+      const archiveFiles = fs.readdirSync(ralphDir).filter((f) => f.startsWith('errors_') && f.endsWith('.md'));
+      expect(archiveFiles.length).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('errors preserved on incomplete exit', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: 'no promise',
+      stderr: 'some error',
+      exitCode: 1,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run(makeOptions({ ralphDir, maxIterations: 2 }));
+      expect(result.completed).toBe(false);
+      expect(fs.existsSync(errors.errorsPath(ralphDir))).toBe(true);
+      const errorContent = errors.read(ralphDir, 10);
+      expect(errorContent).toContain('Iteration: 1');
+    } finally {
+      restore();
+    }
+  });
+
+  test('backward compat: no errors file when all iterations succeed', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: 'no promise',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2 }));
+      expect(fs.existsSync(errors.errorsPath(ralphDir))).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  test('uses N/A as task description in non-tasks mode', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: 'no promise',
+      stderr: 'err',
+      exitCode: 1,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1 }));
+      const errorContent = errors.read(ralphDir, 3);
+      expect(errorContent).toContain('Task: N/A');
+    } finally {
+      restore();
+    }
+  });
+
+  test('uses current task description in tasks mode', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: 'no promise',
+      stderr: 'err',
+      exitCode: 1,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const errorContent = errors.read(ralphDir, 3);
+      expect(errorContent).toContain('Task: 1.1 Task one');
+    } finally {
+      restore();
     }
   });
 });
