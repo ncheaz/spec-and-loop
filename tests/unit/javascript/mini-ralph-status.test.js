@@ -11,11 +11,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { render, _elapsed, _detectStruggles, _formatToolUsage } = require('../../../lib/mini-ralph/status');
+const { render, _elapsed, _detectStruggles, _formatToolUsage, _formatErrorPreview } = require('../../../lib/mini-ralph/status');
 const state = require('../../../lib/mini-ralph/state');
 const history = require('../../../lib/mini-ralph/history');
 const context = require('../../../lib/mini-ralph/context');
 const errors = require('../../../lib/mini-ralph/errors');
+const tasks = require('../../../lib/mini-ralph/tasks');
+const prompt = require('../../../lib/mini-ralph/prompt');
 
 let tmpDir;
 let ralphDir;
@@ -79,6 +81,186 @@ describe('_formatToolUsage()', () => {
       { tool: 'read', count: 5 },
     ]);
     expect(result).toBe('bash(2), read(5)');
+  });
+});
+
+describe('_formatErrorPreview()', () => {
+  test('prefers stderr content', () => {
+    expect(_formatErrorPreview({ stderr: 'stderr preview', stdout: 'stdout preview' })).toBe('stderr preview');
+  });
+
+  test('falls back to stdout when stderr is empty', () => {
+    expect(_formatErrorPreview({ stderr: '', stdout: 'stdout preview' })).toBe('stdout preview');
+  });
+
+  test('falls back to task and exit code when streams are empty', () => {
+    expect(_formatErrorPreview({ stderr: '', stdout: '', task: '1.1 Task', exitCode: 7 })).toBe('1.1 Task | exit code 7');
+  });
+
+  test('bounds preview to 200 characters', () => {
+    const preview = _formatErrorPreview({ stderr: 'x'.repeat(300), stdout: '' });
+    expect(preview).toHaveLength(200);
+  });
+});
+
+describe('tasks helpers', () => {
+  test('parseTasks extracts statuses and descriptions', () => {
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [/] 1.2 Active task\n- [ ] 1.3 Next task\n');
+
+    expect(tasks.parseTasks(tasksFile)).toEqual([
+      expect.objectContaining({ number: '1.1', description: 'Done task', fullDescription: '1.1 Done task', status: 'completed' }),
+      expect.objectContaining({ number: '1.2', description: 'Active task', fullDescription: '1.2 Active task', status: 'in_progress' }),
+      expect.objectContaining({ number: '1.3', description: 'Next task', fullDescription: '1.3 Next task', status: 'incomplete' }),
+    ]);
+  });
+
+  test('currentTask prefers in-progress and countTasks summarizes statuses', () => {
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [/] 1.2 Active task\n- [ ] 1.3 Next task\n');
+
+    expect(tasks.currentTask(tasksFile)).toEqual(expect.objectContaining({ fullDescription: '1.2 Active task' }));
+    expect(tasks.countTasks(tasksFile)).toEqual({ total: 3, completed: 1, inProgress: 1, incomplete: 1 });
+    expect(tasks.hashFile(tasksFile)).toMatch(/^[a-f0-9]{32}$/);
+  });
+
+  test('taskContext lists current and completed tasks', () => {
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [ ] 1.2 Next task\n');
+
+    const output = tasks.taskContext(tasksFile);
+    expect(output).toContain('## Current Task');
+    expect(output).toContain('- 1.2 Next task');
+    expect(output).toContain('## Completed Tasks for Git Commit');
+    expect(output).toContain('- [x] 1.1 Done task');
+  });
+
+  test('syncLink creates and replaces the managed symlink', () => {
+    const linkedRalphDir = path.join(tmpDir, '.ralph-linked');
+    const firstTasksFile = path.join(tmpDir, 'first-tasks.md');
+    const secondTasksFile = path.join(tmpDir, 'second-tasks.md');
+    fs.writeFileSync(firstTasksFile, '- [ ] 1.1 First\n');
+    fs.writeFileSync(secondTasksFile, '- [ ] 1.2 Second\n');
+
+    tasks.syncLink(linkedRalphDir, firstTasksFile);
+    expect(fs.realpathSync(tasks.tasksLinkPath(linkedRalphDir))).toBe(fs.realpathSync(firstTasksFile));
+
+    tasks.syncLink(linkedRalphDir, secondTasksFile);
+    expect(fs.realpathSync(tasks.tasksLinkPath(linkedRalphDir))).toBe(fs.realpathSync(secondTasksFile));
+  });
+});
+
+describe('prompt helpers', () => {
+  test('loadBase prefers promptText and validates prompt files', () => {
+    expect(prompt.loadBase({ promptText: 'Inline prompt' })).toBe('Inline prompt');
+    expect(() => prompt.loadBase({ promptText: '   ' })).toThrow(/promptText is empty/);
+    expect(() => prompt.loadBase({ promptFile: path.join(tmpDir, 'missing.md') })).toThrow(/prompt file not found/);
+
+    const promptFile = path.join(tmpDir, 'prompt.md');
+    fs.writeFileSync(promptFile, 'Prompt from file\n');
+    expect(prompt.loadBase({ promptFile })).toBe('Prompt from file\n');
+  });
+
+  test('render returns base prompt without a template', () => {
+    expect(prompt.render({ promptText: 'Base prompt' }, 2)).toBe('Base prompt');
+  });
+
+  test('render applies template variables and task context', () => {
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    const templateFile = path.join(tmpDir, 'template.md');
+    fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [ ] 1.2 Next task\n');
+    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{tasks}}\n{{task_context}}\n{{task_promise}} {{completion_promise}} {{change_dir}} {{context}}');
+
+    const rendered = prompt.render({
+      promptText: 'Base prompt',
+      promptTemplate: templateFile,
+      tasksFile,
+      maxIterations: 7,
+      taskPromise: 'READY',
+      completionPromise: 'DONE',
+      changeDir: '/tmp/change',
+    }, 3);
+
+    expect(rendered).toContain('Iter 3/7');
+    expect(rendered).toContain('- [x] 1.1 Done task');
+    expect(rendered).toContain('## Current Task');
+    expect(rendered).toContain('READY DONE /tmp/change');
+  });
+
+  test('renderTemplate preserves unknown variables', () => {
+    expect(prompt._renderTemplate('Hello {{name}} {{unknown}}', { name: 'Ralph' })).toBe('Hello Ralph {{unknown}}');
+  });
+
+  test('render validates template path and empty template content', () => {
+    expect(() => prompt.render({ promptText: 'Base', promptTemplate: path.join(tmpDir, 'missing-template.md') }, 1)).toThrow(/template file not found/);
+
+    const templateFile = path.join(tmpDir, 'empty-template.md');
+    fs.writeFileSync(templateFile, '   ');
+    expect(() => prompt.render({ promptText: 'Base', promptTemplate: templateFile }, 1)).toThrow(/template file is empty/);
+  });
+
+  test('loadBase throws when no prompt source is configured', () => {
+    expect(() => prompt.loadBase({})).toThrow(/no prompt source configured/);
+  });
+});
+
+describe('state helpers', () => {
+  test('read returns null for invalid JSON and remove is a no-op when missing', () => {
+    const brokenDir = path.join(tmpDir, '.ralph-broken-state');
+    fs.mkdirSync(brokenDir, { recursive: true });
+    fs.writeFileSync(state.statePath(brokenDir), '{not json', 'utf8');
+
+    expect(state.read(brokenDir)).toBeNull();
+
+    const missingDir = path.join(tmpDir, '.ralph-missing-state');
+    fs.mkdirSync(missingDir, { recursive: true });
+    expect(() => state.remove(missingDir)).not.toThrow();
+  });
+});
+
+describe('history helpers', () => {
+  test('read returns empty array for invalid JSON and clear resets history', () => {
+    const brokenDir = path.join(tmpDir, '.ralph-broken-history');
+    fs.mkdirSync(brokenDir, { recursive: true });
+    fs.writeFileSync(history.historyPath(brokenDir), '{not json', 'utf8');
+    expect(history.read(brokenDir)).toEqual([]);
+
+    history.append(ralphDir, {
+      iteration: 1,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: 0,
+    });
+    expect(history.recent(ralphDir)).toHaveLength(1);
+    history.clear(ralphDir);
+    expect(history.read(ralphDir)).toEqual([]);
+  });
+});
+
+describe('context helpers', () => {
+  test('consume returns null when empty and hasPending reflects content state', () => {
+    expect(context.consume(ralphDir)).toBeNull();
+    expect(context.hasPending(ralphDir)).toBe(false);
+
+    context.add(ralphDir, 'pending text');
+    expect(context.hasPending(ralphDir)).toBe(true);
+    expect(context.consume(ralphDir)).toBe('pending text');
+    expect(context.hasPending(ralphDir)).toBe(false);
+  });
+
+  test('add ignores blank input', () => {
+    context.add(ralphDir, '   ');
+    expect(context.read(ralphDir)).toBe('');
+  });
+});
+
+describe('tasks edge cases', () => {
+  test('syncLink throws when tasks file is missing and currentTask handles no tasks', () => {
+    expect(() => tasks.syncLink(path.join(tmpDir, '.ralph-missing-link'), path.join(tmpDir, 'missing-tasks.md'))).toThrow(/tasks file not found/);
+    expect(tasks.currentTask(path.join(tmpDir, 'missing-tasks.md'))).toBeNull();
   });
 });
 
@@ -321,6 +503,50 @@ describe('render()', () => {
     expect(output).toContain('Error History');
     expect(output).toContain('Errors: 1');
     expect(output).toContain('something went wrong');
+  });
+
+  test('reports full persisted error count while previewing only the latest entry', () => {
+    state.init(ralphDir, {
+      active: true,
+      iteration: 5,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+    });
+
+    for (let i = 1; i <= 5; i++) {
+      errors.append(ralphDir, {
+        iteration: i,
+        task: `1.${i} Task`,
+        exitCode: i,
+        stderr: i === 5 ? 'latest stderr content' : `older stderr ${i}`,
+        stdout: '',
+      });
+    }
+
+    const output = render(ralphDir);
+    expect(output).toContain('Errors: 5');
+    expect(output).toContain('latest stderr content');
+    expect(output).not.toContain('older stderr 1');
+  });
+
+  test('uses stdout preview when latest stderr is empty', () => {
+    state.init(ralphDir, {
+      active: true,
+      iteration: 2,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+    });
+
+    errors.append(ralphDir, {
+      iteration: 1,
+      task: '1.1 Task',
+      exitCode: 1,
+      stderr: '',
+      stdout: 'stdout fallback preview',
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('stdout fallback preview');
   });
 
   test('does not show error section when errors file is absent', () => {
