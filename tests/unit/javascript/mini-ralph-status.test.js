@@ -15,6 +15,7 @@ const { render, _elapsed, _detectStruggles, _formatToolUsage } = require('../../
 const state = require('../../../lib/mini-ralph/state');
 const history = require('../../../lib/mini-ralph/history');
 const context = require('../../../lib/mini-ralph/context');
+const errors = require('../../../lib/mini-ralph/errors');
 
 let tmpDir;
 let ralphDir;
@@ -300,5 +301,36 @@ describe('render()', () => {
     const output = render(ralphDir);
     expect(output).toContain('Struggle Indicators');
     expect(output).toContain('No file changes');
+  });
+
+  test('shows error summary when errors exist', () => {
+    state.init(ralphDir, {
+      active: true,
+      iteration: 2,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+    });
+    errors.append(ralphDir, {
+      iteration: 1,
+      task: '1.1 Do something',
+      exitCode: 1,
+      stderr: 'Error: something went wrong in the test',
+      stdout: 'building...',
+    });
+    const output = render(ralphDir);
+    expect(output).toContain('Error History');
+    expect(output).toContain('Errors: 1');
+    expect(output).toContain('something went wrong');
+  });
+
+  test('does not show error section when errors file is absent', () => {
+    state.init(ralphDir, {
+      active: true,
+      iteration: 1,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+    });
+    const output = render(ralphDir);
+    expect(output).not.toContain('Error History');
   });
 });
