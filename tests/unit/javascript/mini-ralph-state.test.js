@@ -31,6 +31,13 @@ describe('state.statePath()', () => {
   });
 });
 
+describe('state.lockPath()', () => {
+  test('returns path to ralph-loop.lock.json inside ralphDir', () => {
+    const p = state.lockPath('/some/dir');
+    expect(p).toBe(path.join('/some/dir', 'ralph-loop.lock.json'));
+  });
+});
+
 describe('state.init()', () => {
   test('creates the ralphDir if it does not exist', () => {
     const ralphDir = path.join(tmpDir, '.ralph-new');
@@ -125,6 +132,69 @@ describe('state.remove()', () => {
     fs.mkdirSync(ralphDir);
     // Should not throw
     expect(() => state.remove(ralphDir)).not.toThrow();
+  });
+});
+
+describe('run lock lifecycle', () => {
+  test('acquireRunLock writes a lock file and releaseRunLock removes it', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const lock = state.acquireRunLock(ralphDir, { tasksMode: true });
+
+    expect(fs.existsSync(state.lockPath(ralphDir))).toBe(true);
+    expect(state.readRunLock(ralphDir)).toMatchObject({
+      pid: process.pid,
+      tasksMode: true,
+    });
+
+    state.releaseRunLock(ralphDir, lock);
+    expect(fs.existsSync(state.lockPath(ralphDir))).toBe(false);
+  });
+
+  test('acquireRunLock rejects when an existing live lock is present', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true);
+
+    try {
+      fs.mkdirSync(ralphDir, { recursive: true });
+      fs.writeFileSync(
+        state.lockPath(ralphDir),
+        JSON.stringify({ pid: 43210, acquiredAt: '2026-01-01T00:00:00.000Z' }, null, 2),
+        'utf8'
+      );
+
+      expect(() => state.acquireRunLock(ralphDir)).toThrow(/already active/);
+      expect(state.readRunLock(ralphDir)).toMatchObject({ pid: 43210 });
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  test('acquireRunLock replaces a stale lock', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {
+      const err = new Error('no such process');
+      err.code = 'ESRCH';
+      throw err;
+    });
+
+    try {
+      fs.mkdirSync(ralphDir, { recursive: true });
+      fs.writeFileSync(
+        state.lockPath(ralphDir),
+        JSON.stringify({ pid: 43210, acquiredAt: '2026-01-01T00:00:00.000Z' }, null, 2),
+        'utf8'
+      );
+
+      const lock = state.acquireRunLock(ralphDir, { tasksFile: '/tmp/tasks.md' });
+      expect(lock.pid).toBe(process.pid);
+      expect(state.readRunLock(ralphDir)).toMatchObject({
+        pid: process.pid,
+        tasksFile: '/tmp/tasks.md',
+      });
+      state.releaseRunLock(ralphDir, lock);
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 });
 

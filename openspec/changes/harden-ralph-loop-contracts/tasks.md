@@ -17,7 +17,7 @@
 
 ## 2. Loop Lifecycle and Concurrency
 
-- [ ] 2.1 Add a single-active-run lock for each change's `.ralph/` directory with stale-lock recovery on Linux and macOS.
+- [x] 2.1 Add a single-active-run lock for each change's `.ralph/` directory with stale-lock recovery on Linux and macOS.
   - Done when: a second live loop targeting the same change fails before mutating state, while stale locks are detected and replaced cleanly.
   - Verify by: unit coverage for live-lock rejection and stale-lock recovery behavior.
   - Stop and hand off if: reliable stale-lock detection requires unsupported OS-specific process inspection beyond documented Linux/macOS semantics.

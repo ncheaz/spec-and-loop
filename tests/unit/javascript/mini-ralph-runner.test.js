@@ -1171,6 +1171,67 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('rejects a second live loop before mutating state', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(
+      state.lockPath(ralphDir),
+      JSON.stringify({ pid: 42424, acquiredAt: '2026-01-01T00:00:00.000Z' }, null, 2),
+      'utf8'
+    );
+
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true);
+    const promptSpy = jest.spyOn(require('../../../lib/mini-ralph/prompt'), 'render');
+    const invokeSpy = jest.spyOn(invoker, 'invoke');
+
+    try {
+      await expect(run(makeOptions({ ralphDir, maxIterations: 1 }))).rejects.toThrow(/already active/);
+      expect(state.read(ralphDir)).toBeNull();
+      expect(promptSpy).not.toHaveBeenCalled();
+      expect(invokeSpy).not.toHaveBeenCalled();
+      expect(state.readRunLock(ralphDir)).toMatchObject({ pid: 42424 });
+    } finally {
+      killSpy.mockRestore();
+      promptSpy.mockRestore();
+      invokeSpy.mockRestore();
+    }
+  });
+
+  test('recovers a stale lock and releases the replacement after the run', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(
+      state.lockPath(ralphDir),
+      JSON.stringify({ pid: 42424, acquiredAt: '2026-01-01T00:00:00.000Z' }, null, 2),
+      'utf8'
+    );
+
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation((pid) => {
+      if (pid === 42424) {
+        const err = new Error('no such process');
+        err.code = 'ESRCH';
+        throw err;
+      }
+      return true;
+    });
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+      expect(result.completed).toBe(true);
+      expect(state.read(ralphDir).active).toBe(false);
+      expect(fs.existsSync(state.lockPath(ralphDir))).toBe(false);
+    } finally {
+      restore();
+      killSpy.mockRestore();
+    }
+  });
+
   test('writes error entry on non-zero exit code', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     const restore = mockInvoker(invoker, async () => ({
