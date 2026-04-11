@@ -20,5 +20,5 @@
 
 ## 5. Final Integration
 
-- [ ] 5.1 Add deprecation comments to bash dead code in `scripts/ralph-run.sh` (lines 499–572: `format_error_entry`, `append_error`, `read_errors`, `clear_errors`, `archive_errors`) noting these functions are superseded by `lib/mini-ralph/errors.js`. Then run the full test suite to verify zero regressions across all unit and integration tests.
+- [x] 5.1 Add deprecation comments to bash dead code in `scripts/ralph-run.sh` (lines 499–572: `format_error_entry`, `append_error`, `read_errors`, `clear_errors`, `archive_errors`) noting these functions are superseded by `lib/mini-ralph/errors.js`. Then run the full test suite to verify zero regressions across all unit and integration tests.
   - Done when: `npm test` passes with zero failures. No existing test changed or removed.

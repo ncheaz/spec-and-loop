@@ -496,6 +496,10 @@ check_tasks_modified() {
     return 1
 }
 
+# DEPRECATED: The following functions are superseded by lib/mini-ralph/errors.js.
+# Do not add new callers. These will be removed in a future cleanup.
+# See: lib/mini-ralph/errors.js for the current implementation.
+
 format_error_entry() {
     local task_id="$1"
     local task_description="$2"
