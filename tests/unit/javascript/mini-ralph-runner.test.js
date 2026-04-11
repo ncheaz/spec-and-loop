@@ -24,6 +24,8 @@ const {
   _getCurrentTaskDescription,
   _detectProtectedCommitArtifacts,
   _gitErrorMessage,
+  _isFailedIteration,
+  _wasSuccessfulIteration,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -192,7 +194,7 @@ describe('invoker helpers', () => {
       stderr.emit('data', Buffer.from('warn'));
       child.emit('close', 2);
 
-      await expect(pending).resolves.toEqual({ stdout: 'hello', stderr: 'warn', exitCode: 2 });
+      await expect(pending).resolves.toEqual({ stdout: 'hello', stderr: 'warn', exitCode: 2, signal: null });
       expect(mockSpawn).toHaveBeenCalledWith('opencode', ['run', 'prompt'], expect.any(Object));
       expect(stdoutSpy).toHaveBeenCalled();
       expect(stderrSpy).toHaveBeenCalled();
@@ -260,6 +262,7 @@ describe('invoker helpers', () => {
         stdout: 'Read\n<promise>COMPLETE</promise>',
         stderr: '',
         exitCode: 0,
+        signal: null,
         toolUsage: [{ tool: 'Read', count: 1 }],
         filesChanged: ['b.js'],
       });
@@ -661,6 +664,28 @@ describe('_buildIterationFeedback()', () => {
 
     expect(feedback).toContain('Iteration 2: opencode exited with code 1');
     expect(feedback).not.toContain('Error output:');
+  });
+
+  test('describes signal-terminated iterations as failures', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 2, exitCode: null, signal: 'SIGTERM', filesChanged: [], completionDetected: false, taskDetected: false },
+    ]);
+
+    expect(feedback).toContain('Iteration 2: opencode exited via signal SIGTERM');
+  });
+});
+
+describe('iteration outcome helpers', () => {
+  test('_isFailedIteration returns true for non-zero exits and signal exits', () => {
+    expect(_isFailedIteration({ exitCode: 1, signal: '' })).toBe(true);
+    expect(_isFailedIteration({ exitCode: null, signal: 'SIGTERM' })).toBe(true);
+    expect(_isFailedIteration({ exitCode: 0, signal: '' })).toBe(false);
+  });
+
+  test('_wasSuccessfulIteration only returns true for clean exits', () => {
+    expect(_wasSuccessfulIteration({ exitCode: 0, signal: '' })).toBe(true);
+    expect(_wasSuccessfulIteration({ exitCode: 1, signal: '' })).toBe(false);
+    expect(_wasSuccessfulIteration({ exitCode: null, signal: 'SIGINT' })).toBe(false);
   });
 });
 
@@ -1406,6 +1431,68 @@ describe('run() with mocked invoker', () => {
       expect(errorContent).toContain('some error happened');
     } finally {
       restore();
+    }
+  });
+
+  test('records signal-terminated invocations as failed iterations', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: 'partial output',
+      stderr: 'terminated by signal',
+      exitCode: null,
+      signal: 'SIGTERM',
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+      const errorEntries = errors.readEntries(ralphDir);
+      const historyEntries = history.recent(ralphDir, 1);
+
+      expect(errorEntries).toHaveLength(1);
+      expect(errorEntries[0]).toMatchObject({
+        iteration: 1,
+        exitCode: NaN,
+        signal: 'SIGTERM',
+        stderr: 'terminated by signal',
+        stdout: 'partial output',
+      });
+      expect(historyEntries[0]).toMatchObject({
+        iteration: 1,
+        exitCode: null,
+        signal: 'SIGTERM',
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  test('does not auto-commit or complete signal-terminated iterations even with completion output', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync');
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      stderr: 'terminated by signal',
+      exitCode: null,
+      signal: 'SIGTERM',
+      filesChanged: ['src/app.js'],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: false }));
+      expect(result.completed).toBe(false);
+      expect(result.exitReason).toBe('max_iterations');
+      expect(execSpy).not.toHaveBeenCalled();
+      expect(history.recent(ralphDir, 1)[0]).toMatchObject({
+        commitAttempted: false,
+        completionDetected: false,
+        signal: 'SIGTERM',
+      });
+    } finally {
+      restore();
+      execSpy.mockRestore();
     }
   });
 

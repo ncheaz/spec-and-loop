@@ -13,7 +13,7 @@ describe('mini-ralph invoker', () => {
   let stderrSpy;
   let tmpDir;
 
-  function makeChildProcess({ stdout = '', stderr = '', exitCode = 0 }) {
+  function makeChildProcess({ stdout = '', stderr = '', exitCode = 0, signal = null }) {
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
@@ -25,7 +25,7 @@ describe('mini-ralph invoker', () => {
       if (stderr) {
         child.stderr.emit('data', Buffer.from(stderr));
       }
-      child.emit('close', exitCode);
+      child.emit('close', exitCode, signal);
     });
 
     return child;
@@ -132,6 +132,29 @@ describe('mini-ralph invoker', () => {
     });
 
     expect(result.stderr).toBe('some warning message\n');
+  });
+
+  test('invoke preserves signal metadata when opencode is terminated by signal', async () => {
+    spawn.mockReturnValue(
+      makeChildProcess({
+        stdout: 'partial output\n',
+        stderr: 'terminated\n',
+        exitCode: null,
+        signal: 'SIGTERM',
+      })
+    );
+
+    const result = await invoker.invoke({
+      prompt: 'Do the work.',
+      ralphDir: '/tmp/ralph',
+    });
+
+    expect(result).toMatchObject({
+      stdout: 'partial output\n',
+      stderr: 'terminated\n',
+      exitCode: null,
+      signal: 'SIGTERM',
+    });
   });
 
   test('invoke throws a clear error when opencode prints CLI help', async () => {

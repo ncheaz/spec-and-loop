@@ -10,7 +10,7 @@
 
 ## 2. Failure Classification and Persistence
 
-- [ ] 2.1 Preserve child-process `signal` metadata in `lib/mini-ralph/invoker.js` and treat signal-terminated `opencode` invocations as failed iterations instead of exit code `0`.
+- [x] 2.1 Preserve child-process `signal` metadata in `lib/mini-ralph/invoker.js` and treat signal-terminated `opencode` invocations as failed iterations instead of exit code `0`.
   - Verify by: run `npx jest --runInBand tests/unit/javascript/mini-ralph-invoker.test.js tests/unit/javascript/mini-ralph-runner.test.js` with signal-exit coverage.
   - Stop and hand off if: supported macOS/Linux signal behavior diverges in a way the current design does not already settle.
 
