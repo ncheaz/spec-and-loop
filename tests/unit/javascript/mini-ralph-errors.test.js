@@ -239,6 +239,26 @@ describe('errors.latest()', () => {
   });
 });
 
+describe('errors.matchIteration()', () => {
+  test('returns null for missing or invalid inputs', () => {
+    expect(errors.matchIteration(null, 1)).toBeNull();
+    expect(errors.matchIteration([], 1)).toBeNull();
+    expect(errors.matchIteration([{ iteration: 1 }], Number.NaN)).toBeNull();
+  });
+
+  test('returns the newest exact iteration match when duplicates exist', () => {
+    const entries = [
+      { iteration: 1, stderr: 'older 1' },
+      { iteration: 12, stderr: 'twelve' },
+      { iteration: 1, stderr: 'newer 1' },
+    ];
+
+    expect(errors.matchIteration(entries, 1)).toEqual({ iteration: 1, stderr: 'newer 1' });
+    expect(errors.matchIteration(entries, 12)).toEqual({ iteration: 12, stderr: 'twelve' });
+    expect(errors.matchIteration(entries, 2)).toBeNull();
+  });
+});
+
 describe('errors.append()', () => {
   test('creates ralphDir if it does not exist', () => {
     const ralphDir = path.join(tmpDir, '.ralph-new');
@@ -366,6 +386,7 @@ describe('index.js exports _errors', () => {
     expect(miniRalph._errors.readEntries).toBeInstanceOf(Function);
     expect(miniRalph._errors.count).toBeInstanceOf(Function);
     expect(miniRalph._errors.latest).toBeInstanceOf(Function);
+    expect(miniRalph._errors.matchIteration).toBeInstanceOf(Function);
     expect(miniRalph._errors.append).toBeInstanceOf(Function);
     expect(miniRalph._errors.clear).toBeInstanceOf(Function);
     expect(miniRalph._errors.archive).toBeInstanceOf(Function);

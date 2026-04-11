@@ -696,6 +696,38 @@ describe('_extractErrorForIteration()', () => {
     expect(_extractErrorForIteration(errorContent, 5)).toBeNull();
   });
 
+  test('uses the newest exact iteration match when duplicates exist', () => {
+    const errorContent = [
+      {
+        iteration: 12,
+        exitCode: 1,
+        stderr: 'iteration twelve',
+        stdout: '',
+      },
+      {
+        iteration: 1,
+        exitCode: 1,
+        stderr: 'older iteration one',
+        stdout: '',
+      },
+      {
+        iteration: 1,
+        exitCode: 2,
+        stderr: 'newer iteration one',
+        stdout: 'latest stdout',
+      },
+    ];
+
+    expect(_extractErrorForIteration(errorContent, 1)).toEqual({
+      stderr: 'newer iteration one',
+      stdout: 'latest stdout',
+    });
+    expect(_extractErrorForIteration(errorContent, 12)).toEqual({
+      stderr: 'iteration twelve',
+      stdout: '',
+    });
+  });
+
   test('returns null for empty errorContent', () => {
     expect(_extractErrorForIteration('', 1)).toBeNull();
     expect(_extractErrorForIteration(null, 1)).toBeNull();
@@ -1631,6 +1663,49 @@ describe('run() with mocked invoker', () => {
       await run(makeOptions({ maxIterations: 5, noCommit: true }));
       expect(prompts[4]).toContain('critical failure 4');
       expect(prompts[4]).not.toContain('critical failure 1');
+    } finally {
+      restore();
+    }
+  });
+
+  test('uses the newest exact iteration error entry in prompt feedback when duplicates exist', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+
+      if (callCount === 1) {
+        errors.append(ralphDir, {
+          iteration: 1,
+          task: 'seeded duplicate',
+          exitCode: 9,
+          stderr: 'older duplicate error',
+          stdout: '',
+        });
+
+        return {
+          stdout: 'no promise',
+          stderr: 'new exact iteration error',
+          exitCode: 1,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      expect(prompts[1]).toContain('new exact iteration error');
+      expect(prompts[1]).not.toContain('older duplicate error');
     } finally {
       restore();
     }
