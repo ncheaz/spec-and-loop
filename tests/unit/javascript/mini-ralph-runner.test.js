@@ -136,14 +136,24 @@ describe('invoker helpers', () => {
     expect(invokerHelpers._extractToolUsage('')).toEqual([]);
   });
 
-  test('_diffSnapshots reports added and removed files', () => {
-    const pre = new Set(['a.js', 'b.js']);
-    const post = new Set(['b.js', 'c.js']);
-    expect(invokerHelpers._diffSnapshots(pre, post).sort()).toEqual(['a.js', 'c.js']);
+  test('_diffSnapshots reports added, removed, and re-fingerprinted files', () => {
+    const pre = new Map([
+      ['a.js', 'file:before-a'],
+      ['b.js', 'file:before-b'],
+    ]);
+    const post = new Map([
+      ['b.js', 'file:after-b'],
+      ['c.js', 'file:new-c'],
+    ]);
+    expect(invokerHelpers._diffSnapshots(pre, post)).toEqual(['a.js', 'b.js', 'c.js']);
   });
 
-  test('_gitSnapshot returns tracked changes and falls back to empty set on git errors', () => {
+  test('_gitSnapshot returns tracked changes with fingerprints and falls back to empty map on git errors', () => {
     jest.resetModules();
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    fs.mkdirSync(path.join(tmpDir, 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'lib', 'file.js'), 'tracked change\n', 'utf8');
+    fs.writeFileSync(path.join(tmpDir, 'new-file.js'), 'new file\n', 'utf8');
     jest.doMock('child_process', () => ({
       spawn: jest.fn(),
       execFileSync: jest.fn()
@@ -153,9 +163,10 @@ describe('invoker helpers', () => {
 
     const isolatedInvoker = require('../../../lib/mini-ralph/invoker');
 
-    expect(Array.from(isolatedInvoker._gitSnapshot()).sort()).toEqual(['lib/file.js', 'new-file.js']);
+    expect(Array.from(isolatedInvoker._gitSnapshot().keys()).sort()).toEqual(['lib/file.js', 'new-file.js']);
     expect(Array.from(isolatedInvoker._gitSnapshot())).toEqual([]);
 
+    cwdSpy.mockRestore();
     jest.dontMock('child_process');
   });
 
@@ -942,6 +953,36 @@ describe('run() with mocked invoker', () => {
       await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
       const entries = history.recent(ralphDir, 1);
       expect(entries[0].completedTasks).toEqual(['1.1 Task one']);
+    } finally {
+      restore();
+    }
+  });
+
+  test('records meaningful changes when an already-dirty file changes during the iteration', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 3.1 Track dirty file fingerprints\n', 'utf8');
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 3.1 Track dirty file fingerprints\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: ['src/already-dirty.js', 'src/new-file.js', 'src/deleted-file.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1, noCommit: true }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].filesChanged).toEqual([
+        'src/already-dirty.js',
+        'src/new-file.js',
+        'src/deleted-file.js',
+      ]);
+      expect(entries[0].completedTasks).toEqual(['3.1 Track dirty file fingerprints']);
     } finally {
       restore();
     }

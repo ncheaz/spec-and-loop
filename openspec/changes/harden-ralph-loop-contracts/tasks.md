@@ -34,7 +34,7 @@
 
 ## 3. Progress and Status Fidelity
 
-- [ ] 3.1 Replace dirty-path presence snapshots with per-path fingerprints so edits to already-dirty files count as real progress.
+- [x] 3.1 Replace dirty-path presence snapshots with per-path fingerprints so edits to already-dirty files count as real progress.
   - Done when: the runtime records a file as changed when its contents change during the iteration even if it was already dirty beforehand, and untouched dirty files do not count as new progress.
   - Verify by: new invoker/runner tests for already-dirty file edits, untouched dirty files, and deleted/untracked path cases.
   - Stop and hand off if: accurate dirty-worktree detection requires whole-repo hashing or temporary staging that risks user worktree state.
