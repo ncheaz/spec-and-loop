@@ -75,7 +75,7 @@ teardown() {
   rm -rf "$test_dir"
 }
 
-@test "create_prompt_template: includes task list placeholder" {
+@test "create_prompt_template: does not include raw task list placeholder" {
   local test_dir
   test_dir=$(setup_test_dir)
   cd "$test_dir" || return 1
@@ -89,7 +89,7 @@ teardown() {
   
   [ "$status" -eq 0 ]
   
-  grep -q "{{tasks}}" "$template_file"
+  ! grep -q "{{tasks}}" "$template_file"
   
   cd - > /dev/null
   rm -rf "$test_dir"
@@ -156,7 +156,7 @@ teardown() {
   rm -rf "$test_dir"
 }
 
-@test "create_prompt_template: includes OpenSpec artifacts context section" {
+@test "create_prompt_template: does not include OpenSpec artifacts context section" {
   local test_dir
   test_dir=$(setup_test_dir)
   cd "$test_dir" || return 1
@@ -170,7 +170,7 @@ teardown() {
   
   [ "$status" -eq 0 ]
   
-  grep -q "## OpenSpec Artifacts Context" "$template_file"
+  ! grep -q "## OpenSpec Artifacts Context" "$template_file"
   
   cd - > /dev/null
   rm -rf "$test_dir"
@@ -428,6 +428,37 @@ teardown() {
   
   [[ "$output" == *"Prompt template created"* ]] || true
   
+  cd - > /dev/null
+  rm -rf "$test_dir"
+}
+
+@test "create_prompt_template: template does not duplicate OpenSpec artifacts or tasks content" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  cd "$test_dir" || return 1
+
+  local change_dir="$test_dir/openspec/changes/test-change"
+  local template_file="$test_dir/template.txt"
+
+  mkdir -p "$change_dir/specs"
+
+  run create_prompt_template "$change_dir" "$template_file"
+
+  [ "$status" -eq 0 ]
+
+  # Must NOT contain re-read instructions — artifacts are already inlined via {{base_prompt}}
+  ! grep -q "Read the relevant OpenSpec artifacts" "$template_file"
+  # Must NOT contain the critical-rule that told the agent to re-read tasks every iteration
+  ! grep -q "Read the full tasks file every iteration" "$template_file"
+  # Must NOT contain a raw {{tasks}} dump
+  ! grep -q "{{tasks}}" "$template_file"
+  # Must NOT contain the separate "OpenSpec Artifacts Context" section
+  ! grep -q "## OpenSpec Artifacts Context" "$template_file"
+  # MUST contain the single OpenSpec source surface
+  grep -q "{{base_prompt}}" "$template_file"
+  # MUST contain the single tasks surface
+  grep -q "{{task_context}}" "$template_file"
+
   cd - > /dev/null
   rm -rf "$test_dir"
 }

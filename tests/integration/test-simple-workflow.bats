@@ -99,10 +99,6 @@ teardown() {
   
   if [ -d "$ralph_dir" ]; then
     [ -f "$ralph_dir/PRD.md" ] || true
-    
-    if [ -f "$ralph_dir/PRD.md" ]; then
-      grep -q "## OpenSpec Artifacts Context" "$ralph_dir/PRD.md" || true
-    fi
   fi
 }
 

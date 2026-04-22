@@ -750,20 +750,9 @@ create_prompt_template() {
 
 Change directory: {{change_dir}}
 
-## OpenSpec Artifacts Context
-
-Include full context from openspec artifacts in {{change_dir}}:
-- Read {{change_dir}}/proposal.md for the overall project goal
-- Read {{change_dir}}/design.md for the technical design approach
-- Read {{change_dir}}/specs/*/spec.md for the detailed specifications
-
 ## Invocation-Time PRD Snapshot
 
 {{base_prompt}}
-
-## Task List
-
-{{tasks}}
 
 ## Fresh Task Context
 
@@ -777,7 +766,6 @@ Include full context from openspec artifacts in {{change_dir}}:
    - Mark the task as [/] in the tasks file before starting work
 
 2. **Implement** the current task directly:
-   - Read the relevant OpenSpec artifacts for context (proposal.md, design.md, specs)
    - Make the smallest maintainable change that fully satisfies the current task
    - Run the most relevant validation or tests for the task before claiming completion
 
@@ -793,7 +781,6 @@ Include full context from openspec artifacts in {{change_dir}}:
 ## Critical Rules
 
 - Work on ONE task at a time from the task list
-- Read the full tasks file every iteration; do not rely on memory from prior iterations
 - Do not rely on editor-specific slash commands or local-only skills; follow this prompt directly
 - Treat tasks.md as the only source of truth for task state
 - ONLY output `<promise>{{task_promise}}</promise>` when the current task is complete and marked as [x]
