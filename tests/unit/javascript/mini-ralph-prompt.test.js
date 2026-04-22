@@ -181,8 +181,9 @@ describe('render()', () => {
 
     expect(result).toContain('## Current Task');
     expect(result).toContain('1.1 Active task');
-    expect(result).toContain('## Completed Tasks for Git Commit');
-    expect(result).toContain('1.2 Done task');
+    expect(result).toContain('## Progress');
+    expect(result).not.toContain('## Completed Tasks for Git Commit');
+    expect(result).not.toContain('1.2 Done task');
   });
 
   test('leaves {{tasks}} empty when tasksFile does not exist', () => {

@@ -290,16 +290,42 @@ describe('tasks.countTasks()', () => {
 // ---------------------------------------------------------------------------
 
 describe('tasks.taskContext()', () => {
-  test('returns current and completed task sections', () => {
+  test('returns current task and progress, not completed task descriptions', () => {
+    const content = [
+      '- [x] 1.1 Completed task one',
+      '- [x] 1.2 Completed task two',
+      '- [/] 1.3 Active task',
+    ].join('\n');
     const file = path.join(tmpDir, 'tasks.md');
-    writeTasks(file, '- [/] 1.1 Active task\n- [x] 1.2 Done task\n');
+    writeTasks(file, content);
 
     const context = tasks.taskContext(file);
 
     expect(context).toContain('## Current Task');
-    expect(context).toContain('1.1 Active task');
-    expect(context).toContain('## Completed Tasks for Git Commit');
-    expect(context).toContain('1.2 Done task');
+    expect(context).toContain('1.3 Active task');
+    expect(context).toContain('## Progress');
+    expect(context).toContain('2 of 3 tasks complete');
+    // Completed task descriptions must NOT appear
+    expect(context).not.toContain('Completed task one');
+    expect(context).not.toContain('Completed task two');
+    // The old section header must NOT appear
+    expect(context).not.toContain('## Completed Tasks for Git Commit');
+  });
+
+  test('returns only progress section when all tasks are completed', () => {
+    const content = [
+      '- [x] 1.1 Task one',
+      '- [x] 1.2 Task two',
+    ].join('\n');
+    const file = path.join(tmpDir, 'tasks.md');
+    writeTasks(file, content);
+
+    const context = tasks.taskContext(file);
+
+    expect(context).toContain('## Progress');
+    expect(context).toContain('2 of 2 tasks complete');
+    expect(context).not.toContain('## Current Task');
+    expect(context).not.toContain('## Completed Tasks for Git Commit');
   });
 
   test('returns empty string when no tasks exist', () => {
@@ -307,5 +333,28 @@ describe('tasks.taskContext()', () => {
     writeTasks(file, '## No tasks yet\n');
 
     expect(tasks.taskContext(file)).toBe('');
+  });
+
+  test('task context size does not grow with completed task count', () => {
+    const file1 = path.join(tmpDir, 'tasks1.md');
+    const file20 = path.join(tmpDir, 'tasks20.md');
+
+    const makeContent = (completedCount) => {
+      const lines = [];
+      for (let i = 1; i <= completedCount; i++) {
+        lines.push(`- [x] ${i}.1 Completed task number ${i}`);
+      }
+      lines.push(`- [ ] ${completedCount + 1}.1 Current incomplete task`);
+      return lines.join('\n');
+    };
+
+    writeTasks(file1, makeContent(1));
+    writeTasks(file20, makeContent(20));
+
+    const ctx1 = tasks.taskContext(file1);
+    const ctx20 = tasks.taskContext(file20);
+
+    // The size difference should be at most a few bytes (the N in "N of M")
+    expect(Math.abs(ctx20.length - ctx1.length)).toBeLessThan(50);
   });
 });

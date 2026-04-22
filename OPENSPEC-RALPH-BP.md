@@ -343,13 +343,13 @@ Authoring rules:
 - **Resolve or explicitly defer policy before writing tasks.** Phrases like "may be shared or tenant-specific," "one option is," or "could support later" are fine while exploring; they are blockers once the loop starts. Resolve algorithms, fallback behavior, retention math, config shape, failure taxonomy, and compatibility-window behavior in `design.md`.
 - **Specs must be deterministic.** If two good implementers could read the spec and make materially different choices, the spec is not loop-safe yet.
 - **If a dedicated coverage artifact exists** (such as a `figma-route-map.md`), route and shared-surface tasks should reuse it as the durable source of truth instead of rediscovering coverage each iteration.
-- **Run with full OpenSpec context when available.** Repo guidance favors `./scripts/ralph-run.sh tasks <change>` over raw `tasks.md` mode because `opsx-apply` reloads proposal, design, specs, and tasks each iteration. If you run raw `prd.json` or raw `tasks.md` mode, push more detail down into each item because the companion docs will not be reloaded.
+- **Run with full OpenSpec context when available.** Repo guidance favors `./scripts/ralph-run.sh tasks <change>` over raw `tasks.md` mode because `opsx-apply` provides the agent with a manifest of OpenSpec artifact paths (`## OpenSpec Artifacts`) so the agent can read proposal, design, and specs as needed each iteration. If you run raw `prd.json` or raw `tasks.md` mode, push more detail down into each item because the companion docs will not be listed in the manifest.
 
 ### Loop-prompt / wrapper instructions
 
 At minimum, the loop prompt must tell the agent to:
 
-- Read `proposal.md`, `design.md`, `specs/**`, and `tasks.md` at the start of every iteration.
+- Read the OpenSpec artifacts listed in `## OpenSpec Artifacts` (proposal, design, specs) before implementing the current task.
 - Inspect prior iteration state before starting new work.
 - Implement exactly one task per iteration.
 - Run the exact validators relevant to that task.
@@ -508,7 +508,7 @@ The `tenant-scoped-content-versioning` example and subsequent reviews produced t
 
 4. **Every wide task needs explicit "done when" signals.** Verbs like `ensure`, `validate`, `keep`, or `support` are too soft on their own.
 
-5. **Full OpenSpec context is better than raw task-file mode.** Repo guidance favors `./scripts/ralph-run.sh tasks <change>` over raw `tasks.md` mode because `opsx-apply` reloads proposal, design, specs, and tasks. A task list can be shorter when the design/specs fully resolve tricky decisions, but only if the loop actually reloads those artifacts each iteration.
+5. **Full OpenSpec context is better than raw task-file mode.** Repo guidance favors `./scripts/ralph-run.sh tasks <change>` over raw `tasks.md` mode because `opsx-apply` provides a manifest (`## OpenSpec Artifacts`) listing artifact paths so the agent can read proposal, design, and specs as needed. A task list can be shorter when the design/specs fully resolve tricky decisions, but only if the loop actually references those artifacts each iteration.
 
 6. **"Done when" gates are hard stops, not soft guidelines.** The most common single-task quality failure is a loop marking a task complete after a `Done when` check failed, with a rationalization note. The gate is self-authorizing; the loop decides the gate does not apply, bypasses it, and moves on, recording a completion claim the stated verifier never confirmed.
 
