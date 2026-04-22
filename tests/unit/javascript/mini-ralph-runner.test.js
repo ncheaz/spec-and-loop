@@ -901,6 +901,63 @@ describe('_buildIterationFeedback() - fingerprint dedup', () => {
     expect(stderrHeadCount).toBe(1);
   });
 
+  test('repeated no-promise (clean-exit) iterations dedupe into a single detailed line', () => {
+    // Regression for a stuck-loop symptom: when the agent hits a blocker it
+    // cannot clear, it keeps exiting cleanly with no promise. The feedback
+    // used to render N identical bullets (e.g. "no loop promise emitted")
+    // which bloated the prompt without helping the agent. The fingerprint
+    // now covers the `noPromise` state so repeats collapse to a back-reference.
+    const history = [
+      { iteration: 23, exitCode: 0, signal: '', failureStage: '', filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 24, exitCode: 0, signal: '', failureStage: '', filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 25, exitCode: 0, signal: '', failureStage: '', filesChanged: [], completionDetected: false, taskDetected: false },
+    ];
+
+    const feedback = _buildIterationFeedback(history);
+
+    expect(feedback).toContain('Iteration 23:');
+    // Only the first occurrence gets the full "no loop promise emitted" line;
+    // the next two are back-references.
+    const noPromiseCount = (feedback.match(/no loop promise emitted/g) || []).length;
+    expect(noPromiseCount).toBe(1);
+    expect(feedback).toContain('Iteration 24: same failure as iteration 23 (see above).');
+    expect(feedback).toContain('Iteration 25: same failure as iteration 23 (see above).');
+  });
+
+  test('commit anomaly iterations are deduped by anomaly type', () => {
+    // Two iterations that failed to commit with the same anomaly type should
+    // collapse to one detailed line + one back-reference, rather than two
+    // duplicate bullets.
+    const history = [
+      {
+        iteration: 22,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        filesChanged: ['tasks.md'],
+        completionDetected: false,
+        taskDetected: true,
+        commitAnomaly: 'Auto-commit failed: pathspec did not match',
+        commitAnomalyType: 'commit_failed',
+      },
+      {
+        iteration: 23,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        filesChanged: ['tasks.md'],
+        completionDetected: false,
+        taskDetected: true,
+        commitAnomaly: 'Auto-commit failed: pathspec did not match',
+        commitAnomalyType: 'commit_failed',
+      },
+    ];
+
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('Iteration 22: commit anomaly');
+    expect(feedback).toContain('Iteration 23: same failure as iteration 22');
+  });
+
   test('three distinct-fingerprint failures: three full detail entries', () => {
     const errorContent = [
       { iteration: 1, exitCode: 1, stderr: 'ErrorA', stdout: '', signal: '', failureStage: 'stageA' },
@@ -996,7 +1053,9 @@ describe('run() with mocked invoker', () => {
     }));
 
     try {
-      const result = await run(makeOptions());
+      // Disable the stall detector here so we can verify the pure
+      // `max_iterations` exit path independently of the stall logic.
+      const result = await run(makeOptions({ stallThreshold: 0 }));
       expect(result.completed).toBe(false);
       expect(result.iterations).toBe(3);
       expect(result.exitReason).toBe('max_iterations');
@@ -1005,6 +1064,70 @@ describe('run() with mocked invoker', () => {
       expect(persistedState.completedAt).toBeNull();
       expect(persistedState.stoppedAt).toBeTruthy();
       expect(persistedState.exitReason).toBe('max_iterations');
+    } finally {
+      restore();
+    }
+  });
+
+  test('stall detector halts the loop after N consecutive no-op iterations', async () => {
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      return {
+        // No promise, no files changed, no tasks completed -> stalled.
+        stdout: 'HAND OFF REQUIRED: cannot make progress',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(
+        makeOptions({ maxIterations: 20, stallThreshold: 3 })
+      );
+      expect(result.completed).toBe(false);
+      expect(result.iterations).toBe(3);
+      expect(result.exitReason).toBe('stalled');
+      expect(callCount).toBe(3);
+      const persistedState = state.read(path.join(tmpDir, '.ralph'));
+      expect(persistedState.active).toBe(false);
+      expect(persistedState.stoppedAt).toBeTruthy();
+      expect(persistedState.exitReason).toBe('stalled');
+    } finally {
+      restore();
+    }
+  });
+
+  test('stall streak resets when the iteration makes any progress', async () => {
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      // Stalled, stalled, progress, stalled, stalled -> streak resets on
+      // iteration 3 and 2 subsequent stalls (threshold=3) should NOT halt.
+      if (callCount === 3) {
+        return {
+          stdout: 'changed something',
+          exitCode: 0,
+          filesChanged: ['src/app.js'],
+          toolUsage: [],
+        };
+      }
+      return {
+        stdout: 'no progress',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(
+        makeOptions({ maxIterations: 5, stallThreshold: 3 })
+      );
+      // We should reach max_iterations because the streak resets on iter 3.
+      expect(result.iterations).toBe(5);
+      expect(result.exitReason).toBe('max_iterations');
     } finally {
       restore();
     }
@@ -1577,10 +1700,70 @@ describe('run() with mocked invoker', () => {
     }));
 
     try {
-      await run(makeOptions({ ralphDir, maxIterations: 5 }));
+      await run(makeOptions({ ralphDir, maxIterations: 5, stallThreshold: 0 }));
       const s = state.read(ralphDir);
       expect(s.resumedAt).not.toBeNull();
       expect(s.resumedAt).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test('preserves the original startedAt timestamp across resumes', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    // Seed a prior state whose startedAt is the "true" original run start.
+    const originalStartedAt = '2026-04-20T12:00:00.000Z';
+    state.init(ralphDir, {
+      active: false,
+      iteration: 4,
+      startedAt: originalStartedAt,
+      completedAt: null,
+      stoppedAt: '2026-04-20T13:00:00.000Z',
+    });
+
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 6 }));
+      const s = state.read(ralphDir);
+      // startedAt must not be overwritten on resume.
+      expect(s.startedAt).toBe(originalStartedAt);
+      // resumedAt should be fresh (a new ISO timestamp, different from startedAt).
+      expect(s.resumedAt).toBeTruthy();
+      expect(s.resumedAt).not.toBe(originalStartedAt);
+    } finally {
+      restore();
+    }
+  });
+
+  test('sets startedAt on a fresh run when no prior state exists', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    // No prior state -> startedAt is set to "now" and resumedAt stays null.
+
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      const before = Date.now();
+      await run(makeOptions({ ralphDir, maxIterations: 2 }));
+      const after = Date.now();
+      const s = state.read(ralphDir);
+      expect(s.resumedAt).toBeNull();
+      expect(s.startedAt).toBeTruthy();
+      const startedAtMs = Date.parse(s.startedAt);
+      expect(startedAtMs).toBeGreaterThanOrEqual(before);
+      expect(startedAtMs).toBeLessThanOrEqual(after);
     } finally {
       restore();
     }
@@ -1980,12 +2163,15 @@ describe('run() with mocked invoker', () => {
   });
 
   test('uses only recent parsed error entries for prompt feedback lookup', async () => {
+    // Feedback window is 5 iterations. After 6 consecutive failing
+    // iterations, iter 1's error should have aged out of the window when
+    // iter 7 starts, while iter 6's error should still be visible.
     const prompts = [];
     let callCount = 0;
     const restore = mockInvoker(invoker, async (opts) => {
       callCount++;
       prompts.push(opts.prompt);
-      if (callCount <= 4) {
+      if (callCount <= 6) {
         return {
           stdout: 'no promise',
           stderr: `critical failure ${callCount}`,
@@ -2003,9 +2189,10 @@ describe('run() with mocked invoker', () => {
     });
 
     try {
-      await run(makeOptions({ maxIterations: 5, noCommit: true }));
-      expect(prompts[4]).toContain('critical failure 4');
-      expect(prompts[4]).not.toContain('critical failure 1');
+      await run(makeOptions({ maxIterations: 7, noCommit: true }));
+      // prompts[6] is the prompt passed into the 7th invocation.
+      expect(prompts[6]).toContain('critical failure 6');
+      expect(prompts[6]).not.toContain('critical failure 1');
     } finally {
       restore();
     }

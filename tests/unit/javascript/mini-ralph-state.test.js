@@ -222,6 +222,36 @@ describe('run lock lifecycle', () => {
   });
 });
 
+describe('atomic writes', () => {
+  test('does not leave a temp file behind on a successful write', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    state.init(ralphDir, { active: true, iteration: 1 });
+    state.update(ralphDir, { iteration: 2 });
+    state.update(ralphDir, { iteration: 3 });
+
+    const entries = fs.readdirSync(ralphDir);
+    const tmpFiles = entries.filter((name) => name.includes('.tmp-'));
+    expect(tmpFiles).toEqual([]);
+    expect(state.read(ralphDir).iteration).toBe(3);
+  });
+
+  test('read() tolerates a missing state file and returns null', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-empty');
+    // Directory does not exist yet.
+    expect(state.read(ralphDir)).toBeNull();
+    // Directory exists but file does not.
+    fs.mkdirSync(ralphDir, { recursive: true });
+    expect(state.read(ralphDir)).toBeNull();
+  });
+
+  test('read() returns null rather than throwing on a corrupted state file', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-corrupt');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(state.statePath(ralphDir), '{not valid json', 'utf8');
+    expect(state.read(ralphDir)).toBeNull();
+  });
+});
+
 describe('state fields include required loop metadata', () => {
   test('stores all required loop startup fields', () => {
     const ralphDir = path.join(tmpDir, '.ralph');
