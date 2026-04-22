@@ -156,6 +156,24 @@ teardown() {
   fi
 }
 
+@test "simple workflow: rendered prompt does not inline spec content" {
+  create_git_repo
+  
+  mkdir -p openspec/changes
+  cp -r "$FIXTURES_DIR" openspec/changes/
+  
+  local ralph_dir=".ralph"
+  
+  run bash "$SCRIPT_PATH" --change simple-feature --max-iterations 1 2>&1 || true
+  
+  if [ -f "$ralph_dir/prompt-template.md" ]; then
+    # The spec body text must NOT appear verbatim in the prompt template.
+    # The spec contains this distinctive phrase; if it appears the inline regression has occurred.
+    ! grep -q "Project structure follows standard conventions" "$ralph_dir/prompt-template.md"
+    ! grep -q "## ADDED Requirements" "$ralph_dir/prompt-template.md"
+  fi
+}
+
 @test "simple workflow: change directory detected correctly" {
   create_git_repo
   

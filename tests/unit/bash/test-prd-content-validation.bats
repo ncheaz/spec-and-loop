@@ -587,6 +587,39 @@ EOF
   [[ "$prd" == *"const greeting"* ]] || true
 }
 
+@test "prd validation: does not contain Current Task Context or Completed Tasks sections" {
+  # Create a test directory with OpenSpec change structure
+  local test_dir
+  test_dir=$(setup_test_dir)
+  cd "$test_dir" || return 1
+  
+  # Create OpenSpec change structure with tasks in various states
+  local change_dir
+  change_dir=$(create_openspec_change)
+  
+  cat > "$change_dir/tasks.md" <<'EOF'
+## Test Tasks
+
+- [x] 1.1 Completed task
+- [/] 1.2 Current task (in progress)
+- [ ] 1.3 Pending task
+EOF
+  
+  # Read artifacts and generate PRD
+  read_openspec_artifacts "$change_dir"
+  local prd
+  prd=$(generate_prd "$change_dir")
+  
+  # PRD must NOT contain task context injection sections
+  [[ "$prd" != *"## Current Task Context"* ]]
+  [[ "$prd" != *"## Completed Tasks for Git Commit"* ]]
+  
+  # PRD must still contain the three core artifact sections
+  [[ "$prd" == *"## Proposal"* ]]
+  [[ "$prd" == *"## Specifications"* ]]
+  [[ "$prd" == *"## Design"* ]]
+}
+
 @test "prd validation: contains complete and valid markdown" {
   # Create a test directory with OpenSpec change structure
   local test_dir

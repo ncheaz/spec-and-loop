@@ -159,7 +159,7 @@ EOF
   [[ "$output" == *"Generated from OpenSpec artifacts"* ]] || true
 }
 
-@test "generate_prd: includes current task context when available" {
+@test "generate_prd: does not include current task context section" {
   # Create a test directory with OpenSpec change structure
   local test_dir
   test_dir=$(setup_test_dir)
@@ -177,17 +177,21 @@ EOF
 - [/] 1.2 Current task (in progress)
 - [ ] 1.3 Pending task
 EOF
-
+  
   # Read artifacts
   read_openspec_artifacts "$change_dir"
   
   # Generate PRD
   run generate_prd "$change_dir"
   
-  # Output should contain current task context section
-  [[ "$output" == *"## Current Task Context"* ]] || true
-  [[ "$output" == *"1.2 Current task"* ]] || true
-  [[ "$output" == *"1.1 Completed task"* ]] || true
+  # Output must NOT contain task context sections
+  [[ "$output" != *"## Current Task Context"* ]]
+  [[ "$output" != *"## Completed Tasks for Git Commit"* ]]
+  
+  # Output must still contain core artifact sections
+  [[ "$output" == *"## Proposal"* ]]
+  [[ "$output" == *"## Specifications"* ]]
+  [[ "$output" == *"## Design"* ]]
 }
 
 @test "generate_prd: handles missing task context gracefully" {
@@ -212,8 +216,9 @@ EOF
   # Function should complete without error
   [ "$status" -eq 0 ]
   
-  # Output should not contain current task context section if no context
-  [[ "$output" != *"## Current Task Context"* ]] || true
+  # Output must never contain task context sections
+  [[ "$output" != *"## Current Task Context"* ]]
+  [[ "$output" != *"## Completed Tasks for Git Commit"* ]]
 }
 
 @test "generate_prd: generates valid markdown format" {
@@ -374,7 +379,7 @@ EOF
   [ "$first_prd" = "$second_prd" ]
 }
 
-@test "generate_prd: includes completed tasks in context" {
+@test "generate_prd: does not include completed tasks in PRD output" {
   # Create a test directory with OpenSpec change structure
   local test_dir
   test_dir=$(setup_test_dir)
@@ -394,17 +399,21 @@ EOF
 - [/] 1.4 Current task
 - [ ] 1.5 Pending task
 EOF
-
+  
   # Read artifacts
   read_openspec_artifacts "$change_dir"
   
   # Generate PRD
   run generate_prd "$change_dir"
   
-  # Output should include all completed tasks
-  [[ "$output" == *"1.1 First completed task"* ]] || true
-  [[ "$output" == *"1.2 Second completed task"* ]] || true
-  [[ "$output" == *"1.3 Third completed task"* ]] || true
+  # Output must NOT contain task context sections
+  [[ "$output" != *"## Current Task Context"* ]]
+  [[ "$output" != *"## Completed Tasks for Git Commit"* ]]
+  
+  # Core artifact sections must be present
+  [[ "$output" == *"## Proposal"* ]]
+  [[ "$output" == *"## Specifications"* ]]
+  [[ "$output" == *"## Design"* ]]
 }
 
 @test "generate_prd: maintains proper section order" {
@@ -423,30 +432,29 @@ EOF
 
 - [ ] 1.1 Task
 EOF
-
+  
   # Read artifacts
   read_openspec_artifacts "$change_dir"
   
   # Generate PRD
   run generate_prd "$change_dir"
   
+  # Output must NOT contain task context sections
+  [[ "$output" != *"## Current Task Context"* ]]
+  [[ "$output" != *"## Completed Tasks for Git Commit"* ]]
+  
   # Extract section positions
   local proposal_pos
   local specs_pos
   local design_pos
-  local context_pos
   
   proposal_pos=$(echo "$output" | grep -n "## Proposal" | cut -d: -f1)
   specs_pos=$(echo "$output" | grep -n "## Specifications" | cut -d: -f1)
   design_pos=$(echo "$output" | grep -n "## Design" | cut -d: -f1)
-  context_pos=$(echo "$output" | grep -n "## Current Task Context" | cut -d: -f1)
   
-  # Check order: Proposal < Specifications < Design < Context
+  # Check order: Proposal < Specifications < Design
   [ "$proposal_pos" -lt "$specs_pos" ] || true
   [ "$specs_pos" -lt "$design_pos" ] || true
-  if [[ -n "$context_pos" ]]; then
-    [ "$design_pos" -lt "$context_pos" ] || true
-  fi
 }
 
 @test "generate_prd: logs verbose message during generation" {

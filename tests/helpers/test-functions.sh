@@ -718,9 +718,9 @@ create_prompt_template() {
 
 Change directory: {{change_dir}}
 
-## Invocation-Time PRD Snapshot
+## OpenSpec Artifacts
 
-{{base_prompt}}
+{{_openspec_manifest}}
 
 ## Fresh Task Context
 
@@ -728,35 +728,9 @@ Change directory: {{change_dir}}
 
 ## Instructions
 
-1. **Identify** current task:
-   - Find any task marked as [/] (in progress)
-   - If no task is in progress, pick the first task marked as [ ] (incomplete)
-   - Mark the task as [/] in the tasks file before starting work
+Before implementing, read the OpenSpec artifacts listed above that are relevant to the current task.
 
-2. **Implement** the current task directly:
-   - Make the smallest maintainable change that fully satisfies the current task
-   - Run the most relevant validation or tests for the task before claiming completion
-
-3. **Complete** task:
-   - Verify that the implementation meets the requirements
-   - When the task is successfully completed, mark it as [x] in the tasks file
-    - Output: `<promise>{{task_promise}}</promise>`
-
-4. **Continue** to the next task:
-   - The loop will continue with the next iteration
-   - Find the next incomplete task and repeat the process
-
-## Critical Rules
-
-- Work on ONE task at a time from the task list
-- Do not rely on editor-specific slash commands or local-only skills; follow this prompt directly
-- Treat tasks.md as the only source of truth for task state
-- ONLY output `<promise>{{task_promise}}</promise>` when the current task is complete and marked as [x]
-- ONLY output `<promise>{{completion_promise}}</promise>` when ALL tasks are [x]
-- Output promise tags DIRECTLY - do not quote them, explain them, or say you "will" output them
-- Do NOT lie or output false promises to exit the loop
-- If stuck, try a different approach
-- Check your work before claiming completion
+Pick the first [ ] or [/] task in tasks.md, mark it [/], implement it (smallest change that fully satisfies the Done-when conditions), run the task's verification command, mark it [x] on success, then output `<promise>{{task_promise}}</promise>`. Output `<promise>{{completion_promise}}</promise>` only when every task is [x]. Output promise tags on their own line, literal; do not quote or describe them. Do not fabricate a promise to exit the loop. If an approach fails twice, try a different one.
 
 ## Commit Contract
 
@@ -764,13 +738,63 @@ Change directory: {{change_dir}}
 
 {{context}}
 EOF
+
+    # Determine repo root for AGENTS.md probe
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=""
     
-    # Use a portable inplace replace: write to temp file then move into place
+    # Build the manifest body
+    local manifest_body
+    manifest_body="Read these as needed (source of truth for this change):"$'\n'$'\n'
+    manifest_body+="- $abs_change_dir/proposal.md"$'\n'
+    manifest_body+="- $abs_change_dir/design.md"$'\n'
+    
+    # Pre-expand specs/*/spec.md into concrete paths
+    if [[ -d "$abs_change_dir/specs" ]]; then
+        while IFS= read -r spec_path; do
+            [[ -n "$spec_path" ]] && manifest_body+="- $spec_path"$'\n'
+        done < <(find "$abs_change_dir/specs" -name spec.md -type f 2>/dev/null | sort)
+    fi
+    
+    manifest_body+="- .ralph/PRD.md    (pre-concatenated convenience copy of the above)"
+    
+    # Optionally append AGENTS.md reference
+    local agents_line
+    agents_line=$(probe_agents_md "$repo_root")
+    if [[ -n "$agents_line" ]]; then
+        manifest_body+=$'\n'"$agents_line"
+    fi
+    
+    # Substitute {{_openspec_manifest}} using awk with a manifest temp file
+    local _manifest_file
+    _manifest_file=$(mktemp 2>/dev/null || mktemp -t ralph-manifest)
+    printf '%s' "$manifest_body" > "$_manifest_file"
     local _tmpfile
+    _tmpfile=$(mktemp 2>/dev/null || mktemp -t ralph-template)
+    awk -v mf="$_manifest_file" '
+        {
+            if ($0 == "{{_openspec_manifest}}") {
+                while ((getline line < mf) > 0) { print line }
+                close(mf)
+            } else { print }
+        }
+    ' "$template_file" > "$_tmpfile" && mv "$_tmpfile" "$template_file"
+    rm -f "$_manifest_file"
+    
+    # Substitute {{change_dir}}
     _tmpfile=$(mktemp 2>/dev/null || mktemp -t ralph-template)
     sed "s|{{change_dir}}|$abs_change_dir|g" "$template_file" > "$_tmpfile" && mv "$_tmpfile" "$template_file"
     
     log_verbose "Prompt template created: $template_file"
+}
+
+probe_agents_md() {
+    local repo_root="$1"
+    if [[ -n "$repo_root" && -r "$repo_root/AGENTS.md" ]]; then
+        echo "- AGENTS.md    (project-level build/test guide)"
+    else
+        echo ""
+    fi
 }
 
 restore_ralph_state_from_tasks() {

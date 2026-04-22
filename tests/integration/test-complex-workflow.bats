@@ -156,6 +156,24 @@ teardown() {
   fi
 }
 
+@test "complex workflow: rendered prompt does not inline spec content" {
+  create_git_repo
+  
+  mkdir -p openspec/changes
+  cp -r "$FIXTURES_DIR" openspec/changes/
+  
+  local ralph_dir=".ralph"
+  
+  run bash "$SCRIPT_PATH" --change complex-feature --max-iterations 2 2>&1 || true
+  
+  if [ -f "$ralph_dir/prompt-template.md" ]; then
+    # The spec bodies must NOT appear verbatim in the prompt template.
+    # All complex-feature specs contain "## ADDED Requirements"; its presence = inline regression.
+    ! grep -q "## ADDED Requirements" "$ralph_dir/prompt-template.md"
+    ! grep -q "REST API provides standard HTTP methods" "$ralph_dir/prompt-template.md"
+  fi
+}
+
 @test "complex workflow: handles multiple spec files" {
   create_git_repo
   

@@ -174,15 +174,16 @@ describe('tasks helpers', () => {
     expect(tasks.hashFile(tasksFile)).toMatch(/^[a-f0-9]{32}$/);
   });
 
-  test('taskContext lists current and completed tasks', () => {
+  test('taskContext lists current task and progress only', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [ ] 1.2 Next task\n');
 
     const output = tasks.taskContext(tasksFile);
     expect(output).toContain('## Current Task');
     expect(output).toContain('- 1.2 Next task');
-    expect(output).toContain('## Completed Tasks for Git Commit');
-    expect(output).toContain('- [x] 1.1 Done task');
+    expect(output).toContain('## Progress');
+    expect(output).not.toContain('## Completed Tasks for Git Commit');
+    expect(output).not.toContain('- [x] 1.1 Done task');
   });
 
   test('syncLink creates and replaces the managed symlink', () => {

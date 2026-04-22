@@ -60,7 +60,7 @@ OpenSpec specs → docs (README/QUICKSTART/BOTW) → archived artifacts.
 | P2  | Iterative loop with limits            | verified | high |
 | P3  | tasks.md as single source of truth    | verified | high |
 | P4  | Symlink architecture for task sharing | verified | high |
-| P5  | Fresh context per iteration (PRD snapshot + live task context)| verified | high |
+| P5  | Fresh context per iteration (manifest-style OpenSpec Artifacts + bounded task context)| verified | high |
 | P6  | Iteration numbering aligned with tasks| partially-verified | medium |
 | P7  | Structured git commit format          | verified | high |
 | P8  | Auto-resume on restart                | verified | high |
@@ -137,18 +137,23 @@ file state simultaneously" confirms the shared-access invariant holds at
 runtime.  `tests/integration/test-symlink-macos.bats` provides platform-specific
 end-to-end coverage.
 
-#### P5 — Fresh context per iteration (PRD snapshot + live task context)
+#### P5 — Fresh context per iteration (manifest-style OpenSpec Artifacts + bounded task context)
 
 `lib/mini-ralph/runner.js:95` calls `prompt.render(options, iterationCount)`
-inside the loop on every iteration. `lib/mini-ralph/prompt.js:82-89` reads
-`tasksFile` content fresh on every call and exposes the loop-start prompt body as
-`{{base_prompt}}`; `lib/mini-ralph/tasks.js:152-180` — `taskContext()` always
-reads live `tasks.md`. The bash side generates the PRD once at loop start in
-`scripts/ralph-run.sh:968-979`, then reuses it for the rest of the run.
+inside the loop on every iteration. The iteration prompt uses a manifest shape:
+`scripts/ralph-run.sh:create_prompt_template()` writes a `## OpenSpec Artifacts`
+section that lists artifact file paths (proposal, design, specs, plus
+`.ralph/PRD.md` as a convenience copy), and when a repo-root `AGENTS.md` is
+present, includes it in the same manifest. The task-context surface is bounded to
+`## Current Task` + `## Progress: N of M tasks complete` via
+`lib/mini-ralph/tasks.js:taskContext()`. The bash side generates `.ralph/PRD.md`
+once at loop start in `scripts/ralph-run.sh`, then reuses it for the rest of the
+run as a pre-concatenated convenience copy of the artifacts.
 `tests/unit/javascript/mini-ralph-prompt.test.js:149` — "injects fresh
 task_context when tasksFile is present" and
-`tests/unit/bash/test-prd-task-context-injection.bats` confirm that each
-iteration receives up-to-date task state with no stale context carry-over.
+`tests/unit/bash/test-prd-omits-task-context.bats` confirm that the PRD does not
+carry task-context injection, and that each iteration receives only the bounded
+current-task and progress context with no stale carry-over.
 
 #### P7 — Structured git commit format with task numbers
 
@@ -449,17 +454,20 @@ same file.
 
 ---
 
-### P5 — Fresh context per iteration via PRD snapshot + live task context
+### P5 — Fresh context per iteration via manifest-style OpenSpec Artifacts + bounded task context
 
 **Full claim:** The loop re-renders prompt context every iteration from a
-loop-start PRD snapshot plus live `tasks.md`, current-task context, recent loop
-signals, and pending injected context.
+manifest that lists OpenSpec artifact paths (agent reads them as needed), a
+bounded task-context surface (`## Current Task` + `## Progress`), recent loop
+signals, and pending injected context. `.ralph/PRD.md` is still generated once
+at loop start as a pre-concatenated convenience copy of proposal/specs/design.
+When a repo-root `AGENTS.md` is present it is surfaced in the same manifest.
 
 | Field | Value |
 |-------|-------|
-| Verdict | `verified` — `prompt.render()` is called inside the runner loop on every iteration and reads live `tasks.md` content each time, while `PRD.md` is generated once at loop start and then reused. Confirmed by unit tests for prompt rendering and PRD generation. Confidence: **high**. |
-| Implementation evidence | `scripts/ralph-run.sh:404-444` — `generate_prd()` reads proposal, specs, and design and writes `$ralph_dir/PRD.md`; `ralph-run.sh:968-979` — PRD is generated before the loop starts; `lib/mini-ralph/prompt.js:83-107` — `render()` reads `tasksFile` content and `taskContext` fresh on every iteration call, exposes `{{base_prompt}}`, and injects commit-contract text; `lib/mini-ralph/tasks.js:152-180` — `taskContext()` always reads live `tasks.md`; `lib/mini-ralph/runner.js:95` — `prompt.render(options, iterationCount)` called inside the while loop |
-| Test evidence | `tests/unit/javascript/mini-ralph-prompt.test.js` — `render()` suite (lines 104–217): `renders template with iteration variables` (line 110), `injects tasks content when tasksFile is present` (line 131), `injects fresh task_context when tasksFile is present` (line 149); `tests/unit/bash/test-generate-prd.bats` — `generate_prd: generates PRD with all required sections` (line 16), `generate_prd: includes current task context when available` (line 162), `generate_prd: includes completed tasks in context` (line 377); `tests/unit/bash/test-prd-task-context-injection.bats` — validates task context is injected per-call |
+| Verdict | `verified` — `prompt.render()` is called inside the runner loop on every iteration and reads live `tasks.md` content each time; the iteration prompt lists OpenSpec artifact paths in `## OpenSpec Artifacts` rather than inlining their content; `taskContext()` emits only current-task + progress. Confirmed by unit tests for prompt rendering, PRD generation, and task-context shape. Confidence: **high**. |
+| Implementation evidence | `scripts/ralph-run.sh:create_prompt_template()` — manifest heredoc lists artifact paths under `## OpenSpec Artifacts` and probes `AGENTS.md` via `probe_agents_md()`; `ralph-run.sh:generate_prd()` — generates `.ralph/PRD.md` before the loop as a convenience copy, no task-context appended; `lib/mini-ralph/tasks.js:taskContext()` — emits `## Current Task` + `## Progress: N of M tasks complete` only; `lib/mini-ralph/runner.js:95` — `prompt.render(options, iterationCount)` called inside the while loop |
+| Test evidence | `tests/unit/javascript/mini-ralph-tasks.test.js` — `taskContext()` suite: `returns current task heading` (bounded shape); `tests/unit/bash/test-create-prompt-template.bats` — `includes OpenSpec Artifacts manifest section`, `AGENTS.md present adds entry to manifest`; `tests/unit/bash/test-prd-omits-task-context.bats` — asserts PRD does NOT contain `## Current Task Context` or `## Completed Tasks for Git Commit`; `tests/unit/bash/test-generate-prd.bats` — `does not include current task context section` |
 
 ---
 

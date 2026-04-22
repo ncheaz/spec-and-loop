@@ -26,6 +26,8 @@ const {
   _gitErrorMessage,
   _isFailedIteration,
   _wasSuccessfulIteration,
+  _failureFingerprint,
+  _firstNonEmptyLine,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -586,23 +588,33 @@ describe('_formatAutoCommitMessage()', () => {
 // ---------------------------------------------------------------------------
 
 describe('_buildIterationFeedback()', () => {
-  test('summarizes recent failed or no-progress iterations', () => {
+  test('summarizes recent failed iterations', () => {
     const feedback = _buildIterationFeedback([
       { iteration: 2, exitCode: 1, filesChanged: [], completionDetected: false, taskDetected: false },
-      { iteration: 3, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 3, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: true },
     ]);
 
     expect(feedback).toContain('Use these signals to avoid repeating the same failed approach');
     expect(feedback).toContain('Iteration 2: opencode exited with code 1');
-    expect(feedback).toContain('Iteration 3: no files changed');
+    // Iteration 3 had a task promise and exit 0 — no "no files changed" issue
+    expect(feedback).not.toContain('Iteration 3: no files changed');
   });
 
-  test('returns empty string when recent history looks healthy', () => {
+  test('returns empty string for clean task-promise iteration with no files changed', () => {
     const feedback = _buildIterationFeedback([
-      { iteration: 1, exitCode: 0, filesChanged: ['file.js'], completionDetected: false, taskDetected: true },
+      { iteration: 1, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: true },
     ]);
 
     expect(feedback).toBe('');
+  });
+
+  test('still returns feedback for failed iteration with no files changed', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 1, exitCode: 1, signal: '', failureStage: 'invoke_contract', filesChanged: [], completionDetected: false, taskDetected: false },
+    ]);
+
+    expect(feedback).not.toBe('');
+    expect(feedback).toContain('Iteration 1');
   });
 
   test('includes error output when errorContent matches a failed iteration', () => {
@@ -652,9 +664,9 @@ describe('_buildIterationFeedback()', () => {
     expect(feedback).not.toContain('Error output:');
   });
 
-  test('truncates stderr to 2000 chars and stdout to 500 chars', () => {
-    const longStderr = 'x'.repeat(2500);
-    const longStdout = 'y'.repeat(800);
+  test('truncates stderr to 500 chars and stdout to 200 chars in feedback', () => {
+    const longStderr = 'x'.repeat(800);
+    const longStdout = 'y'.repeat(400);
 
     const errorContent = [{
       timestamp: '2026-04-11T16:30:00Z',
@@ -672,7 +684,7 @@ describe('_buildIterationFeedback()', () => {
     expect(feedback).toContain('Error output:');
     const stderrPart = feedback.match(/Error output:\n  (.*)\n  stdout:/s);
     expect(stderrPart).toBeTruthy();
-    expect(stderrPart[1].length).toBeLessThanOrEqual(2003);
+    expect(stderrPart[1].length).toBeLessThanOrEqual(503);
   });
 
   test('backward compat: no errorContent = existing behavior', () => {
@@ -780,8 +792,8 @@ describe('_extractErrorForIteration()', () => {
     expect(_extractErrorForIteration(null, 1)).toBeNull();
   });
 
-  test('truncates stderr to 2000 chars', () => {
-    const longStderr = 'e'.repeat(2500);
+  test('truncates stderr to 500 chars', () => {
+    const longStderr = 'e'.repeat(1200);
     const errorContent = [{
       iteration: 1,
       exitCode: 1,
@@ -790,12 +802,26 @@ describe('_extractErrorForIteration()', () => {
     }];
 
     const result = _extractErrorForIteration(errorContent, 1);
-    expect(result.stderr.length).toBe(2003);
+    expect(result.stderr.length).toBe(503);
     expect(result.stderr.endsWith('...')).toBe(true);
   });
 
-  test('truncates stdout to 500 chars', () => {
-    const longStdout = 'o'.repeat(800);
+  test('preserves stderr when shorter than 500 chars', () => {
+    const shortStderr = 'e'.repeat(400);
+    const errorContent = [{
+      iteration: 1,
+      exitCode: 1,
+      stderr: shortStderr,
+      stdout: '',
+    }];
+
+    const result = _extractErrorForIteration(errorContent, 1);
+    expect(result.stderr.length).toBe(400);
+    expect(result.stderr.endsWith('...')).toBe(false);
+  });
+
+  test('truncates stdout to 200 chars', () => {
+    const longStdout = 'o'.repeat(400);
     const errorContent = [{
       iteration: 1,
       exitCode: 1,
@@ -804,7 +830,7 @@ describe('_extractErrorForIteration()', () => {
     }];
 
     const result = _extractErrorForIteration(errorContent, 1);
-    expect(result.stdout.length).toBe(503);
+    expect(result.stdout.length).toBe(203);
     expect(result.stdout.endsWith('...')).toBe(true);
   });
 
@@ -826,6 +852,73 @@ describe('_extractErrorForIteration()', () => {
       signal: 'SIGTERM',
       failureStage: 'invoke_contract',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _failureFingerprint / _firstNonEmptyLine / fingerprint dedup
+// ---------------------------------------------------------------------------
+
+describe('_firstNonEmptyLine()', () => {
+  test('returns the first non-whitespace line trimmed to limit', () => {
+    expect(_firstNonEmptyLine('  \n  hello world  \nother line', 5)).toBe('hello');
+    expect(_firstNonEmptyLine('  \n  hello world  \nother line', 100)).toBe('hello world');
+  });
+
+  test('returns empty string for null/undefined/empty input', () => {
+    expect(_firstNonEmptyLine(null, 120)).toBe('');
+    expect(_firstNonEmptyLine('', 120)).toBe('');
+    expect(_firstNonEmptyLine('   \n   \n', 120)).toBe('');
+  });
+});
+
+describe('_buildIterationFeedback() - fingerprint dedup', () => {
+  test('three same-fingerprint failures: one full detail, two back-references', () => {
+    const errorContent = [
+      { iteration: 1, exitCode: 1, stderr: 'SameError: problem\nline2', stdout: '', signal: '', failureStage: 'invoke_contract' },
+      { iteration: 2, exitCode: 1, stderr: 'SameError: problem\nline2', stdout: '', signal: '', failureStage: 'invoke_contract' },
+      { iteration: 3, exitCode: 1, stderr: 'SameError: problem\nline2', stdout: '', signal: '', failureStage: 'invoke_contract' },
+    ];
+    const history = [
+      { iteration: 1, exitCode: 1, signal: '', failureStage: 'invoke_contract', filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 2, exitCode: 1, signal: '', failureStage: 'invoke_contract', filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 3, exitCode: 1, signal: '', failureStage: 'invoke_contract', filesChanged: [], completionDetected: false, taskDetected: false },
+    ];
+
+    const feedback = _buildIterationFeedback(history, errorContent);
+
+    // Full detail on first occurrence
+    expect(feedback).toContain('Iteration 1:');
+    expect(feedback).toContain('SameError: problem');
+
+    // Back-references for 2 and 3
+    expect(feedback).toContain('same failure as iteration 1 (see above).');
+    const backRefCount = (feedback.match(/same failure as iteration/g) || []).length;
+    expect(backRefCount).toBe(2);
+
+    // Stderr head appears only once
+    const stderrHeadCount = (feedback.match(/SameError: problem/g) || []).length;
+    expect(stderrHeadCount).toBe(1);
+  });
+
+  test('three distinct-fingerprint failures: three full detail entries', () => {
+    const errorContent = [
+      { iteration: 1, exitCode: 1, stderr: 'ErrorA', stdout: '', signal: '', failureStage: 'stageA' },
+      { iteration: 2, exitCode: 1, stderr: 'ErrorB', stdout: '', signal: '', failureStage: 'stageB' },
+      { iteration: 3, exitCode: 1, stderr: 'ErrorC', stdout: '', signal: '', failureStage: 'stageC' },
+    ];
+    const historyEntries = [
+      { iteration: 1, exitCode: 1, signal: '', failureStage: 'stageA', filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 2, exitCode: 1, signal: '', failureStage: 'stageB', filesChanged: [], completionDetected: false, taskDetected: false },
+      { iteration: 3, exitCode: 1, signal: '', failureStage: 'stageC', filesChanged: [], completionDetected: false, taskDetected: false },
+    ];
+
+    const feedback = _buildIterationFeedback(historyEntries, errorContent);
+
+    expect(feedback).toContain('Iteration 1:');
+    expect(feedback).toContain('Iteration 2:');
+    expect(feedback).toContain('Iteration 3:');
+    expect(feedback).not.toContain('same failure as iteration');
   });
 });
 
