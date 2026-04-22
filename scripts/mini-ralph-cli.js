@@ -19,6 +19,7 @@
  *   --tasks                    Enable tasks mode
  *   --min-iterations <n>       Minimum iterations (default: 1)
  *   --max-iterations <n>       Maximum iterations (default: 50)
+ *   --stall-threshold <n>      Halt after N consecutive no-op iterations (default: 3; 0 disables)
  *   --completion-promise <s>   Completion promise string (default: COMPLETE)
  *   --task-promise <s>         Task promise string (default: READY_FOR_NEXT_TASK)
  *   --no-commit                Suppress auto-commit
@@ -48,6 +49,7 @@ function parseArgs(argv) {
     tasksMode: false,
     minIterations: 1,
     maxIterations: 50,
+    stallThreshold: 3,
     completionPromise: 'COMPLETE',
     taskPromise: 'READY_FOR_NEXT_TASK',
     noCommit: false,
@@ -87,6 +89,9 @@ function parseArgs(argv) {
         break;
       case '--max-iterations':
         opts.maxIterations = parseInt(args[++i], 10);
+        break;
+      case '--stall-threshold':
+        opts.stallThreshold = parseInt(args[++i], 10);
         break;
       case '--completion-promise':
         opts.completionPromise = args[++i];
@@ -141,6 +146,7 @@ Options:
   --tasks                    Enable tasks mode
   --min-iterations <n>       Minimum iterations (default: 1)
   --max-iterations <n>       Maximum iterations (default: 50)
+  --stall-threshold <n>      Halt after N consecutive no-op iterations (default: 3; 0 disables)
   --completion-promise <s>   Completion promise string
   --task-promise <s>         Task promise string
   --no-commit                Suppress auto-commit
@@ -197,6 +203,7 @@ async function main() {
     tasksMode: opts.tasksMode,
     minIterations: opts.minIterations,
     maxIterations: opts.maxIterations,
+    stallThreshold: opts.stallThreshold,
     completionPromise: opts.completionPromise,
     taskPromise: opts.taskPromise,
     noCommit: opts.noCommit,

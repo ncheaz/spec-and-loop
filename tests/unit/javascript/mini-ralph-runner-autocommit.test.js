@@ -67,7 +67,7 @@ describe('runner._autoCommit()', () => {
 
     expect(execFileSync).toHaveBeenCalledWith(
       'git',
-      ['add', '--', 'tasks.md', 'src/app.js'],
+      ['add', '-A', '--', 'tasks.md', 'src/app.js'],
       expect.any(Object)
     );
     expect(execFileSync).toHaveBeenCalledWith(
@@ -98,7 +98,7 @@ describe('runner._autoCommit()', () => {
     expect(execFileSync).toHaveBeenNthCalledWith(
       1,
       'git',
-      ['add', '--', 'tasks.md', 'src/app.js'],
+      ['add', '-A', '--', 'tasks.md', 'src/app.js'],
       expect.any(Object)
     );
     expect(execFileSync).toHaveBeenNthCalledWith(
@@ -160,14 +160,42 @@ describe('runner._autoCommit()', () => {
 
     expect(execFileSync).toHaveBeenCalledWith(
       'git',
-      ['add', '--', 'tasks.md', 'src/app.js'],
+      ['add', '-A', '--', 'tasks.md', 'src/app.js'],
       expect.any(Object)
     );
+    // Guard against the unscoped form, which would stage *every* dirty file in
+    // the repo (including files unrelated to the current task).
     expect(execFileSync).not.toHaveBeenCalledWith(
       'git',
       ['add', '-A'],
       expect.any(Object)
     );
+  });
+
+  test('stages deletions alongside modifications via `git add -A -- <paths>`', () => {
+    // Simulate a task that removed a file: the path is in the allowlist but
+    // no longer exists on disk. `git add -A -- <path>` must still succeed and
+    // record the deletion in the index.
+    execFileSync.mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'diff') {
+        return 'deleted/file.webp\ntasks.md\n';
+      }
+      return '';
+    });
+
+    const result = runner._autoCommit(7, {
+      completedTasks: [completedTask],
+      filesToStage: ['deleted/file.webp', 'tasks.md'],
+      verbose: false,
+    });
+
+    expect(execFileSync).toHaveBeenNthCalledWith(
+      1,
+      'git',
+      ['add', '-A', '--', 'deleted/file.webp', 'tasks.md'],
+      expect.any(Object)
+    );
+    expect(result).toEqual({ attempted: true, committed: true, anomaly: null });
   });
 
   test('blocks protected OpenSpec artifacts from loop-managed commits', () => {
