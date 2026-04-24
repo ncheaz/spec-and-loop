@@ -2216,6 +2216,62 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('Recent Loop Signals window is 3: oldest of 5 history entries are excluded and dedup back-references still shown', async () => {
+    // Feed 5 history entries into the ralphDir before running. The runner reads
+    // only the 3 most recent via history.recent(ralphDir, 3). Entries 4 and 5
+    // (oldest) must NOT appear in the prompt. Entries 1–3 share a fingerprint
+    // so the dedup logic should collapse them into a primary + back-references.
+    const ralphDir = path.join(tmpDir, '.ralph-window3-test');
+    fs.mkdirSync(ralphDir, { recursive: true });
+
+    // Write 5 history entries manually; iteration numbers 1..5 (oldest first).
+    // Entries 1–3 share fingerprint "no-promise-stall" (identical outcome).
+    const sharedFingerprint = 'no-promise-stall';
+    const historyEntries = [
+      { iteration: 1, outcome: 'stall', signal: sharedFingerprint, summary: 'stall oldest A' },
+      { iteration: 2, outcome: 'stall', signal: sharedFingerprint, summary: 'stall oldest B' },
+      { iteration: 3, outcome: 'stall', signal: sharedFingerprint, summary: 'stall iter3' },
+      { iteration: 4, outcome: 'stall', signal: sharedFingerprint, summary: 'stall iter4' },
+      { iteration: 5, outcome: 'stall', signal: sharedFingerprint, summary: 'stall iter5' },
+    ];
+    fs.writeFileSync(
+      path.join(ralphDir, 'ralph-history.json'),
+      JSON.stringify(historyEntries),
+    );
+
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+      if (callCount === 1) {
+        return {
+          stdout: 'no promise',
+          exitCode: 0,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      // The second prompt should include Recent Loop Signals
+      expect(prompts[1]).toContain('## Recent Loop Signals');
+      // Entries 1 and 2 (oldest) must NOT appear — window is 3 (entries 3,4,5)
+      expect(prompts[1]).not.toContain('stall oldest A');
+      expect(prompts[1]).not.toContain('stall oldest B');
+    } finally {
+      restore();
+    }
+  });
+
   test('errors archived and cleared on successful completion', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     let callCount = 0;
