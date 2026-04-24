@@ -764,7 +764,7 @@ Before implementing, read the OpenSpec artifacts listed above that are relevant 
 
 Follow this loop contract EXACTLY. Do not skip steps. Do not batch. Do not output a promise until every step is done.
 
-1. Open `tasks.md` (at `{{change_dir}}/tasks.md`) and find the FIRST line matching `- [ ] ` or `- [/] `. Remember its exact text.
+1. Work on the task shown in `## Fresh Task Context` above. Before editing any marker, open `tasks.md` at `{{change_dir}}/tasks.md` and verify that same task is still `- [ ] ` or `- [/] ` on disk (it may have been closed by a prior iteration if you are resuming).
 2. Edit `tasks.md` in place to change that line's marker to `- [/] ` (in-progress). You MUST use your file edit tool to modify the file on disk — a shell `cp`, `sed`, or print-to-stdout does not count. Verify by re-reading the file.
 3. Implement the smallest change that fully satisfies the task's Done-when conditions. Run the task's verification command if one is specified.
 4. On success, edit `tasks.md` again in place to change that line's marker from `- [/] ` to `- [x] `. Verify by re-reading the file and confirming the `[x]` is present on that exact line.
