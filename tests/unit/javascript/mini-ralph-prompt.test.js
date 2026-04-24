@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { loadBase, render, _renderTemplate } = require('../../../lib/mini-ralph/prompt');
+const { loadBase, render, _renderTemplate, _resetWarnNotice } = require('../../../lib/mini-ralph/prompt');
 
 let tmpDir;
 
@@ -287,5 +287,109 @@ describe('render()', () => {
       1
     );
     expect(result).toBe('dir=/path/to/change');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D5 — Lazy base-prompt loading (spec scenario coverage)
+// ---------------------------------------------------------------------------
+
+describe('render() D5 — Lazy base-prompt loading', () => {
+  let stderrOutput;
+  let originalWrite;
+
+  beforeEach(() => {
+    stderrOutput = [];
+    originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (msg) => { stderrOutput.push(msg); return true; };
+    delete process.env.RALPH_BASE_PROMPT_WARN_BYTES;
+    _resetWarnNotice();
+  });
+
+  afterEach(() => {
+    process.stderr.write = originalWrite;
+    delete process.env.RALPH_BASE_PROMPT_WARN_BYTES;
+    _resetWarnNotice();
+  });
+
+  test('(a) template without {{base_prompt}} renders without throwing even when promptFile points at a nonexistent path', () => {
+    const templateFile = path.join(tmpDir, 'no-base.md');
+    fs.writeFileSync(templateFile, 'Iteration {{iteration}} — no base here');
+
+    expect(() =>
+      render(
+        {
+          promptFile: '/totally/nonexistent/file.md',
+          promptTemplate: templateFile,
+        },
+        1
+      )
+    ).not.toThrow();
+
+    const result = render(
+      {
+        promptFile: '/totally/nonexistent/file.md',
+        promptTemplate: templateFile,
+      },
+      1
+    );
+    expect(result).toContain('Iteration 1');
+    expect(result).not.toContain('{{base_prompt}}');
+  });
+
+  test('(b) template with {{base_prompt}} substitutes the file content verbatim', () => {
+    const promptFile = path.join(tmpDir, 'base.md');
+    fs.writeFileSync(promptFile, 'My exact base content.');
+    const templateFile = path.join(tmpDir, 'with-base.md');
+    fs.writeFileSync(templateFile, 'START\n{{base_prompt}}\nEND');
+
+    const result = render({ promptFile, promptTemplate: templateFile }, 1);
+
+    expect(result).toBe('START\nMy exact base content.\nEND');
+  });
+
+  test('(c) template with {{base_prompt}} and a >4 KB file emits exactly one stderr line containing the file path and byte size', () => {
+    const promptFile = path.join(tmpDir, 'large.md');
+    // Write > 4096 bytes
+    fs.writeFileSync(promptFile, 'x'.repeat(5000));
+    const templateFile = path.join(tmpDir, 'with-base.md');
+    fs.writeFileSync(templateFile, '{{base_prompt}}');
+
+    render({ promptFile, promptTemplate: templateFile }, 1);
+
+    expect(stderrOutput).toHaveLength(1);
+    expect(stderrOutput[0]).toContain('{{base_prompt}}');
+    expect(stderrOutput[0]).toContain('5000');
+    expect(stderrOutput[0]).toContain(promptFile);
+  });
+
+  test('(d) RALPH_BASE_PROMPT_WARN_BYTES=0 silences the warning even for a 100 KB file', () => {
+    process.env.RALPH_BASE_PROMPT_WARN_BYTES = '0';
+    const promptFile = path.join(tmpDir, 'huge.md');
+    fs.writeFileSync(promptFile, 'y'.repeat(102400));
+    const templateFile = path.join(tmpDir, 'with-base.md');
+    fs.writeFileSync(templateFile, '{{base_prompt}}');
+
+    render({ promptFile, promptTemplate: templateFile }, 1);
+
+    expect(stderrOutput).toHaveLength(0);
+  });
+
+  test('(e) an invalid RALPH_BASE_PROMPT_WARN_BYTES falls back to 4096 and emits the fallback notice EXACTLY ONCE across three consecutive render() calls', () => {
+    process.env.RALPH_BASE_PROMPT_WARN_BYTES = 'notanumber';
+    const promptFile = path.join(tmpDir, 'large2.md');
+    fs.writeFileSync(promptFile, 'z'.repeat(5000));
+    const templateFile = path.join(tmpDir, 'with-base.md');
+    fs.writeFileSync(templateFile, '{{base_prompt}}');
+
+    render({ promptFile, promptTemplate: templateFile }, 1);
+    render({ promptFile, promptTemplate: templateFile }, 2);
+    render({ promptFile, promptTemplate: templateFile }, 3);
+
+    // One fallback notice + three oversized warnings (one per call, threshold fell back to 4096)
+    const fallbackNotices = stderrOutput.filter(m => m.includes('falling back to 4096'));
+    const oversizedWarnings = stderrOutput.filter(m => m.includes('{{base_prompt}} resolved to'));
+    expect(fallbackNotices).toHaveLength(1);
+    expect(oversizedWarnings).toHaveLength(3);
   });
 });
