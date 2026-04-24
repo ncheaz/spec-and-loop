@@ -272,7 +272,7 @@ underlying content explicitly as `{{base_prompt}}` when a prompt template is
 used, so template-mode output includes the wrapped prompt body rather than
 silently dropping it. `render()` also applies `promptTemplate` substitution for
 `{{iteration}}`, `{{max_iterations}}`, `{{tasks}}`, `{{task_context}}`,
-`{{task_promise}}`, `{{completion_promise}}`, and `{{context}}`.
+`{{task_promise}}`, and `{{completion_promise}}`.
 `scripts/ralph-run.sh:735-843` — `create_prompt_template()` writes
 `prompt-template.md` embedding all template variables, including an explicit
 invocation-time PRD snapshot section.
@@ -628,7 +628,7 @@ rendering that injects iteration-specific values before invoking OpenCode.
 | Field | Value |
 |-------|-------|
 | Verdict | `verified` — `prompt.js` supports both inline text and file-based prompt loading, and applies full template variable substitution on every iteration. `ralph-run.sh` creates a dedicated `prompt-template.md` and passes both files to the CLI. Confirmed by unit tests for all template variables and bash tests for template construction. Confidence: **high**. |
-| Implementation evidence | `lib/mini-ralph/prompt.js:33-53` — `loadBase()` supports both `promptText` (inline) and `promptFile` (file read); `prompt.js:64-101` — `render()` applies `promptTemplate` when present, replacing `{{iteration}}`, `{{max_iterations}}`, `{{tasks}}`, `{{task_context}}`, `{{task_promise}}`, `{{completion_promise}}`, `{{context}}`; `prompt.js:110-113` — `_renderTemplate()` does `{{key}}` replacement; `scripts/ralph-run.sh:735-843` — `create_prompt_template()` writes `prompt-template.md` with all template variables; `ralph-run.sh:1007-1013` — `--prompt-file PRD.md --prompt-template prompt-template.md` passed to mini-ralph |
+| Implementation evidence | `lib/mini-ralph/prompt.js:33-53` — `loadBase()` supports both `promptText` (inline) and `promptFile` (file read); lazy-loaded only when the template contains `{{base_prompt}}`; `prompt.js:64-101` — `render()` applies `promptTemplate` when present, replacing `{{iteration}}`, `{{max_iterations}}`, `{{tasks}}`, `{{task_context}}`, `{{task_promise}}`, `{{completion_promise}}`; `prompt.js:110-113` — `_renderTemplate()` does `{{key}}` replacement; `scripts/ralph-run.sh:735-843` — `create_prompt_template()` writes `prompt-template.md` with all template variables; `ralph-run.sh:1007-1013` — `--prompt-file PRD.md --prompt-template prompt-template.md` passed to mini-ralph |
 | Test evidence | `tests/unit/javascript/mini-ralph-prompt.test.js` — `_renderTemplate()` suite (lines 30–69): `replaces a single variable` (line 31), `replaces multiple variables` (line 35), `replaces repeated occurrences of the same variable` (line 40), `handles empty string as variable value` (line 56); `render()` suite — `renders template with iteration variables` (line 110), `injects tasks content when tasksFile is present` (line 131), `includes task_promise and completion_promise in template` (line 185); `tests/unit/bash/test-create-prompt-template.bats` — `create_prompt_template: includes Ralph iteration placeholders` (line 57), `create_prompt_template: includes task list placeholder` (line 78), `create_prompt_template: includes context placeholder` (line 98), `create_prompt_template: includes promise placeholders` (line 138); `tests/unit/bash/test-execute-ralph-loop.bats` — `execute_ralph_loop: passes --prompt-template to the CLI` (line 251) |
 
 ---

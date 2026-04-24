@@ -730,13 +730,25 @@ Change directory: {{change_dir}}
 
 Before implementing, read the OpenSpec artifacts listed above that are relevant to the current task.
 
-Pick the first [ ] or [/] task in tasks.md, mark it [/], implement it (smallest change that fully satisfies the Done-when conditions), run the task's verification command, mark it [x] on success, then output `<promise>{{task_promise}}</promise>`. Output `<promise>{{completion_promise}}</promise>` only when every task is [x]. Output promise tags on their own line, literal; do not quote or describe them. Do not fabricate a promise to exit the loop. If an approach fails twice, try a different one.
+Follow this loop contract EXACTLY. Do not skip steps. Do not batch. Do not output a promise until every step is done.
+
+1. Work on the task shown in `## Fresh Task Context` above. Before editing any marker, open `tasks.md` at `{{change_dir}}/tasks.md` and verify that same task is still `- [ ] ` or `- [/] ` on disk (it may have been closed by a prior iteration if you are resuming).
+2. Edit `tasks.md` in place to change that line's marker to `- [/] ` (in-progress). You MUST use your file edit tool to modify the file on disk — a shell `cp`, `sed`, or print-to-stdout does not count. Verify by re-reading the file.
+3. Implement the smallest change that fully satisfies the task's Done-when conditions. Run the task's verification command if one is specified.
+4. On success, edit `tasks.md` again in place to change that line's marker from `- [/] ` to `- [x] `. Verify by re-reading the file and confirming the `[x]` is present on that exact line.
+5. ONLY after step 4 writes `[x]` to disk, output `<promise>{{task_promise}}</promise>` on its own line.
+6. If and only if EVERY task line in `tasks.md` is `- [x] `, output `<promise>{{completion_promise}}</promise>` instead.
+
+Hard rules:
+- If you do not actually modify `tasks.md` on disk in this iteration, DO NOT output any promise tag. Output a short failure note instead and stop.
+- Never output `<promise>{{task_promise}}</promise>` while the task you just worked on is still `- [ ]` on disk. That causes the same task to repeat forever.
+- Promise tags must be on their own line, literal, unquoted, and not described in prose.
+- If an approach fails twice, try a different one.
+- If the task is already satisfied by prior work (e.g. target file already exists with the right content), you STILL must flip the checkbox to `[x]` in `tasks.md` before emitting the promise.
 
 ## Commit Contract
 
 {{commit_contract}}
-
-{{context}}
 EOF
 
     # Determine repo root for AGENTS.md probe

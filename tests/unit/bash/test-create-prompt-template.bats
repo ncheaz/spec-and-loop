@@ -95,7 +95,7 @@ teardown() {
   rm -rf "$test_dir"
 }
 
-@test "create_prompt_template: includes context placeholder" {
+@test "create_prompt_template: does not include context placeholder" {
   local test_dir
   test_dir=$(setup_test_dir)
   cd "$test_dir" || return 1
@@ -109,7 +109,7 @@ teardown() {
   
   [ "$status" -eq 0 ]
   
-  grep -q "{{context}}" "$template_file"
+  ! grep -q "{{context}}" "$template_file"
   
   cd - > /dev/null
   rm -rf "$test_dir"
@@ -594,7 +594,7 @@ teardown() {
   rm -rf "$test_dir"
 }
 
-@test "create_prompt_template: explicit-read sentence precedes task-selection in Instructions section" {
+@test "create_prompt_template: step 1 references Fresh Task Context and requires on-disk tasks.md verify (D4)" {
   local test_dir
   test_dir=$(setup_test_dir)
   # Stay in project root so git rev-parse works
@@ -609,38 +609,23 @@ teardown() {
 
   [ "$status" -eq 0 ]
 
-  # 1. Sentence appears exactly once
-  local sentence="Before implementing, read the OpenSpec artifacts listed above that are relevant to the current task."
+  # 1. Old step-1 wording must NOT appear
+  local old_count
+  old_count=$(grep -c "find the FIRST line matching" "$template_file" || true)
+  [ "$old_count" -eq 0 ]
+
+  # 2. Step 1 must reference "Fresh Task Context" somewhere in the template (D4 rewrite)
+  grep -q "Fresh Task Context" "$template_file"
+
+  # 3. The template must contain both "tasks.md" and "verify" within the Instructions section
+  # (they appear on step 1 line which references the on-disk verify requirement)
+  grep -q "tasks\.md" "$template_file"
+  grep -q "verify" "$template_file"
+
+  # 4. The "Before implementing, read the OpenSpec artifacts" sentence still appears
   local count
-  count=$(grep -c "$sentence" "$template_file" || true)
+  count=$(grep -c "Before implementing, read the OpenSpec artifacts listed above" "$template_file" || true)
   [ "$count" -eq 1 ]
-
-  # 2. Sentence line number is less than the first "Pick the first" line number
-  local read_line pick_line
-  read_line=$(grep -n "$sentence" "$template_file" | head -n1 | cut -d: -f1)
-  pick_line=$(grep -n "Pick the first" "$template_file" | head -n1 | cut -d: -f1)
-  [ -n "$read_line" ]
-  [ -n "$pick_line" ]
-  [ "$read_line" -lt "$pick_line" ]
-
-  # 3. Sentence appears inside the ## Instructions section
-  # (after a line matching "^## Instructions" and before the next "^## " header)
-  local in_instructions=false
-  local found_sentence=false
-  while IFS= read -r line; do
-    if [[ "$line" =~ ^##[[:space:]]Instructions ]]; then
-      in_instructions=true
-      continue
-    fi
-    if [[ "$in_instructions" == "true" && "$line" =~ ^##[[:space:]] ]]; then
-      break
-    fi
-    if [[ "$in_instructions" == "true" && "$line" == *"$sentence"* ]]; then
-      found_sentence=true
-      break
-    fi
-  done < "$template_file"
-  [ "$found_sentence" = "true" ]
 
   rm -rf "$test_dir"
 }

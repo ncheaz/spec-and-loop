@@ -220,7 +220,7 @@ describe('prompt helpers', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     const templateFile = path.join(tmpDir, 'template.md');
     fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [ ] 1.2 Next task\n');
-    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{base_prompt}}\n{{tasks}}\n{{task_context}}\n{{task_promise}} {{completion_promise}} {{change_dir}} {{context}}');
+    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{base_prompt}}\n{{tasks}}\n{{task_context}}\n{{task_promise}} {{completion_promise}} {{change_dir}}');
 
     const rendered = prompt.render({
       promptText: 'Base prompt',

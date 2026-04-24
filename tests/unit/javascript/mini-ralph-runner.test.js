@@ -19,6 +19,7 @@ const {
   _completedTaskDelta,
   _buildAutoCommitAllowlist,
   _formatAutoCommitMessage,
+  _truncateSubjectSummary,
   _buildIterationFeedback,
   _extractErrorForIteration,
   _getCurrentTaskDescription,
@@ -28,6 +29,8 @@ const {
   _wasSuccessfulIteration,
   _failureFingerprint,
   _firstNonEmptyLine,
+  _filterGitignored,
+  _autoCommit,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -581,6 +584,61 @@ describe('_formatAutoCommitMessage()', () => {
   test('returns empty string when there are no completed tasks', () => {
     expect(_formatAutoCommitMessage(2, [])).toBe('');
   });
+
+  test('truncates long task descriptions in the subject line but preserves them in the body', () => {
+    const longDescription =
+      'Write `<slug>.components.json` for each of the eight slugs per `design.md` Decision 15 with detailed normative expectations that span several sentences and would otherwise blow out `git log --oneline` readability for every reviewer.';
+    const message = _formatAutoCommitMessage(46, [
+      {
+        number: '4.6',
+        description: longDescription,
+        fullDescription: `4.6 ${longDescription}`,
+        status: 'completed',
+      },
+    ]);
+
+    const [subject, , ...bodyLines] = message.split('\n');
+    expect(subject.length).toBeLessThanOrEqual(72);
+    expect(subject.startsWith('Ralph iteration 46: ')).toBe(true);
+    expect(subject.includes('\n')).toBe(false);
+    expect(message).toContain(`- [x] 4.6 ${longDescription}`);
+    expect(bodyLines.join('\n')).toContain('Tasks completed:');
+  });
+});
+
+describe('_truncateSubjectSummary()', () => {
+  test('returns the input unchanged when it already fits', () => {
+    expect(_truncateSubjectSummary('Implement status dashboard', 50)).toBe(
+      'Implement status dashboard'
+    );
+  });
+
+  test('prefers the first sentence when it fits in the budget', () => {
+    const input =
+      'Add a focused unit test. The test covers several scenarios and asserts many things.';
+    expect(_truncateSubjectSummary(input, 50)).toBe('Add a focused unit test.');
+  });
+
+  test('hard-truncates at a word boundary with an ellipsis when no short sentence exists', () => {
+    const input =
+      'Write component-spec-slug JSON files that diff-table expect from the components manifest against actual from the live DOM probe';
+    const out = _truncateSubjectSummary(input, 50);
+    expect(out.length).toBeLessThanOrEqual(50);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out).not.toMatch(/\s…$/);
+  });
+
+  test('collapses internal whitespace onto one line', () => {
+    const input = 'line one\n\n   line two';
+    expect(_truncateSubjectSummary(input, 50)).toBe('line one line two');
+  });
+
+  test('returns empty string for empty or whitespace input', () => {
+    expect(_truncateSubjectSummary('', 50)).toBe('');
+    expect(_truncateSubjectSummary('   \n  ', 50)).toBe('');
+    expect(_truncateSubjectSummary(null, 50)).toBe('');
+    expect(_truncateSubjectSummary(undefined, 50)).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -976,6 +1034,127 @@ describe('_buildIterationFeedback() - fingerprint dedup', () => {
     expect(feedback).toContain('Iteration 2:');
     expect(feedback).toContain('Iteration 3:');
     expect(feedback).not.toContain('same failure as iteration');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _buildIterationFeedback() - paths_ignored_filtered / all_paths_ignored dedup bypass
+// ---------------------------------------------------------------------------
+
+describe('_buildIterationFeedback() - ignore-filter anomaly dedup bypass', () => {
+  const makeIgnoreEntry = (iteration, type, ignoredPaths) => ({
+    iteration,
+    exitCode: 0,
+    signal: '',
+    failureStage: '',
+    filesChanged: ['tasks.md'],
+    completionDetected: false,
+    taskDetected: true,
+    commitAnomaly: `Auto-commit succeeded but filtered gitignored paths: ${ignoredPaths[0]}`,
+    commitAnomalyType: type,
+    ignoredPaths,
+  });
+
+  test('three consecutive paths_ignored_filtered entries produce three distinct lines (no dedup)', () => {
+    const ignoredPaths = ['tasks.md'];
+    const history = [
+      makeIgnoreEntry(5, 'paths_ignored_filtered', ignoredPaths),
+      makeIgnoreEntry(6, 'paths_ignored_filtered', ignoredPaths),
+      makeIgnoreEntry(7, 'paths_ignored_filtered', ignoredPaths),
+    ];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('Iteration 5:');
+    expect(feedback).toContain('Iteration 6:');
+    expect(feedback).toContain('Iteration 7:');
+    expect(feedback).not.toContain('same failure as iteration');
+  });
+
+  test('dedup still applies to repeated invoke_start (non-filter) anomalies', () => {
+    const history = [
+      {
+        iteration: 10,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: true,
+        commitAnomaly: 'Auto-commit failed: pathspec did not match',
+        commitAnomalyType: 'commit_failed',
+      },
+      {
+        iteration: 11,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: true,
+        commitAnomaly: 'Auto-commit failed: pathspec did not match',
+        commitAnomalyType: 'commit_failed',
+      },
+    ];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('Iteration 10: commit anomaly');
+    expect(feedback).toContain('same failure as iteration 10');
+  });
+
+  test('ignoredPaths > 2 shows first two paths and (+N more) suffix', () => {
+    const ignoredPaths = ['a.md', 'b.md', 'c.md', 'd.md'];
+    const history = [makeIgnoreEntry(3, 'paths_ignored_filtered', ignoredPaths)];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('a.md');
+    expect(feedback).toContain('b.md');
+    expect(feedback).toContain('(+2 more)');
+    expect(feedback).not.toContain('c.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _buildIterationFeedback() - no-promise tool-usage and duration suffix
+// ---------------------------------------------------------------------------
+
+describe('_buildIterationFeedback() - no-promise tool-usage/duration suffix', () => {
+  test('appends tool-usage and duration suffix for pure no-promise entry', () => {
+    const history = [
+      {
+        iteration: 9,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        commitAnomaly: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: false,
+        toolUsage: [{ tool: 'Task', count: 4 }],
+        duration: 418553,
+      },
+    ];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('no loop promise emitted');
+    expect(feedback).toMatch(/Tools used: Task\u00d74\./);
+    expect(feedback).toMatch(/Duration: 6m 58s\./);
+  });
+
+  test('produces bare "no loop promise emitted." when toolUsage empty and duration 0', () => {
+    const history = [
+      {
+        iteration: 9,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        commitAnomaly: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: false,
+        toolUsage: [],
+        duration: 0,
+      },
+    ];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('no loop promise emitted.');
+    expect(feedback).not.toContain('Tools used:');
+    expect(feedback).not.toContain('Duration:');
   });
 });
 
@@ -1686,6 +1865,148 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('history entry includes ignoredPaths when some paths are filtered', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      // Simulate check-ignore: mark openspec/changes/tasks.md as ignored
+      if (command === 'git' && args[0] === 'check-ignore') {
+        const err = new Error('ignored');
+        err.status = 0;
+        err.stdout = 'openspec/changes/tasks.md\n';
+        // check-ignore with --stdin: return the ignored path via stdout
+        // execFileSync returns stdout on exit 0
+        return 'openspec/changes/tasks.md\n';
+      }
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return 'src/app.js\n';
+      if (command === 'git' && args[0] === 'commit') return '';
+      return '';
+    });
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [
+          path.join(tmpDir, 'openspec', 'changes', 'tasks.md'),
+          path.join(tmpDir, 'src', 'app.js'),
+        ],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitCreated).toBe(true);
+      expect(entries[0].commitAnomalyType).toBe('paths_ignored_filtered');
+      expect(Array.isArray(entries[0].ignoredPaths)).toBe(true);
+      expect(entries[0].ignoredPaths).toContain('openspec/changes/tasks.md');
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  test('history entry omits ignoredPaths when no paths are filtered', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      // Simulate check-ignore exit 1 (no ignored paths)
+      if (command === 'git' && args[0] === 'check-ignore') {
+        const err = new Error('no ignored');
+        err.status = 1;
+        throw err;
+      }
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return 'src/app.js\n';
+      if (command === 'git' && args[0] === 'commit') return '';
+      return '';
+    });
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [path.join(tmpDir, 'src', 'app.js')],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitCreated).toBe(true);
+      expect('ignoredPaths' in entries[0]).toBe(false);
+      expect(entries[0].commitAnomalyType).not.toBe('paths_ignored_filtered');
+      expect(entries[0].commitAnomalyType).not.toBe('all_paths_ignored');
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  test('history entry records all_paths_ignored when all paths are gitignored', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args, opts) => {
+      // Simulate check-ignore returning all paths as ignored
+      if (command === 'git' && args[0] === 'check-ignore') {
+        // Return whatever was passed via stdin as all ignored
+        const inputPaths = (opts && opts.input) ? opts.input.split('\n').filter(Boolean) : [];
+        return inputPaths.join('\n') + (inputPaths.length ? '\n' : '');
+      }
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return '';
+      if (command === 'git' && args[0] === 'commit') return '';
+      return '';
+    });
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [path.join(tmpDir, 'openspec', 'changes', 'tasks.md')],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitAttempted).toBe(true);
+      expect(entries[0].commitCreated).toBe(false);
+      expect(entries[0].commitAnomalyType).toBe('all_paths_ignored');
+      expect(Array.isArray(entries[0].ignoredPaths)).toBe(true);
+      expect(entries[0].ignoredPaths.length).toBeGreaterThan(0);
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
   test('sets resumedAt in state when resuming from prior iteration', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     // Seed a prior state simulating iteration 2 having completed
@@ -1968,6 +2289,62 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('Recent Loop Signals window is 3: oldest of 5 history entries are excluded and dedup back-references still shown', async () => {
+    // Feed 5 history entries into the ralphDir before running. The runner reads
+    // only the 3 most recent via history.recent(ralphDir, 3). Entries 4 and 5
+    // (oldest) must NOT appear in the prompt. Entries 1–3 share a fingerprint
+    // so the dedup logic should collapse them into a primary + back-references.
+    const ralphDir = path.join(tmpDir, '.ralph-window3-test');
+    fs.mkdirSync(ralphDir, { recursive: true });
+
+    // Write 5 history entries manually; iteration numbers 1..5 (oldest first).
+    // Entries 1–3 share fingerprint "no-promise-stall" (identical outcome).
+    const sharedFingerprint = 'no-promise-stall';
+    const historyEntries = [
+      { iteration: 1, outcome: 'stall', signal: sharedFingerprint, summary: 'stall oldest A' },
+      { iteration: 2, outcome: 'stall', signal: sharedFingerprint, summary: 'stall oldest B' },
+      { iteration: 3, outcome: 'stall', signal: sharedFingerprint, summary: 'stall iter3' },
+      { iteration: 4, outcome: 'stall', signal: sharedFingerprint, summary: 'stall iter4' },
+      { iteration: 5, outcome: 'stall', signal: sharedFingerprint, summary: 'stall iter5' },
+    ];
+    fs.writeFileSync(
+      path.join(ralphDir, 'ralph-history.json'),
+      JSON.stringify(historyEntries),
+    );
+
+    const prompts = [];
+    let callCount = 0;
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+      if (callCount === 1) {
+        return {
+          stdout: 'no promise',
+          exitCode: 0,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: ['done.js'],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      // The second prompt should include Recent Loop Signals
+      expect(prompts[1]).toContain('## Recent Loop Signals');
+      // Entries 1 and 2 (oldest) must NOT appear — window is 3 (entries 3,4,5)
+      expect(prompts[1]).not.toContain('stall oldest A');
+      expect(prompts[1]).not.toContain('stall oldest B');
+    } finally {
+      restore();
+    }
+  });
+
   test('errors archived and cleared on successful completion', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     let callCount = 0;
@@ -2238,6 +2615,722 @@ describe('run() with mocked invoker', () => {
       expect(prompts[1]).not.toContain('older duplicate error');
     } finally {
       restore();
+    }
+  });
+
+  test('iterationPromptReady is called with finite non-negative prompt size fields', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const promptReadyCalls = [];
+    const spyReporter = {
+      runStarted: () => {},
+      iterationStarted: () => {},
+      iterationPromptReady: (info) => { promptReadyCalls.push(info); },
+      iterationResponseReceived: () => {},
+      iterationFinished: () => {},
+      note: () => {},
+      runFinished: () => {},
+    };
+
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true, reporter: spyReporter }));
+      expect(promptReadyCalls.length).toBeGreaterThanOrEqual(1);
+      const call = promptReadyCalls[0];
+      expect(call.iteration).toBe(1);
+      expect(Number.isFinite(call.promptBytes)).toBe(true);
+      expect(call.promptBytes).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(call.promptChars)).toBe(true);
+      expect(call.promptChars).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(call.promptTokens)).toBe(true);
+      expect(call.promptTokens).toBeGreaterThanOrEqual(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('injects ## Lessons Learned section with bullets from LESSONS.md into prompt', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(ralphDir, 'LESSONS.md'),
+      '- First lesson bullet\n- Second lesson bullet\n- Third lesson bullet\n',
+      'utf8'
+    );
+
+    const prompts = [];
+    const restore = mockInvoker(invoker, async (opts) => {
+      prompts.push(opts.prompt);
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+      expect(prompts[0]).toContain('## Lessons Learned');
+      expect(prompts[0]).toContain('- First lesson bullet');
+      expect(prompts[0]).toContain('- Second lesson bullet');
+      expect(prompts[0]).toContain('- Third lesson bullet');
+      // Header should appear exactly once
+      expect((prompts[0].match(/## Lessons Learned/g) || []).length).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('iterationResponseReceived is called and history entry contains responseBytes/responseChars', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const responseCalls = [];
+    const spyReporter = {
+      runStarted: () => {},
+      iterationStarted: () => {},
+      iterationPromptReady: () => {},
+      iterationResponseReceived: (info) => { responseCalls.push(info); },
+      iterationFinished: () => {},
+      note: () => {},
+      runFinished: () => {},
+    };
+
+    // Build a known-size response: 2048 ASCII chars = 2048 bytes
+    const knownOutput = 'x'.repeat(2048) + '\n<promise>COMPLETE</promise>';
+
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: knownOutput,
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true, reporter: spyReporter }));
+      expect(responseCalls.length).toBeGreaterThanOrEqual(1);
+      const call = responseCalls[0];
+      expect(call.iteration).toBe(1);
+      expect(call.responseBytes).toBe(Buffer.byteLength(knownOutput, 'utf8'));
+      expect(call.responseChars).toBe(knownOutput.length);
+
+      // Verify history entry
+      const history = require('../../../lib/mini-ralph/history.js');
+      const entries = history.read(ralphDir);
+      expect(entries.length).toBeGreaterThanOrEqual(1);
+      const entry = entries[entries.length - 1];
+      expect(entry.responseBytes).toBe(Buffer.byteLength(knownOutput, 'utf8'));
+      expect(entry.responseChars).toBe(knownOutput.length);
+    } finally {
+      restore();
+    }
+  });
+
+  test('fatal-path history entry has zeros for size fields when invoker throws', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+
+    const restore = mockInvoker(invoker, async () => {
+      throw Object.assign(new Error('invoker exploded'), { failureStage: 'invoke_start' });
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+    } catch (_) {
+      // run may or may not throw depending on halt logic
+    } finally {
+      restore();
+    }
+
+    const history = require('../../../lib/mini-ralph/history.js');
+    const entries = history.read(ralphDir);
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+    const entry = entries[entries.length - 1];
+    expect(entry.responseBytes).toBe(0);
+    expect(entry.responseChars).toBe(0);
+    expect(entry.responseTokens).toBe(0);
+    expect(entry.truncated).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _filterGitignored
+// ---------------------------------------------------------------------------
+
+describe('_filterGitignored()', () => {
+  const childProcess = require('child_process');
+  let gitRepo;
+
+  /**
+   * Initialize a real git repo in a temp directory and return its path.
+   */
+  function makeGitRepo() {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-filter-gitignored-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    return repo;
+  }
+
+  beforeEach(() => {
+    gitRepo = makeGitRepo();
+    // Write .gitignore with ignored-dir/ and *.log
+    fs.writeFileSync(path.join(gitRepo, '.gitignore'), 'ignored-dir/\n*.log\n', 'utf8');
+  });
+
+  afterEach(() => {
+    fs.rmSync(gitRepo, { recursive: true, force: true });
+  });
+
+  test('(a) a path matching *.log is dropped and not kept', () => {
+    const result = _filterGitignored(['debug.log', 'src/app.js'], gitRepo);
+    expect(result.dropped).toContain('debug.log');
+    expect(result.kept).not.toContain('debug.log');
+  });
+
+  test('(b) a plain path with no ignore match is kept and not dropped', () => {
+    const result = _filterGitignored(['src/app.js'], gitRepo);
+    expect(result.kept).toContain('src/app.js');
+    expect(result.dropped).not.toContain('src/app.js');
+  });
+
+  test('(c) a tracked file is kept even if it matches .gitignore textually', () => {
+    // Create a file that would match *.log, add and commit it before .gitignore
+    // is written. We need to set up the repo slightly differently for this case:
+    // Re-init with no .gitignore, commit the file, then add .gitignore.
+    const trackedRepo = makeGitRepo();
+    fs.writeFileSync(path.join(trackedRepo, 'tracked.log'), 'content\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'tracked.log'], { cwd: trackedRepo });
+    childProcess.execFileSync('git', ['commit', '-m', 'add tracked.log'], { cwd: trackedRepo });
+    // Now add .gitignore
+    fs.writeFileSync(path.join(trackedRepo, '.gitignore'), '*.log\n', 'utf8');
+
+    const result = _filterGitignored(['tracked.log'], trackedRepo);
+    // git check-ignore does not ignore tracked files — they stay in kept
+    expect(result.kept).toContain('tracked.log');
+    expect(result.dropped).not.toContain('tracked.log');
+
+    fs.rmSync(trackedRepo, { recursive: true, force: true });
+  });
+
+  test('(d) empty input returns {kept:[], dropped:[]} and spawns no child process', () => {
+    const execSpy = jest.spyOn(childProcess, 'execFileSync');
+    const callsBefore = execSpy.mock.calls.length;
+    const result = _filterGitignored([], gitRepo);
+    const callsAfter = execSpy.mock.calls.length;
+    expect(result).toEqual({ kept: [], dropped: [] });
+    expect(callsAfter).toBe(callsBefore); // no new calls
+  });
+
+  test('(e) unresolvable git binary: returns all paths as kept and throws nothing', () => {
+    const emptyBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    const originalPath = process.env.PATH;
+    process.env.PATH = emptyBinDir;
+    try {
+      let result;
+      expect(() => {
+        result = _filterGitignored(['some/path.js'], gitRepo);
+      }).not.toThrow();
+      expect(result.kept).toContain('some/path.js');
+      expect(result.dropped).toHaveLength(0);
+    } finally {
+      process.env.PATH = originalPath;
+      fs.rmSync(emptyBinDir, { recursive: true, force: true });
+    }
+  });
+
+  test('(f) exit 1 from git check-ignore (no ignored paths) returns all inputs as kept', () => {
+    // A repo with no .gitignore should produce exit 1 from git check-ignore
+    const cleanRepo = makeGitRepo();
+    // No .gitignore — git check-ignore will exit 1 for any path
+    const result = _filterGitignored(['some/path.js', 'other.txt'], cleanRepo);
+    expect(result.kept).toEqual(expect.arrayContaining(['some/path.js', 'other.txt']));
+    expect(result.dropped).toHaveLength(0);
+    fs.rmSync(cleanRepo, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _autoCommit reporter.note warnings for gitignored paths
+// ---------------------------------------------------------------------------
+
+describe('_autoCommit reporter.note warnings for gitignored paths', () => {
+  const childProcess = require('child_process');
+
+  function makeGitRepo() {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-autocommit-warn-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    return repo;
+  }
+
+  function makeStubReporter() {
+    const noteCalls = [];
+    return {
+      reporter: {
+        note: (msg, level) => noteCalls.push({ msg, level }),
+        runStarted: () => {},
+        runFinished: () => {},
+        iterationStarted: () => {},
+        iterationFinished: () => {},
+        iterationPromptReady: () => {},
+        iterationResponseReceived: () => {},
+      },
+      noteCalls,
+    };
+  }
+
+  test('single ignored path: reporter.note called with message containing dropped path', () => {
+    const repo = makeGitRepo();
+    // .gitignore ignores openspec/*
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'openspec/*\n', 'utf8');
+    childProcess.execFileSync('git', ['add', '.gitignore'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+    // Create a tracked file and an ignored file
+    fs.mkdirSync(path.join(repo, 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'lib', 'app.js'), 'console.log("hello")\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'lib/app.js'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'add app'], { cwd: repo });
+
+    // Create an ignored path
+    fs.mkdirSync(path.join(repo, 'openspec', 'changes'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'openspec', 'changes', 'tasks.md'), '# tasks\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(repo);
+    const { reporter, noteCalls } = makeStubReporter();
+    const ignoredPath = path.join(repo, 'openspec', 'changes', 'tasks.md');
+    const keptPath = path.join(repo, 'lib', 'app.js');
+
+    try {
+      _autoCommit(6, {
+        completedTasks: [{ id: '1.1', description: 'Task one' }],
+        filesToStage: [keptPath, ignoredPath],
+        reporter,
+      });
+
+      // reporter.note must have been called with warn level containing the dropped path
+      expect(noteCalls.length).toBeGreaterThanOrEqual(1);
+      const warn = noteCalls.find(c => c.level === 'error');
+      expect(warn).toBeDefined();
+      expect(warn.msg).toContain('openspec/changes/tasks.md');
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('all paths ignored: reporter.note called with message containing git add -f hint', () => {
+    const repo = makeGitRepo();
+    // .gitignore ignores openspec/*
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'openspec/*\n', 'utf8');
+    childProcess.execFileSync('git', ['add', '.gitignore'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+    // Create only ignored paths
+    fs.mkdirSync(path.join(repo, 'openspec', 'changes'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'openspec', 'changes', 'tasks.md'), '# tasks\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(repo);
+    const { reporter, noteCalls } = makeStubReporter();
+
+    try {
+      const result = _autoCommit(6, {
+        completedTasks: [{ id: '1.1', description: 'Task one' }],
+        filesToStage: [path.join(repo, 'openspec', 'changes', 'tasks.md')],
+        reporter,
+      });
+
+      expect(result.committed).toBe(false);
+      expect(result.anomaly.type).toBe('all_paths_ignored');
+      expect(noteCalls.length).toBeGreaterThanOrEqual(1);
+      const warn = noteCalls.find(c => c.level === 'error');
+      expect(warn).toBeDefined();
+      expect(warn.msg).toContain('git add -f');
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// auto-commit with gitignored paths (replay of the captured failure fixture)
+// ---------------------------------------------------------------------------
+
+describe('auto-commit with gitignored paths', () => {
+  const childProcess = require('child_process');
+
+  /**
+   * Build a temp git repo that mirrors the shape captured in the task 1.1
+   * baseline fixture: .gitignore contains `openspec/*`, one tracked non-ignored
+   * file and one untracked path under openspec/changes/replay/.
+   */
+  function makeReplayRepo() {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-replay-ignored-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+
+    // Seed .gitignore with openspec/*
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'openspec/*\n', 'utf8');
+    childProcess.execFileSync('git', ['add', '.gitignore'], { cwd: repo });
+
+    // Seed a tracked non-ignored file so there is a valid HEAD commit
+    fs.mkdirSync(path.join(repo, 'lib', 'mini-ralph'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'lib', 'mini-ralph', 'runner.js'), '// stub\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'lib/mini-ralph/runner.js'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+    // Create the untracked ignored path (openspec/changes/replay/tasks.md)
+    fs.mkdirSync(path.join(repo, 'openspec', 'changes', 'replay'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'openspec', 'changes', 'replay', 'tasks.md'), '- [ ] 1.1 Task\n', 'utf8');
+
+    return repo;
+  }
+
+  function makeStubReporter() {
+    const noteCalls = [];
+    return {
+      reporter: {
+        note: (msg, level) => noteCalls.push({ msg, level }),
+        runStarted: () => {},
+        runFinished: () => {},
+        iterationStarted: () => {},
+        iterationFinished: () => {},
+        iterationPromptReady: () => {},
+        iterationResponseReceived: () => {},
+      },
+      noteCalls,
+    };
+  }
+
+  test('Variant A (partial filter): commits kept paths and records paths_ignored_filtered anomaly', () => {
+    const repo = makeReplayRepo();
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+
+    // Modify the tracked file so there is something to commit
+    fs.writeFileSync(path.join(repo, 'lib', 'mini-ralph', 'runner.js'), '// modified\n', 'utf8');
+
+    const { reporter } = makeStubReporter();
+    const keptRelPath = 'lib/mini-ralph/runner.js';
+    const ignoredRelPath = 'openspec/changes/replay/tasks.md';
+
+    const execSpy = jest.spyOn(childProcess, 'execFileSync');
+
+    try {
+      const result = _autoCommit(5, {
+        completedTasks: [{ number: '1.1', description: 'Task one', fullDescription: '1.1 Task one', status: 'completed' }],
+        filesToStage: [keptRelPath, ignoredRelPath],
+        reporter,
+      });
+
+      expect(result.committed).toBe(true);
+      expect(result.anomaly).not.toBeNull();
+      expect(result.anomaly.type).toBe('paths_ignored_filtered');
+      expect(result.anomaly.ignoredPaths).toContain(ignoredRelPath);
+
+      // Verify a new commit was created
+      const log = childProcess.execFileSync('git', ['log', '--oneline', '-1'], { encoding: 'utf8' });
+      expect(log).toContain('Ralph iteration 5');
+
+      // Assert no -f or --force flag was passed to git add
+      const gitAddCalls = execSpy.mock.calls.filter(
+        c => c[0] === 'git' && Array.isArray(c[1]) && c[1][0] === 'add'
+      );
+      for (const call of gitAddCalls) {
+        const args = call[1];
+        expect(args).not.toContain('-f');
+        expect(args).not.toContain('--force');
+      }
+    } finally {
+      execSpy.mockRestore();
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('Variant B (all ignored): skips commit and emits git add -f hint', () => {
+    // In this variant all staged paths are under openspec/changes/replay/
+    // which matches the openspec/* gitignore rule — nothing is kept.
+    const repo = makeReplayRepo();
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+
+    const { reporter, noteCalls } = makeStubReporter();
+
+    const ignoredRelPath = 'openspec/changes/replay/tasks.md';
+
+    // Record the HEAD SHA before the attempt so we can assert no new commit
+    const headBefore = childProcess.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+    try {
+      const result = _autoCommit(5, {
+        completedTasks: [{ number: '1.1', description: 'Task one', fullDescription: '1.1 Task one', status: 'completed' }],
+        filesToStage: [ignoredRelPath],
+        reporter,
+      });
+
+      expect(result.committed).toBe(false);
+      expect(result.anomaly).not.toBeNull();
+      expect(result.anomaly.type).toBe('all_paths_ignored');
+
+      // reporter.note must contain the git add -f hint
+      const warn = noteCalls.find(c => c.level === 'error');
+      expect(warn).toBeDefined();
+      expect(warn.msg).toContain('git add -f');
+
+      // No new commit should have been created
+      const headAfter = childProcess.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+      expect(headAfter).toBe(headBefore);
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('pre-existing no-ignored-paths test still passes (regression check)', () => {
+    // A clean repo with no .gitignore: all paths should be committed normally.
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-ignore-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'init\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'init.txt'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+    fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'src', 'app.js'), 'console.log("hello")\n', 'utf8');
+
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+    const { reporter } = makeStubReporter();
+
+     try {
+      const result = _autoCommit(1, {
+        completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
+        filesToStage: ['src/app.js'],
+        reporter,
+      });
+
+      expect(result.committed).toBe(true);
+      expect(result.anomaly).toBeNull();
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3.1 — iteration_timeout_idle plumbing through runner → history
+// ---------------------------------------------------------------------------
+describe('run() — iteration_timeout_idle history plumbing (task 3.1)', () => {
+  let tmpDir;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-watchdog-'));
+  });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function mockInvokerLocal(invokerModule, mockFn) {
+    const original = invokerModule.invoke;
+    invokerModule.invoke = mockFn;
+    return () => { invokerModule.invoke = original; };
+  }
+
+  function makeOpts(overrides = {}) {
+    return Object.assign(
+      {
+        ralphDir: path.join(tmpDir, '.ralph'),
+        promptText: 'do thing',
+        maxIterations: 1,
+        minIterations: 1,
+        stallThreshold: 0,
+      },
+      overrides
+    );
+  }
+
+  const invoker = require('../../../lib/mini-ralph/invoker');
+
+  test('persists failureReason, idleMs, lastStdoutBytes, lastStderrBytes when invoker returns iteration_timeout_idle', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvokerLocal(invoker, async () => ({
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      signal: 'SIGTERM',
+      failureReason: 'iteration_timeout_idle',
+      idleMs: 42,
+      lastStdoutBytes: 'x',
+      lastStderrBytes: 'y',
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOpts({ ralphDir }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries.length).toBe(1);
+      expect(entries[0].failureReason).toBe('iteration_timeout_idle');
+      expect(entries[0].idleMs).toBe(42);
+      expect(entries[0].lastStdoutBytes).toBe('x');
+      expect(entries[0].lastStderrBytes).toBe('y');
+    } finally {
+      restore();
+    }
+  });
+
+  test('does NOT persist idleMs, lastStdoutBytes, lastStderrBytes on a normal success result', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvokerLocal(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOpts({ ralphDir, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries.length).toBe(1);
+      expect('idleMs' in entries[0]).toBe(false);
+      expect('lastStdoutBytes' in entries[0]).toBe(false);
+      expect('lastStderrBytes' in entries[0]).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 5.1 — loud direct stderr block for paths_ignored_filtered / all_paths_ignored
+// ---------------------------------------------------------------------------
+describe('_autoCommit loud stderr block (task 5.1)', () => {
+  const childProcess = require('child_process');
+
+  function makeGitRepo5() {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-loud-block-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'openspec/*\n', 'utf8');
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'init\n', 'utf8');
+    childProcess.execFileSync('git', ['add', '.'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+    fs.mkdirSync(path.join(repo, 'openspec', 'changes'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'openspec', 'changes', 'tasks.md'), '- [ ] 1.1 Task\n', 'utf8');
+    return repo;
+  }
+
+  test('paths_ignored_filtered: stderr block contains iteration number, anomaly type, ignored path, and remediation lines', () => {
+    const repo = makeGitRepo5();
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'modified\n', 'utf8');
+
+    const stderrChunks = [];
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      stderrChunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return true;
+    });
+
+    try {
+      const result = _autoCommit(7, {
+        completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
+        filesToStage: ['init.txt', 'openspec/changes/tasks.md'],
+      });
+
+      expect(result.anomaly.type).toBe('paths_ignored_filtered');
+      const combined = stderrChunks.join('');
+      expect(combined.split('='.repeat(80)).length).toBeGreaterThanOrEqual(3);
+      expect(combined).toContain('iteration 7');
+      expect(combined).toContain('paths_ignored_filtered');
+      expect(combined).toContain('openspec/changes/tasks.md');
+      expect(combined).toContain('git add -f');
+      expect(combined).toContain('edit .gitignore');
+      expect(combined).toContain('--no-auto-commit');
+    } finally {
+      stderrSpy.mockRestore();
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('all_paths_ignored: stderr block contains iteration number, anomaly type, ignored path, and remediation lines', () => {
+    const repo = makeGitRepo5();
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+
+    const stderrChunks = [];
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      stderrChunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return true;
+    });
+
+    try {
+      const result = _autoCommit(3, {
+        completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
+        filesToStage: ['openspec/changes/tasks.md'],
+      });
+
+      expect(result.anomaly.type).toBe('all_paths_ignored');
+      const combined = stderrChunks.join('');
+      expect(combined.split('='.repeat(80)).length).toBeGreaterThanOrEqual(3);
+      expect(combined).toContain('iteration 3');
+      expect(combined).toContain('all_paths_ignored');
+      expect(combined).toContain('openspec/changes/tasks.md');
+      expect(combined).toContain('git add -f');
+      expect(combined).toContain('edit .gitignore');
+      expect(combined).toContain('--no-auto-commit');
+    } finally {
+      stderrSpy.mockRestore();
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('no ignore-filter anomaly: loud-block separator NOT written to stderr', () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-ignore-loud-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'init\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'init.txt'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'modified\n', 'utf8');
+
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+
+    let loudBlockCallCount = 0;
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      const s = typeof chunk === 'string' ? chunk : chunk.toString();
+      if (s.startsWith('='.repeat(80))) loudBlockCallCount++;
+      return true;
+    });
+
+    try {
+      const result = _autoCommit(1, {
+        completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
+        filesToStage: ['init.txt'],
+      });
+
+      expect(result.committed).toBe(true);
+      expect(result.anomaly).toBeNull();
+      expect(loudBlockCallCount).toBe(0);
+    } finally {
+      stderrSpy.mockRestore();
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
     }
   });
 });

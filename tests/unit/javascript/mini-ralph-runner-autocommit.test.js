@@ -75,7 +75,7 @@ describe('runner._autoCommit()', () => {
       ['diff', '--cached', '--name-only'],
       expect.any(Object)
     );
-    expect(execFileSync).toHaveBeenCalledTimes(2);
+    expect(execFileSync).toHaveBeenCalledTimes(3); // check-ignore, add, diff
     expect(stderrSpy).toHaveBeenCalledWith(
       expect.stringContaining('nothing staged')
     );
@@ -96,21 +96,21 @@ describe('runner._autoCommit()', () => {
     });
 
     expect(execFileSync).toHaveBeenNthCalledWith(
-      1,
+      2,
       'git',
       ['add', '-A', '--', 'tasks.md', 'src/app.js'],
       expect.any(Object)
     );
     expect(execFileSync).toHaveBeenNthCalledWith(
-      2,
+      3,
       'git',
       ['diff', '--cached', '--name-only'],
       expect.any(Object)
     );
-    expect(execFileSync.mock.calls[2][0]).toBe('git');
-    expect(execFileSync.mock.calls[2][1][0]).toBe('commit');
-    expect(execFileSync.mock.calls[2][1][2]).toContain('Ralph iteration 5: Implement feature');
-    expect(execFileSync.mock.calls[2][1][2]).toContain('- [x] 1.1 Implement feature');
+    expect(execFileSync.mock.calls[3][0]).toBe('git');
+    expect(execFileSync.mock.calls[3][1][0]).toBe('commit');
+    expect(execFileSync.mock.calls[3][1][2]).toContain('Ralph iteration 5: Implement feature');
+    expect(execFileSync.mock.calls[3][1][2]).toContain('- [x] 1.1 Implement feature');
     expect(result).toEqual({ attempted: true, committed: true, anomaly: null });
   });
 
@@ -190,7 +190,7 @@ describe('runner._autoCommit()', () => {
     });
 
     expect(execFileSync).toHaveBeenNthCalledWith(
-      1,
+      2,
       'git',
       ['add', '-A', '--', 'deleted/file.webp', 'tasks.md'],
       expect.any(Object)
