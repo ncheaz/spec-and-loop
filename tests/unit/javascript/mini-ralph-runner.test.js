@@ -29,6 +29,8 @@ const {
   _wasSuccessfulIteration,
   _failureFingerprint,
   _firstNonEmptyLine,
+  _filterGitignored,
+  _autoCommit,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -1790,6 +1792,148 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('history entry includes ignoredPaths when some paths are filtered', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      // Simulate check-ignore: mark openspec/changes/tasks.md as ignored
+      if (command === 'git' && args[0] === 'check-ignore') {
+        const err = new Error('ignored');
+        err.status = 0;
+        err.stdout = 'openspec/changes/tasks.md\n';
+        // check-ignore with --stdin: return the ignored path via stdout
+        // execFileSync returns stdout on exit 0
+        return 'openspec/changes/tasks.md\n';
+      }
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return 'src/app.js\n';
+      if (command === 'git' && args[0] === 'commit') return '';
+      return '';
+    });
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [
+          path.join(tmpDir, 'openspec', 'changes', 'tasks.md'),
+          path.join(tmpDir, 'src', 'app.js'),
+        ],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitCreated).toBe(true);
+      expect(entries[0].commitAnomalyType).toBe('paths_ignored_filtered');
+      expect(Array.isArray(entries[0].ignoredPaths)).toBe(true);
+      expect(entries[0].ignoredPaths).toContain('openspec/changes/tasks.md');
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  test('history entry omits ignoredPaths when no paths are filtered', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      // Simulate check-ignore exit 1 (no ignored paths)
+      if (command === 'git' && args[0] === 'check-ignore') {
+        const err = new Error('no ignored');
+        err.status = 1;
+        throw err;
+      }
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return 'src/app.js\n';
+      if (command === 'git' && args[0] === 'commit') return '';
+      return '';
+    });
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [path.join(tmpDir, 'src', 'app.js')],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitCreated).toBe(true);
+      expect('ignoredPaths' in entries[0]).toBe(false);
+      expect(entries[0].commitAnomalyType).not.toBe('paths_ignored_filtered');
+      expect(entries[0].commitAnomalyType).not.toBe('all_paths_ignored');
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  test('history entry records all_paths_ignored when all paths are gitignored', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 1.1 Task one\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args, opts) => {
+      // Simulate check-ignore returning all paths as ignored
+      if (command === 'git' && args[0] === 'check-ignore') {
+        // Return whatever was passed via stdin as all ignored
+        const inputPaths = (opts && opts.input) ? opts.input.split('\n').filter(Boolean) : [];
+        return inputPaths.join('\n') + (inputPaths.length ? '\n' : '');
+      }
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return '';
+      if (command === 'git' && args[0] === 'commit') return '';
+      return '';
+    });
+
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 1.1 Task one\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [path.join(tmpDir, 'openspec', 'changes', 'tasks.md')],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries[0].commitAttempted).toBe(true);
+      expect(entries[0].commitCreated).toBe(false);
+      expect(entries[0].commitAnomalyType).toBe('all_paths_ignored');
+      expect(Array.isArray(entries[0].ignoredPaths)).toBe(true);
+      expect(entries[0].ignoredPaths.length).toBeGreaterThan(0);
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
   test('sets resumedAt in state when resuming from prior iteration', async () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     // Seed a prior state simulating iteration 2 having completed
@@ -2480,5 +2624,377 @@ describe('run() with mocked invoker', () => {
     expect(entry.responseChars).toBe(0);
     expect(entry.responseTokens).toBe(0);
     expect(entry.truncated).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _filterGitignored
+// ---------------------------------------------------------------------------
+
+describe('_filterGitignored()', () => {
+  const childProcess = require('child_process');
+  let gitRepo;
+
+  /**
+   * Initialize a real git repo in a temp directory and return its path.
+   */
+  function makeGitRepo() {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-filter-gitignored-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    return repo;
+  }
+
+  beforeEach(() => {
+    gitRepo = makeGitRepo();
+    // Write .gitignore with ignored-dir/ and *.log
+    fs.writeFileSync(path.join(gitRepo, '.gitignore'), 'ignored-dir/\n*.log\n', 'utf8');
+  });
+
+  afterEach(() => {
+    fs.rmSync(gitRepo, { recursive: true, force: true });
+  });
+
+  test('(a) a path matching *.log is dropped and not kept', () => {
+    const result = _filterGitignored(['debug.log', 'src/app.js'], gitRepo);
+    expect(result.dropped).toContain('debug.log');
+    expect(result.kept).not.toContain('debug.log');
+  });
+
+  test('(b) a plain path with no ignore match is kept and not dropped', () => {
+    const result = _filterGitignored(['src/app.js'], gitRepo);
+    expect(result.kept).toContain('src/app.js');
+    expect(result.dropped).not.toContain('src/app.js');
+  });
+
+  test('(c) a tracked file is kept even if it matches .gitignore textually', () => {
+    // Create a file that would match *.log, add and commit it before .gitignore
+    // is written. We need to set up the repo slightly differently for this case:
+    // Re-init with no .gitignore, commit the file, then add .gitignore.
+    const trackedRepo = makeGitRepo();
+    fs.writeFileSync(path.join(trackedRepo, 'tracked.log'), 'content\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'tracked.log'], { cwd: trackedRepo });
+    childProcess.execFileSync('git', ['commit', '-m', 'add tracked.log'], { cwd: trackedRepo });
+    // Now add .gitignore
+    fs.writeFileSync(path.join(trackedRepo, '.gitignore'), '*.log\n', 'utf8');
+
+    const result = _filterGitignored(['tracked.log'], trackedRepo);
+    // git check-ignore does not ignore tracked files — they stay in kept
+    expect(result.kept).toContain('tracked.log');
+    expect(result.dropped).not.toContain('tracked.log');
+
+    fs.rmSync(trackedRepo, { recursive: true, force: true });
+  });
+
+  test('(d) empty input returns {kept:[], dropped:[]} and spawns no child process', () => {
+    const execSpy = jest.spyOn(childProcess, 'execFileSync');
+    const callsBefore = execSpy.mock.calls.length;
+    const result = _filterGitignored([], gitRepo);
+    const callsAfter = execSpy.mock.calls.length;
+    expect(result).toEqual({ kept: [], dropped: [] });
+    expect(callsAfter).toBe(callsBefore); // no new calls
+  });
+
+  test('(e) unresolvable git binary: returns all paths as kept and throws nothing', () => {
+    const emptyBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    const originalPath = process.env.PATH;
+    process.env.PATH = emptyBinDir;
+    try {
+      let result;
+      expect(() => {
+        result = _filterGitignored(['some/path.js'], gitRepo);
+      }).not.toThrow();
+      expect(result.kept).toContain('some/path.js');
+      expect(result.dropped).toHaveLength(0);
+    } finally {
+      process.env.PATH = originalPath;
+      fs.rmSync(emptyBinDir, { recursive: true, force: true });
+    }
+  });
+
+  test('(f) exit 1 from git check-ignore (no ignored paths) returns all inputs as kept', () => {
+    // A repo with no .gitignore should produce exit 1 from git check-ignore
+    const cleanRepo = makeGitRepo();
+    // No .gitignore — git check-ignore will exit 1 for any path
+    const result = _filterGitignored(['some/path.js', 'other.txt'], cleanRepo);
+    expect(result.kept).toEqual(expect.arrayContaining(['some/path.js', 'other.txt']));
+    expect(result.dropped).toHaveLength(0);
+    fs.rmSync(cleanRepo, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _autoCommit reporter.note warnings for gitignored paths
+// ---------------------------------------------------------------------------
+
+describe('_autoCommit reporter.note warnings for gitignored paths', () => {
+  const childProcess = require('child_process');
+
+  function makeGitRepo() {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-autocommit-warn-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    return repo;
+  }
+
+  function makeStubReporter() {
+    const noteCalls = [];
+    return {
+      reporter: {
+        note: (msg, level) => noteCalls.push({ msg, level }),
+        runStarted: () => {},
+        runFinished: () => {},
+        iterationStarted: () => {},
+        iterationFinished: () => {},
+        iterationPromptReady: () => {},
+        iterationResponseReceived: () => {},
+      },
+      noteCalls,
+    };
+  }
+
+  test('single ignored path: reporter.note called with message containing dropped path', () => {
+    const repo = makeGitRepo();
+    // .gitignore ignores openspec/*
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'openspec/*\n', 'utf8');
+    childProcess.execFileSync('git', ['add', '.gitignore'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+    // Create a tracked file and an ignored file
+    fs.mkdirSync(path.join(repo, 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'lib', 'app.js'), 'console.log("hello")\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'lib/app.js'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'add app'], { cwd: repo });
+
+    // Create an ignored path
+    fs.mkdirSync(path.join(repo, 'openspec', 'changes'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'openspec', 'changes', 'tasks.md'), '# tasks\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(repo);
+    const { reporter, noteCalls } = makeStubReporter();
+    const ignoredPath = path.join(repo, 'openspec', 'changes', 'tasks.md');
+    const keptPath = path.join(repo, 'lib', 'app.js');
+
+    try {
+      _autoCommit(6, {
+        completedTasks: [{ id: '1.1', description: 'Task one' }],
+        filesToStage: [keptPath, ignoredPath],
+        reporter,
+      });
+
+      // reporter.note must have been called with warn level containing the dropped path
+      expect(noteCalls.length).toBeGreaterThanOrEqual(1);
+      const warn = noteCalls.find(c => c.level === 'warn');
+      expect(warn).toBeDefined();
+      expect(warn.msg).toContain('openspec/changes/tasks.md');
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('all paths ignored: reporter.note called with message containing git add -f hint', () => {
+    const repo = makeGitRepo();
+    // .gitignore ignores openspec/*
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'openspec/*\n', 'utf8');
+    childProcess.execFileSync('git', ['add', '.gitignore'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+    // Create only ignored paths
+    fs.mkdirSync(path.join(repo, 'openspec', 'changes'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'openspec', 'changes', 'tasks.md'), '# tasks\n', 'utf8');
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(repo);
+    const { reporter, noteCalls } = makeStubReporter();
+
+    try {
+      const result = _autoCommit(6, {
+        completedTasks: [{ id: '1.1', description: 'Task one' }],
+        filesToStage: [path.join(repo, 'openspec', 'changes', 'tasks.md')],
+        reporter,
+      });
+
+      expect(result.committed).toBe(false);
+      expect(result.anomaly.type).toBe('all_paths_ignored');
+      expect(noteCalls.length).toBeGreaterThanOrEqual(1);
+      const warn = noteCalls.find(c => c.level === 'warn');
+      expect(warn).toBeDefined();
+      expect(warn.msg).toContain('git add -f');
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// auto-commit with gitignored paths (replay of the captured failure fixture)
+// ---------------------------------------------------------------------------
+
+describe('auto-commit with gitignored paths', () => {
+  const childProcess = require('child_process');
+
+  /**
+   * Build a temp git repo that mirrors the shape captured in the task 1.1
+   * baseline fixture: .gitignore contains `openspec/*`, one tracked non-ignored
+   * file and one untracked path under openspec/changes/replay/.
+   */
+  function makeReplayRepo() {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-replay-ignored-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+
+    // Seed .gitignore with openspec/*
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'openspec/*\n', 'utf8');
+    childProcess.execFileSync('git', ['add', '.gitignore'], { cwd: repo });
+
+    // Seed a tracked non-ignored file so there is a valid HEAD commit
+    fs.mkdirSync(path.join(repo, 'lib', 'mini-ralph'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'lib', 'mini-ralph', 'runner.js'), '// stub\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'lib/mini-ralph/runner.js'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+    // Create the untracked ignored path (openspec/changes/replay/tasks.md)
+    fs.mkdirSync(path.join(repo, 'openspec', 'changes', 'replay'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'openspec', 'changes', 'replay', 'tasks.md'), '- [ ] 1.1 Task\n', 'utf8');
+
+    return repo;
+  }
+
+  function makeStubReporter() {
+    const noteCalls = [];
+    return {
+      reporter: {
+        note: (msg, level) => noteCalls.push({ msg, level }),
+        runStarted: () => {},
+        runFinished: () => {},
+        iterationStarted: () => {},
+        iterationFinished: () => {},
+        iterationPromptReady: () => {},
+        iterationResponseReceived: () => {},
+      },
+      noteCalls,
+    };
+  }
+
+  test('Variant A (partial filter): commits kept paths and records paths_ignored_filtered anomaly', () => {
+    const repo = makeReplayRepo();
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+
+    // Modify the tracked file so there is something to commit
+    fs.writeFileSync(path.join(repo, 'lib', 'mini-ralph', 'runner.js'), '// modified\n', 'utf8');
+
+    const { reporter } = makeStubReporter();
+    const keptRelPath = 'lib/mini-ralph/runner.js';
+    const ignoredRelPath = 'openspec/changes/replay/tasks.md';
+
+    const execSpy = jest.spyOn(childProcess, 'execFileSync');
+
+    try {
+      const result = _autoCommit(5, {
+        completedTasks: [{ number: '1.1', description: 'Task one', fullDescription: '1.1 Task one', status: 'completed' }],
+        filesToStage: [keptRelPath, ignoredRelPath],
+        reporter,
+      });
+
+      expect(result.committed).toBe(true);
+      expect(result.anomaly).not.toBeNull();
+      expect(result.anomaly.type).toBe('paths_ignored_filtered');
+      expect(result.anomaly.ignoredPaths).toContain(ignoredRelPath);
+
+      // Verify a new commit was created
+      const log = childProcess.execFileSync('git', ['log', '--oneline', '-1'], { encoding: 'utf8' });
+      expect(log).toContain('Ralph iteration 5');
+
+      // Assert no -f or --force flag was passed to git add
+      const gitAddCalls = execSpy.mock.calls.filter(
+        c => c[0] === 'git' && Array.isArray(c[1]) && c[1][0] === 'add'
+      );
+      for (const call of gitAddCalls) {
+        const args = call[1];
+        expect(args).not.toContain('-f');
+        expect(args).not.toContain('--force');
+      }
+    } finally {
+      execSpy.mockRestore();
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('Variant B (all ignored): skips commit and emits git add -f hint', () => {
+    // In this variant all staged paths are under openspec/changes/replay/
+    // which matches the openspec/* gitignore rule — nothing is kept.
+    const repo = makeReplayRepo();
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+
+    const { reporter, noteCalls } = makeStubReporter();
+
+    const ignoredRelPath = 'openspec/changes/replay/tasks.md';
+
+    // Record the HEAD SHA before the attempt so we can assert no new commit
+    const headBefore = childProcess.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+    try {
+      const result = _autoCommit(5, {
+        completedTasks: [{ number: '1.1', description: 'Task one', fullDescription: '1.1 Task one', status: 'completed' }],
+        filesToStage: [ignoredRelPath],
+        reporter,
+      });
+
+      expect(result.committed).toBe(false);
+      expect(result.anomaly).not.toBeNull();
+      expect(result.anomaly.type).toBe('all_paths_ignored');
+
+      // reporter.note must contain the git add -f hint
+      const warn = noteCalls.find(c => c.level === 'warn');
+      expect(warn).toBeDefined();
+      expect(warn.msg).toContain('git add -f');
+
+      // No new commit should have been created
+      const headAfter = childProcess.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+      expect(headAfter).toBe(headBefore);
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('pre-existing no-ignored-paths test still passes (regression check)', () => {
+    // A clean repo with no .gitignore: all paths should be committed normally.
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-ignore-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'init\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'init.txt'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+    fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'src', 'app.js'), 'console.log("hello")\n', 'utf8');
+
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+    const { reporter } = makeStubReporter();
+
+    try {
+      const result = _autoCommit(1, {
+        completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
+        filesToStage: ['src/app.js'],
+        reporter,
+      });
+
+      expect(result.committed).toBe(true);
+      expect(result.anomaly).toBeNull();
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
