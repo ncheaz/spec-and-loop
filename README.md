@@ -456,6 +456,12 @@ Windows is not currently part of the supported runtime contract.
 
 For common issues and solutions, see [QUICKSTART.md#troubleshooting](./QUICKSTART.md#troubleshooting).
 
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RALPH_BASE_PROMPT_WARN_BYTES` | `4096` | Byte threshold above which `render()` emits a one-line warning to stderr when `{{base_prompt}}` resolves to a large file. Set to `0` to silence warnings entirely. Invalid values fall back to `4096` with a one-time notice per process. |
+
 **Quick fixes:**
 
 ```bash
