@@ -2915,7 +2915,7 @@ describe('_autoCommit reporter.note warnings for gitignored paths', () => {
 
       // reporter.note must have been called with warn level containing the dropped path
       expect(noteCalls.length).toBeGreaterThanOrEqual(1);
-      const warn = noteCalls.find(c => c.level === 'warn');
+      const warn = noteCalls.find(c => c.level === 'error');
       expect(warn).toBeDefined();
       expect(warn.msg).toContain('openspec/changes/tasks.md');
     } finally {
@@ -2948,7 +2948,7 @@ describe('_autoCommit reporter.note warnings for gitignored paths', () => {
       expect(result.committed).toBe(false);
       expect(result.anomaly.type).toBe('all_paths_ignored');
       expect(noteCalls.length).toBeGreaterThanOrEqual(1);
-      const warn = noteCalls.find(c => c.level === 'warn');
+      const warn = noteCalls.find(c => c.level === 'error');
       expect(warn).toBeDefined();
       expect(warn.msg).toContain('git add -f');
     } finally {
@@ -3081,7 +3081,7 @@ describe('auto-commit with gitignored paths', () => {
       expect(result.anomaly.type).toBe('all_paths_ignored');
 
       // reporter.note must contain the git add -f hint
-      const warn = noteCalls.find(c => c.level === 'warn');
+      const warn = noteCalls.find(c => c.level === 'error');
       expect(warn).toBeDefined();
       expect(warn.msg).toContain('git add -f');
 
@@ -3207,6 +3207,130 @@ describe('run() — iteration_timeout_idle history plumbing (task 3.1)', () => {
       expect('lastStderrBytes' in entries[0]).toBe(false);
     } finally {
       restore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 5.1 — loud direct stderr block for paths_ignored_filtered / all_paths_ignored
+// ---------------------------------------------------------------------------
+describe('_autoCommit loud stderr block (task 5.1)', () => {
+  const childProcess = require('child_process');
+
+  function makeGitRepo5() {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-loud-block-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'openspec/*\n', 'utf8');
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'init\n', 'utf8');
+    childProcess.execFileSync('git', ['add', '.'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+    fs.mkdirSync(path.join(repo, 'openspec', 'changes'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'openspec', 'changes', 'tasks.md'), '- [ ] 1.1 Task\n', 'utf8');
+    return repo;
+  }
+
+  test('paths_ignored_filtered: stderr block contains iteration number, anomaly type, ignored path, and remediation lines', () => {
+    const repo = makeGitRepo5();
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'modified\n', 'utf8');
+
+    const stderrChunks = [];
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      stderrChunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return true;
+    });
+
+    try {
+      const result = _autoCommit(7, {
+        completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
+        filesToStage: ['init.txt', 'openspec/changes/tasks.md'],
+      });
+
+      expect(result.anomaly.type).toBe('paths_ignored_filtered');
+      const combined = stderrChunks.join('');
+      expect(combined.split('='.repeat(80)).length).toBeGreaterThanOrEqual(3);
+      expect(combined).toContain('iteration 7');
+      expect(combined).toContain('paths_ignored_filtered');
+      expect(combined).toContain('openspec/changes/tasks.md');
+      expect(combined).toContain('git add -f');
+      expect(combined).toContain('edit .gitignore');
+      expect(combined).toContain('--no-auto-commit');
+    } finally {
+      stderrSpy.mockRestore();
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('all_paths_ignored: stderr block contains iteration number, anomaly type, ignored path, and remediation lines', () => {
+    const repo = makeGitRepo5();
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+
+    const stderrChunks = [];
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      stderrChunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return true;
+    });
+
+    try {
+      const result = _autoCommit(3, {
+        completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
+        filesToStage: ['openspec/changes/tasks.md'],
+      });
+
+      expect(result.anomaly.type).toBe('all_paths_ignored');
+      const combined = stderrChunks.join('');
+      expect(combined.split('='.repeat(80)).length).toBeGreaterThanOrEqual(3);
+      expect(combined).toContain('iteration 3');
+      expect(combined).toContain('all_paths_ignored');
+      expect(combined).toContain('openspec/changes/tasks.md');
+      expect(combined).toContain('git add -f');
+      expect(combined).toContain('edit .gitignore');
+      expect(combined).toContain('--no-auto-commit');
+    } finally {
+      stderrSpy.mockRestore();
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('no ignore-filter anomaly: loud-block separator NOT written to stderr', () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-ignore-loud-'));
+    childProcess.execFileSync('git', ['init'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repo });
+    childProcess.execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'init\n', 'utf8');
+    childProcess.execFileSync('git', ['add', 'init.txt'], { cwd: repo });
+    childProcess.execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, 'init.txt'), 'modified\n', 'utf8');
+
+    const originalCwd = process.cwd();
+    process.chdir(repo);
+
+    let loudBlockCallCount = 0;
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      const s = typeof chunk === 'string' ? chunk : chunk.toString();
+      if (s.startsWith('='.repeat(80))) loudBlockCallCount++;
+      return true;
+    });
+
+    try {
+      const result = _autoCommit(1, {
+        completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
+        filesToStage: ['init.txt'],
+      });
+
+      expect(result.committed).toBe(true);
+      expect(result.anomaly).toBeNull();
+      expect(loudBlockCallCount).toBe(0);
+    } finally {
+      stderrSpy.mockRestore();
+      process.chdir(originalCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
     }
   });
 });
