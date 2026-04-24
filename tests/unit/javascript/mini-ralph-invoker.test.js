@@ -252,4 +252,107 @@ describe('mini-ralph invoker', () => {
       cwdSpy.mockRestore();
     }
   });
+
+  // --- Watchdog tests (task 2.1: surface-autocommit-ignore-warning-and-watchdog) ---
+
+  test('watchdog fires SIGTERM after idle threshold and result has iteration_timeout_idle', async () => {
+    const TEST_IDLE_MS = 100;
+    const originalIdleEnv = process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS;
+    const originalGraceEnv = process.env.RALPH_ITERATION_KILL_GRACE_MS;
+    process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS = String(TEST_IDLE_MS);
+    process.env.RALPH_ITERATION_KILL_GRACE_MS = '5000';
+
+    // Build a child that writes one chunk then goes silent
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = jest.fn((sig) => {
+      // Simulate the child exiting when it receives SIGTERM
+      if (sig === 'SIGTERM') {
+        setTimeout(() => child.emit('close', null, 'SIGTERM'), 10);
+      }
+    });
+    spawn.mockReturnValue(child);
+
+    execFileSync.mockReturnValue('');
+
+    const pending = invoker.invoke({ prompt: 'Do the work.' });
+
+    // Emit one chunk, then go silent — the idle timer should fire after TEST_IDLE_MS
+    child.stdout.emit('data', Buffer.from('some output'));
+
+    const result = await pending;
+
+    // Restore env
+    if (originalIdleEnv === undefined) delete process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS;
+    else process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS = originalIdleEnv;
+    if (originalGraceEnv === undefined) delete process.env.RALPH_ITERATION_KILL_GRACE_MS;
+    else process.env.RALPH_ITERATION_KILL_GRACE_MS = originalGraceEnv;
+
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(result.failureReason).toBe('iteration_timeout_idle');
+    expect(typeof result.idleMs).toBe('number');
+    expect(result.lastStdoutBytes.length).toBeLessThanOrEqual(200);
+  }, 10000);
+
+  test('watchdog disabled when RALPH_ITERATION_IDLE_TIMEOUT_MS=0, silent child is not killed', async () => {
+    const originalIdleEnv = process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS;
+    process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS = '0';
+
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = jest.fn();
+    spawn.mockReturnValue(child);
+
+    execFileSync.mockReturnValue('');
+
+    const pending = invoker.invoke({ prompt: 'Do the work.' });
+
+    // Let 150ms pass with no output — watchdog should NOT fire because it's disabled
+    await new Promise((res) => setTimeout(res, 150));
+    // Then close the child normally
+    child.emit('close', 0, null);
+
+    const result = await pending;
+
+    if (originalIdleEnv === undefined) delete process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS;
+    else process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS = originalIdleEnv;
+
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(result.failureReason).toBeUndefined();
+  }, 10000);
+
+  test('child that keeps writing within idle window completes normally without iteration_timeout_idle', async () => {
+    const TEST_IDLE_MS = 200;
+    const originalIdleEnv = process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS;
+    process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS = String(TEST_IDLE_MS);
+
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = jest.fn();
+    spawn.mockReturnValue(child);
+
+    execFileSync.mockReturnValue('');
+
+    const pending = invoker.invoke({ prompt: 'Do the work.' });
+
+    // Write output every 80ms for 3 times (well within 200ms idle threshold each time)
+    for (let i = 0; i < 3; i++) {
+      await new Promise((res) => setTimeout(res, 80));
+      child.stdout.emit('data', Buffer.from(`chunk ${i}`));
+    }
+    // Now close normally
+    child.emit('close', 0, null);
+
+    const result = await pending;
+
+    if (originalIdleEnv === undefined) delete process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS;
+    else process.env.RALPH_ITERATION_IDLE_TIMEOUT_MS = originalIdleEnv;
+
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(result.failureReason).toBeUndefined();
+    expect(result.exitCode).toBe(0);
+  }, 10000);
 });
