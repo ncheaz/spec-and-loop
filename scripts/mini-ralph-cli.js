@@ -25,6 +25,7 @@
  *   --no-commit                Suppress auto-commit
  *   --model <name>             Optional model override
  *   --verbose                  Verbose output
+ *   --quiet                    Suppress the per-iteration progress stream
  *   --status                   Print status dashboard and exit
  *   --add-context <text>       Add pending context and exit
  *   --clear-context            Clear pending context and exit
@@ -55,6 +56,7 @@ function parseArgs(argv) {
     noCommit: false,
     model: '',
     verbose: false,
+    quiet: false,
     // Control commands
     status: false,
     addContext: null,
@@ -108,6 +110,9 @@ function parseArgs(argv) {
       case '--verbose':
         opts.verbose = true;
         break;
+      case '--quiet':
+        opts.quiet = true;
+        break;
       case '--status':
         opts.status = true;
         break;
@@ -152,6 +157,7 @@ Options:
   --no-commit                Suppress auto-commit
   --model <name>             Model override
   --verbose                  Verbose output
+  --quiet                    Suppress the per-iteration progress stream
   --status                   Print status dashboard and exit
   --add-context <text>       Add pending context and exit
   --clear-context            Clear pending context and exit
@@ -209,6 +215,7 @@ async function main() {
     noCommit: opts.noCommit,
     model: opts.model,
     verbose: opts.verbose,
+    quiet: opts.quiet,
   };
 
   try {
