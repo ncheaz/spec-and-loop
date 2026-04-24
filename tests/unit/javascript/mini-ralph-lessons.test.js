@@ -98,10 +98,10 @@ describe('inject() – missing file', () => {
 });
 
 // ---------------------------------------------------------------------------
-// inject() – over-50 bullets → only last 50 injected
+// inject() – over-15 bullets → only last 15 injected
 // ---------------------------------------------------------------------------
-describe('inject() – over-50 bullets', () => {
-  test('injects only the last 50 bullets when file has more than 50', () => {
+describe('inject() – over-15 bullets', () => {
+  test('injects only the last 15 bullets when file has more than 15', () => {
     const allBullets = Array.from({ length: 60 }, (_, i) => `- Bullet ${i + 1}`);
     fs.writeFileSync(lessons.path(tmpDir), allBullets.join('\n') + '\n', 'utf8');
 
@@ -110,11 +110,11 @@ describe('inject() – over-50 bullets', () => {
 
     // The last bullet should be present
     expect(result).toContain('- Bullet 60');
-    // The 10th bullet (first one to be dropped) should NOT be present
-    expect(result).not.toContain('- Bullet 10');
-    // Exactly 50 bullets in the output
+    // The 45th bullet (first one to be dropped) should NOT be present
+    expect(result).not.toContain('- Bullet 45');
+    // Exactly 15 bullets in the output
     const bulletLines = result.split('\n').filter(l => l.startsWith('- Bullet'));
-    expect(bulletLines).toHaveLength(50);
+    expect(bulletLines).toHaveLength(15);
   });
 
   test('respects a custom limit option', () => {
