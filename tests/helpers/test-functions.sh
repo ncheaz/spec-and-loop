@@ -735,8 +735,6 @@ Pick the first [ ] or [/] task in tasks.md, mark it [/], implement it (smallest 
 ## Commit Contract
 
 {{commit_contract}}
-
-{{context}}
 EOF
 
     # Determine repo root for AGENTS.md probe
