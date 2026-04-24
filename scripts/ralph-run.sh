@@ -148,6 +148,7 @@ handle_error() {
     fi
 }
 VERBOSE=false
+QUIET=false
 SHOW_HELP=false
 
 usage() {
@@ -162,6 +163,7 @@ OPTIONS:
     --max-iterations <n>     Maximum iterations for Ralph loop (default: 50)
     --no-commit              Suppress automatic git commits during the loop
     --verbose, -v            Enable verbose mode for debugging
+    --quiet                  Suppress the per-iteration progress stream
     --help, -h               Show this help message
 
 OBSERVABILITY AND CONTROL:
@@ -204,6 +206,10 @@ parse_arguments() {
                 ;;
             --verbose|-v)
                 VERBOSE=true
+                shift
+                ;;
+            --quiet)
+                QUIET=true
                 shift
                 ;;
             --status)
@@ -1014,6 +1020,10 @@ execute_ralph_loop() {
 
     if [[ "$VERBOSE" == true ]]; then
         mini_ralph_args+=("--verbose")
+    fi
+
+    if [[ "$QUIET" == true ]]; then
+        mini_ralph_args+=("--quiet")
     fi
 
     # Run the internal mini Ralph CLI and capture output

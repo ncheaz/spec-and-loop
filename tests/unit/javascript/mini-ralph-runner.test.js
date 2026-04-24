@@ -19,6 +19,7 @@ const {
   _completedTaskDelta,
   _buildAutoCommitAllowlist,
   _formatAutoCommitMessage,
+  _truncateSubjectSummary,
   _buildIterationFeedback,
   _extractErrorForIteration,
   _getCurrentTaskDescription,
@@ -581,6 +582,61 @@ describe('_formatAutoCommitMessage()', () => {
   test('returns empty string when there are no completed tasks', () => {
     expect(_formatAutoCommitMessage(2, [])).toBe('');
   });
+
+  test('truncates long task descriptions in the subject line but preserves them in the body', () => {
+    const longDescription =
+      'Write `<slug>.components.json` for each of the eight slugs per `design.md` Decision 15 with detailed normative expectations that span several sentences and would otherwise blow out `git log --oneline` readability for every reviewer.';
+    const message = _formatAutoCommitMessage(46, [
+      {
+        number: '4.6',
+        description: longDescription,
+        fullDescription: `4.6 ${longDescription}`,
+        status: 'completed',
+      },
+    ]);
+
+    const [subject, , ...bodyLines] = message.split('\n');
+    expect(subject.length).toBeLessThanOrEqual(72);
+    expect(subject.startsWith('Ralph iteration 46: ')).toBe(true);
+    expect(subject.includes('\n')).toBe(false);
+    expect(message).toContain(`- [x] 4.6 ${longDescription}`);
+    expect(bodyLines.join('\n')).toContain('Tasks completed:');
+  });
+});
+
+describe('_truncateSubjectSummary()', () => {
+  test('returns the input unchanged when it already fits', () => {
+    expect(_truncateSubjectSummary('Implement status dashboard', 50)).toBe(
+      'Implement status dashboard'
+    );
+  });
+
+  test('prefers the first sentence when it fits in the budget', () => {
+    const input =
+      'Add a focused unit test. The test covers several scenarios and asserts many things.';
+    expect(_truncateSubjectSummary(input, 50)).toBe('Add a focused unit test.');
+  });
+
+  test('hard-truncates at a word boundary with an ellipsis when no short sentence exists', () => {
+    const input =
+      'Write component-spec-slug JSON files that diff-table expect from the components manifest against actual from the live DOM probe';
+    const out = _truncateSubjectSummary(input, 50);
+    expect(out.length).toBeLessThanOrEqual(50);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out).not.toMatch(/\s…$/);
+  });
+
+  test('collapses internal whitespace onto one line', () => {
+    const input = 'line one\n\n   line two';
+    expect(_truncateSubjectSummary(input, 50)).toBe('line one line two');
+  });
+
+  test('returns empty string for empty or whitespace input', () => {
+    expect(_truncateSubjectSummary('', 50)).toBe('');
+    expect(_truncateSubjectSummary('   \n  ', 50)).toBe('');
+    expect(_truncateSubjectSummary(null, 50)).toBe('');
+    expect(_truncateSubjectSummary(undefined, 50)).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -976,6 +1032,54 @@ describe('_buildIterationFeedback() - fingerprint dedup', () => {
     expect(feedback).toContain('Iteration 2:');
     expect(feedback).toContain('Iteration 3:');
     expect(feedback).not.toContain('same failure as iteration');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _buildIterationFeedback() - no-promise tool-usage and duration suffix
+// ---------------------------------------------------------------------------
+
+describe('_buildIterationFeedback() - no-promise tool-usage/duration suffix', () => {
+  test('appends tool-usage and duration suffix for pure no-promise entry', () => {
+    const history = [
+      {
+        iteration: 9,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        commitAnomaly: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: false,
+        toolUsage: [{ tool: 'Task', count: 4 }],
+        duration: 418553,
+      },
+    ];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('no loop promise emitted');
+    expect(feedback).toMatch(/Tools used: Task\u00d74\./);
+    expect(feedback).toMatch(/Duration: 6m 58s\./);
+  });
+
+  test('produces bare "no loop promise emitted." when toolUsage empty and duration 0', () => {
+    const history = [
+      {
+        iteration: 9,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        commitAnomaly: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: false,
+        toolUsage: [],
+        duration: 0,
+      },
+    ];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('no loop promise emitted.');
+    expect(feedback).not.toContain('Tools used:');
+    expect(feedback).not.toContain('Duration:');
   });
 });
 
@@ -2239,5 +2343,142 @@ describe('run() with mocked invoker', () => {
     } finally {
       restore();
     }
+  });
+
+  test('iterationPromptReady is called with finite non-negative prompt size fields', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const promptReadyCalls = [];
+    const spyReporter = {
+      runStarted: () => {},
+      iterationStarted: () => {},
+      iterationPromptReady: (info) => { promptReadyCalls.push(info); },
+      iterationResponseReceived: () => {},
+      iterationFinished: () => {},
+      note: () => {},
+      runFinished: () => {},
+    };
+
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true, reporter: spyReporter }));
+      expect(promptReadyCalls.length).toBeGreaterThanOrEqual(1);
+      const call = promptReadyCalls[0];
+      expect(call.iteration).toBe(1);
+      expect(Number.isFinite(call.promptBytes)).toBe(true);
+      expect(call.promptBytes).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(call.promptChars)).toBe(true);
+      expect(call.promptChars).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(call.promptTokens)).toBe(true);
+      expect(call.promptTokens).toBeGreaterThanOrEqual(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('injects ## Lessons Learned section with bullets from LESSONS.md into prompt', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(ralphDir, 'LESSONS.md'),
+      '- First lesson bullet\n- Second lesson bullet\n- Third lesson bullet\n',
+      'utf8'
+    );
+
+    const prompts = [];
+    const restore = mockInvoker(invoker, async (opts) => {
+      prompts.push(opts.prompt);
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+      expect(prompts[0]).toContain('## Lessons Learned');
+      expect(prompts[0]).toContain('- First lesson bullet');
+      expect(prompts[0]).toContain('- Second lesson bullet');
+      expect(prompts[0]).toContain('- Third lesson bullet');
+      // Header should appear exactly once
+      expect((prompts[0].match(/## Lessons Learned/g) || []).length).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('iterationResponseReceived is called and history entry contains responseBytes/responseChars', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const responseCalls = [];
+    const spyReporter = {
+      runStarted: () => {},
+      iterationStarted: () => {},
+      iterationPromptReady: () => {},
+      iterationResponseReceived: (info) => { responseCalls.push(info); },
+      iterationFinished: () => {},
+      note: () => {},
+      runFinished: () => {},
+    };
+
+    // Build a known-size response: 2048 ASCII chars = 2048 bytes
+    const knownOutput = 'x'.repeat(2048) + '\n<promise>COMPLETE</promise>';
+
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: knownOutput,
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true, reporter: spyReporter }));
+      expect(responseCalls.length).toBeGreaterThanOrEqual(1);
+      const call = responseCalls[0];
+      expect(call.iteration).toBe(1);
+      expect(call.responseBytes).toBe(Buffer.byteLength(knownOutput, 'utf8'));
+      expect(call.responseChars).toBe(knownOutput.length);
+
+      // Verify history entry
+      const history = require('../../../lib/mini-ralph/history.js');
+      const entries = history.read(ralphDir);
+      expect(entries.length).toBeGreaterThanOrEqual(1);
+      const entry = entries[entries.length - 1];
+      expect(entry.responseBytes).toBe(Buffer.byteLength(knownOutput, 'utf8'));
+      expect(entry.responseChars).toBe(knownOutput.length);
+    } finally {
+      restore();
+    }
+  });
+
+  test('fatal-path history entry has zeros for size fields when invoker throws', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+
+    const restore = mockInvoker(invoker, async () => {
+      throw Object.assign(new Error('invoker exploded'), { failureStage: 'invoke_start' });
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+    } catch (_) {
+      // run may or may not throw depending on halt logic
+    } finally {
+      restore();
+    }
+
+    const history = require('../../../lib/mini-ralph/history.js');
+    const entries = history.read(ralphDir);
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+    const entry = entries[entries.length - 1];
+    expect(entry.responseBytes).toBe(0);
+    expect(entry.responseChars).toBe(0);
+    expect(entry.responseTokens).toBe(0);
+    expect(entry.truncated).toBe(false);
   });
 });
