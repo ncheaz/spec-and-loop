@@ -781,8 +781,6 @@ Hard rules:
 ## Commit Contract
 
 {{commit_contract}}
-
-{{context}}
 EOF
     
     # Determine repo root for AGENTS.md probe

@@ -45,6 +45,13 @@ describe('_renderTemplate()', () => {
     expect(_renderTemplate('{{unknown}}', {})).toBe('{{unknown}}');
   });
 
+  test('regression: {{context}} passes through literally since it was removed from the vars map (D3)', () => {
+    // {{context}} was removed from the renderer's vars object in task 4.1.
+    // Templates that still contain it must receive it back verbatim rather than
+    // being replaced with an empty string or throwing.
+    expect(_renderTemplate('head\n{{context}}\ntail', {})).toBe('head\n{{context}}\ntail');
+  });
+
   test('handles empty template string', () => {
     expect(_renderTemplate('', { x: 'y' })).toBe('');
   });
