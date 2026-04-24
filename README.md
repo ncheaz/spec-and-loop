@@ -461,6 +461,53 @@ For common issues and solutions, see [QUICKSTART.md#troubleshooting](./QUICKSTAR
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RALPH_BASE_PROMPT_WARN_BYTES` | `4096` | Byte threshold above which `render()` emits a one-line warning to stderr when `{{base_prompt}}` resolves to a large file. Set to `0` to silence warnings entirely. Invalid values fall back to `4096` with a one-time notice per process. |
+| `RALPH_ITERATION_IDLE_TIMEOUT_MS` | `300000` | Milliseconds of silence on stdout+stderr before the per-iteration idle watchdog fires. Set to `0` to disable the watchdog entirely and restore pre-change behavior (no timeout). |
+| `RALPH_ITERATION_KILL_GRACE_MS` | `10000` | Milliseconds the runner waits after sending `SIGTERM` to a timed-out iteration child before escalating to `SIGKILL`. |
+
+### Auto-commit ignore-filter surfacing and iteration watchdog
+
+This section covers two surfacing improvements added on top of the `harden-auto-commit-against-ignored-paths` change, which is the underlying mechanism that _detects_ when `.gitignore` rules filter out loop-managed paths.
+
+**No new CLI flags are introduced by this change. No startup behavior changes. Every existing `ralph-run` invocation continues to work unchanged.**
+
+#### Loud stderr block
+
+When `_autoCommit` detects that one or more paths were filtered by `.gitignore` (anomaly types `paths_ignored_filtered` or `all_paths_ignored`), the runner emits the following block directly to `process.stderr` on **every** iteration where the anomaly fires — independently of any reporter buffering or deduplication:
+
+```
+================================================================================
+⚠ AUTO-COMMIT IGNORE FILTER FIRED  (iteration 7, type: paths_ignored_filtered)
+Paths filtered because .gitignore matches:
+  - openspec/changes/my-change/tasks.md
+  - openspec/changes/my-change/proposal.md
+Consequence: these paths are NOT in the latest commit.
+Remediation (pick one):
+  1. git add -f <path>   # one-time unblock, if you want it tracked
+  2. edit .gitignore     # narrow or remove the matching rule
+  3. pass --no-auto-commit on the ralph-run invocation
+================================================================================
+```
+
+The three remediation options mean:
+
+1. **`git add -f <path>`** — force-stage a specific file for the next commit. One-time unblock; the path stays gitignored and will be filtered again on the next auto-commit unless you also do option 2.
+2. **edit `.gitignore`** — narrow or remove the matching rule so the path is no longer excluded. The safest long-term fix when the rule is too broad.
+3. **`--no-auto-commit`** — disable auto-commit for this run entirely. Use when you want to manage commits yourself and don't want the runner touching git.
+
+#### Iteration watchdog
+
+The runner enforces a per-iteration idle timeout: if the `opencode run` subprocess produces no new bytes on stdout **or** stderr for `RALPH_ITERATION_IDLE_TIMEOUT_MS` milliseconds, the watchdog fires. It sends `SIGTERM`, waits up to `RALPH_ITERATION_KILL_GRACE_MS` for a graceful exit, then sends `SIGKILL`.
+
+The timed-out iteration is recorded in history with `failureReason: 'iteration_timeout_idle'` and three diagnostic fields: `idleMs` (how long the process was silent), `lastStdoutBytes` (last ≤200 bytes of stdout), and `lastStderrBytes` (last ≤200 bytes of stderr). These fields are absent on entries where the watchdog did not fire.
+
+The `iteration_timeout_idle` reason also appears in the `## Recent Loop Signals` block injected into each iteration's prompt, giving the agent visibility into prior timeout events.
+
+Set `RALPH_ITERATION_IDLE_TIMEOUT_MS=0` to disable the watchdog if your agent workflow runs legitimately long silent tools (e.g., large integration test suites). Example:
+
+```bash
+RALPH_ITERATION_IDLE_TIMEOUT_MS=900000 ralph-run --change my-feature   # 15-minute idle threshold
+RALPH_ITERATION_IDLE_TIMEOUT_MS=0 ralph-run --change my-feature        # watchdog disabled
+```
 
 **Quick fixes:**
 
