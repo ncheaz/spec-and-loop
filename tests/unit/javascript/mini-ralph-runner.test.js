@@ -1038,6 +1038,79 @@ describe('_buildIterationFeedback() - fingerprint dedup', () => {
 });
 
 // ---------------------------------------------------------------------------
+// _buildIterationFeedback() - paths_ignored_filtered / all_paths_ignored dedup bypass
+// ---------------------------------------------------------------------------
+
+describe('_buildIterationFeedback() - ignore-filter anomaly dedup bypass', () => {
+  const makeIgnoreEntry = (iteration, type, ignoredPaths) => ({
+    iteration,
+    exitCode: 0,
+    signal: '',
+    failureStage: '',
+    filesChanged: ['tasks.md'],
+    completionDetected: false,
+    taskDetected: true,
+    commitAnomaly: `Auto-commit succeeded but filtered gitignored paths: ${ignoredPaths[0]}`,
+    commitAnomalyType: type,
+    ignoredPaths,
+  });
+
+  test('three consecutive paths_ignored_filtered entries produce three distinct lines (no dedup)', () => {
+    const ignoredPaths = ['tasks.md'];
+    const history = [
+      makeIgnoreEntry(5, 'paths_ignored_filtered', ignoredPaths),
+      makeIgnoreEntry(6, 'paths_ignored_filtered', ignoredPaths),
+      makeIgnoreEntry(7, 'paths_ignored_filtered', ignoredPaths),
+    ];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('Iteration 5:');
+    expect(feedback).toContain('Iteration 6:');
+    expect(feedback).toContain('Iteration 7:');
+    expect(feedback).not.toContain('same failure as iteration');
+  });
+
+  test('dedup still applies to repeated invoke_start (non-filter) anomalies', () => {
+    const history = [
+      {
+        iteration: 10,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: true,
+        commitAnomaly: 'Auto-commit failed: pathspec did not match',
+        commitAnomalyType: 'commit_failed',
+      },
+      {
+        iteration: 11,
+        exitCode: 0,
+        signal: '',
+        failureStage: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: true,
+        commitAnomaly: 'Auto-commit failed: pathspec did not match',
+        commitAnomalyType: 'commit_failed',
+      },
+    ];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('Iteration 10: commit anomaly');
+    expect(feedback).toContain('same failure as iteration 10');
+  });
+
+  test('ignoredPaths > 2 shows first two paths and (+N more) suffix', () => {
+    const ignoredPaths = ['a.md', 'b.md', 'c.md', 'd.md'];
+    const history = [makeIgnoreEntry(3, 'paths_ignored_filtered', ignoredPaths)];
+    const feedback = _buildIterationFeedback(history);
+    expect(feedback).toContain('a.md');
+    expect(feedback).toContain('b.md');
+    expect(feedback).toContain('(+2 more)');
+    expect(feedback).not.toContain('c.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // _buildIterationFeedback() - no-promise tool-usage and duration suffix
 // ---------------------------------------------------------------------------
 
