@@ -3039,7 +3039,7 @@ describe('auto-commit with gitignored paths', () => {
     process.chdir(repo);
     const { reporter } = makeStubReporter();
 
-    try {
+     try {
       const result = _autoCommit(1, {
         completedTasks: [{ number: '1.1', description: 'Task', fullDescription: '1.1 Task', status: 'completed' }],
         filesToStage: ['src/app.js'],
@@ -3051,6 +3051,89 @@ describe('auto-commit with gitignored paths', () => {
     } finally {
       process.chdir(originalCwd);
       fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3.1 — iteration_timeout_idle plumbing through runner → history
+// ---------------------------------------------------------------------------
+describe('run() — iteration_timeout_idle history plumbing (task 3.1)', () => {
+  let tmpDir;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-watchdog-'));
+  });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function mockInvokerLocal(invokerModule, mockFn) {
+    const original = invokerModule.invoke;
+    invokerModule.invoke = mockFn;
+    return () => { invokerModule.invoke = original; };
+  }
+
+  function makeOpts(overrides = {}) {
+    return Object.assign(
+      {
+        ralphDir: path.join(tmpDir, '.ralph'),
+        promptText: 'do thing',
+        maxIterations: 1,
+        minIterations: 1,
+        stallThreshold: 0,
+      },
+      overrides
+    );
+  }
+
+  const invoker = require('../../../lib/mini-ralph/invoker');
+
+  test('persists failureReason, idleMs, lastStdoutBytes, lastStderrBytes when invoker returns iteration_timeout_idle', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvokerLocal(invoker, async () => ({
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      signal: 'SIGTERM',
+      failureReason: 'iteration_timeout_idle',
+      idleMs: 42,
+      lastStdoutBytes: 'x',
+      lastStderrBytes: 'y',
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOpts({ ralphDir }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries.length).toBe(1);
+      expect(entries[0].failureReason).toBe('iteration_timeout_idle');
+      expect(entries[0].idleMs).toBe(42);
+      expect(entries[0].lastStdoutBytes).toBe('x');
+      expect(entries[0].lastStderrBytes).toBe('y');
+    } finally {
+      restore();
+    }
+  });
+
+  test('does NOT persist idleMs, lastStdoutBytes, lastStderrBytes on a normal success result', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const restore = mockInvokerLocal(invoker, async () => ({
+      stdout: '<promise>COMPLETE</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      await run(makeOpts({ ralphDir, maxIterations: 1 }));
+      const entries = history.recent(ralphDir, 1);
+      expect(entries.length).toBe(1);
+      expect('idleMs' in entries[0]).toBe(false);
+      expect('lastStdoutBytes' in entries[0]).toBe(false);
+      expect('lastStderrBytes' in entries[0]).toBe(false);
+    } finally {
+      restore();
     }
   });
 });
