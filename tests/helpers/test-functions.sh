@@ -764,7 +764,7 @@ EOF
         done < <(find "$abs_change_dir/specs" -name spec.md -type f 2>/dev/null | sort)
     fi
     
-    manifest_body+="- .ralph/PRD.md    (pre-concatenated convenience copy of the above)"
+    # PRD.md manifest line removed (no longer generated)
     
     # Optionally append AGENTS.md reference
     local agents_line
@@ -953,11 +953,6 @@ execute_ralph_loop() {
     sync_tasks_to_ralph "$change_dir" "$ralph_dir"
     create_prompt_template "$change_dir" "$template_file"
     
-    # Generate PRD and write to file
-    local prd_content
-    prd_content=$(generate_prd "$change_dir")
-    echo "$prd_content" > "$ralph_dir/PRD.md"
-    
     # Output files
     local stdout_log="$output_dir/ralph-stdout.log"
     local stderr_log="$output_dir/ralph-stderr.log"
@@ -967,7 +962,6 @@ execute_ralph_loop() {
     
     # Build the mini-ralph-cli arguments
     local mini_ralph_args=(
-        "--prompt-file" "$ralph_dir/PRD.md"
         "--prompt-template" "$template_file"
         "--ralph-dir" "$ralph_dir"
         "--tasks-file" "$change_dir/tasks.md"
@@ -1128,8 +1122,22 @@ WARNING_BOX
                     log_info "Deleted proposal.md for redo"
                 fi
 
-                log_info "Invoking opencode to regenerate proposal..."
-                opencode -p "/opsx-continue $change_name" || true
+                if [[ -f "$change_dir/tasks.md" ]]; then
+                    rm "$change_dir/tasks.md"
+                    log_info "Deleted tasks.md for redo"
+                fi
+
+                local bp_file="openspec/OPENSPEC-RALPH-BP.md"
+                if [[ ! -f "$bp_file" ]]; then
+                    bp_file="$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md"
+                fi
+                local ralph_guidance=""
+                if [[ -f "$bp_file" ]]; then
+                    ralph_guidance=" When creating artifacts, read ${bp_file} and follow the Ralph Wiggum task template and authoring checklist. Ensure the proposal includes explicit scope, non-goals, first-rollout boundaries, and capabilities that map to Ralph-friendly tasks. Ensure tasks use the task template with objective done-when conditions and explicit stop-and-hand-off conditions. Do NOT restore or copy from any .bak backup files - write fresh artifacts from scratch."
+                fi
+
+                log_info "Invoking opencode to regenerate proposal and tasks with Ralph Wiggum best practices..."
+                opencode run "/opsx-continue $change_name${ralph_guidance}" || true
 
                 log_info "Returning to loop execution..."
                 return 0
