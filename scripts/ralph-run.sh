@@ -1056,8 +1056,9 @@ execute_ralph_loop() {
     {
         node "$MINI_RALPH_CLI" "${mini_ralph_args[@]}"
     } > >(tee "$stdout_log") 2> >(tee "$stderr_log")
-    
-    return $?
+    local node_exit_code=$?
+    wait
+    return $node_exit_code
 }
 
 
