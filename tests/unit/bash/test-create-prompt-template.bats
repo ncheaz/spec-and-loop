@@ -196,8 +196,8 @@ teardown() {
   # The old inline PRD section must be gone; manifest style is now used instead
   ! grep -q "## Invocation-Time PRD Snapshot" "$template_file"
   ! grep -q "{{base_prompt}}" "$template_file"
-  # Manifest section reference to .ralph/PRD.md must be present
-  grep -q ".ralph/PRD.md" "$template_file"
+  # Manifest section must NOT reference .ralph/PRD.md
+  ! grep -q ".ralph/PRD.md" "$template_file"
 
   cd - > /dev/null
   rm -rf "$test_dir"
@@ -492,7 +492,7 @@ teardown() {
   rm -rf "$test_dir"
 }
 
-@test "create_prompt_template: manifest contains absolute path lines for proposal, design, and PRD" {
+@test "create_prompt_template: manifest contains absolute path lines for proposal, design, and specs" {
   local test_dir
   test_dir=$(setup_test_dir)
   cd "$test_dir" || return 1
@@ -513,7 +513,7 @@ teardown() {
   grep -q "^- $abs_change_dir/proposal.md$" "$template_file"
   grep -q "^- $abs_change_dir/design.md$" "$template_file"
   grep -q "^- $abs_change_dir/specs/my-spec/spec.md$" "$template_file"
-  grep -q "^- .ralph/PRD.md" "$template_file"
+  ! grep -q "^- .ralph/PRD.md" "$template_file"
   # Glob must NOT be present in final rendered file
   ! grep -q "specs/\*/spec.md" "$template_file"
   # Internal token must be fully expanded

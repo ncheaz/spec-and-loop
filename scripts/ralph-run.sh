@@ -838,8 +838,6 @@ EOF
         done < <(find "$abs_change_dir/specs" -name spec.md -type f 2>/dev/null | sort)
     fi
     
-    manifest_body+="- .ralph/PRD.md    (pre-concatenated convenience copy of the above)"
-    
     # Optionally append AGENTS.md reference
     local agents_line
     agents_line=$(probe_agents_md "$repo_root")
@@ -849,10 +847,12 @@ EOF
 
     # Append Ralph best practices guide if project is ralphified
     if check_ralphified; then
-        local bp_path
-        bp_path=$(get_realpath "$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md")
-        if [[ -n "$bp_path" ]]; then
-            manifest_body+=$'\n'"- $bp_path    (Ralph best practices guide)"
+        local bp_manifest_path="$abs_change_dir/../../OPENSPEC-RALPH-BP.md"
+        if [[ ! -f "$bp_manifest_path" ]]; then
+            bp_manifest_path="$repo_root/openspec/OPENSPEC-RALPH-BP.md"
+        fi
+        if [[ -f "$bp_manifest_path" ]]; then
+            manifest_body+=$'\n'"- $bp_manifest_path    (Ralph best practices guide)"
         fi
     fi
     
@@ -1129,10 +1129,29 @@ run_observability_command() {
     esac
 }
 
+resolve_bp_path() {
+    local repo_root="${1:-.}"
+    local bp_candidates=(
+        "$repo_root/node_modules/spec-and-loop/OPENSPEC-RALPH-BP.md"
+        "$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md"
+    )
+
+    for candidate in "${bp_candidates[@]}"; do
+        local resolved
+        resolved=$(get_realpath "$candidate")
+        if [[ -n "$resolved" && -f "$resolved" ]]; then
+            printf "%s" "$resolved"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 ralphify_init() {
-    local bp_file="$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md"
     local config_file="openspec/config.yaml"
     local agents_file="AGENTS.md"
+    local bp_local_path="openspec/OPENSPEC-RALPH-BP.md"
 
     if ! git rev-parse --git-dir > /dev/null 2>&1; then
         log_error "Not a git repository. Please run: git init"
@@ -1144,10 +1163,22 @@ ralphify_init() {
         return 1
     fi
 
-    if [[ ! -f "$bp_file" ]]; then
-        log_error "OPENSPEC-RALPH-BP.md not found at $bp_file"
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="$(pwd)"
+
+    local bp_source
+    bp_source=$(resolve_bp_path "$repo_root")
+    if [[ -z "$bp_source" ]]; then
+        log_error "OPENSPEC-RALPH-BP.md not found in node_modules or package directory"
         log_error "Package installation may be incomplete. Run: npm install"
         return 1
+    fi
+
+    if ! cmp -s "$bp_source" "$bp_local_path" 2>/dev/null; then
+        cp "$bp_source" "$bp_local_path"
+        log_info "Copied OPENSPEC-RALPH-BP.md to openspec/"
+    else
+        log_verbose "OPENSPEC-RALPH-BP.md already up to date in openspec/"
     fi
 
     if ! grep -q "Ralph Wiggum" "$config_file" 2>/dev/null; then
@@ -1158,7 +1189,7 @@ ralphify_init() {
 # See OPENSPEC-RALPH-BP.md for the detailed authoring guide shipped with spec-and-loop.
 context: |
   This project follows the Ralph Wiggum method for task authoring.
-  Read OPENSPEC-RALPH-BP.md before generating OpenSpec artifacts.
+  Read openspec/OPENSPEC-RALPH-BP.md before generating OpenSpec artifacts.
   Verify proposals against the Ralph checklist before approval.
 rules:
   proposal:
@@ -1185,7 +1216,7 @@ RALPH_CONFIG
 This project follows the Ralph Wiggum method for iterative OpenSpec development.
 
 Before generating any OpenSpec artifacts, you MUST:
-- Read `OPENSPEC-RALPH-BP.md` in the project root
+- Read `openspec/OPENSPEC-RALPH-BP.md` (Ralph Wiggum authoring guide)
 - Verify proposals against the Ralph authoring checklist
 - Ensure tasks use the task template with objective done-when conditions
 - Include explicit stop-and-hand-off conditions in every task
@@ -1259,13 +1290,61 @@ WARNING_BOX
                 fi
 
                 local change_dir="openspec/changes/$change_name"
+                local backup_dir
+                backup_dir=$(make_temp_dir "ralph-artifact-backup")
+
+                local proposal_backup=""
                 if [[ -f "$change_dir/proposal.md" ]]; then
-                    rm "$change_dir/proposal.md"
-                    log_info "Deleted proposal.md for redo"
+                    proposal_backup="$backup_dir/proposal.md"
+                    mv "$change_dir/proposal.md" "$proposal_backup"
+                    log_info "Backed up proposal.md"
                 fi
 
-                log_info "Invoking opencode to regenerate proposal..."
-                opencode -p "/opsx-continue $change_name" || true
+                local tasks_backup=""
+                if [[ -f "$change_dir/tasks.md" ]]; then
+                    tasks_backup="$backup_dir/tasks.md"
+                    mv "$change_dir/tasks.md" "$tasks_backup"
+                    log_info "Backed up tasks.md"
+                fi
+
+                local bp_file="openspec/OPENSPEC-RALPH-BP.md"
+                if [[ ! -f "$bp_file" ]]; then
+                    bp_file="$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md"
+                fi
+                local ralph_guidance=""
+                if [[ -f "$bp_file" ]]; then
+                    ralph_guidance=" When creating artifacts, read ${bp_file} and follow the Ralph Wiggum task template and authoring checklist. Ensure the proposal includes explicit scope, non-goals, first-rollout boundaries, and capabilities that map to Ralph-friendly tasks. Ensure tasks use the task template with objective done-when conditions and explicit stop-and-hand-off conditions. Do NOT restore or copy from any .bak backup files - write fresh artifacts from scratch."
+                fi
+
+                log_info "Invoking opencode to regenerate proposal and tasks with Ralph Wiggum best practices..."
+                opencode run "/opsx-continue $change_name${ralph_guidance}" || true
+                local proposal_ok=false
+                if [[ -f "$change_dir/proposal.md" ]]; then
+                    proposal_ok=true
+                    log_info "Proposal regenerated successfully"
+                else
+                    log_error "opencode did not create a new proposal.md"
+                fi
+
+                if [[ -f "$change_dir/tasks.md" ]]; then
+                    log_info "Tasks regenerated successfully"
+                else
+                    log_error "opencode did not create a new tasks.md (only proposal may have been created; tasks may require a second /opsx-continue)"
+                fi
+
+                if [[ "$proposal_ok" == true ]]; then
+                    log_info "Artifact regeneration complete"
+                else
+                    log_error "Restoring backed-up artifacts"
+                    if [[ -n "$proposal_backup" && -f "$proposal_backup" ]]; then
+                        mv "$proposal_backup" "$change_dir/proposal.md"
+                        log_info "Restored original proposal.md"
+                    fi
+                    if [[ -n "$tasks_backup" && -f "$tasks_backup" ]]; then
+                        mv "$tasks_backup" "$change_dir/tasks.md"
+                        log_info "Restored original tasks.md"
+                    fi
+                fi
 
                 log_info "Returning to loop execution..."
                 return 0
