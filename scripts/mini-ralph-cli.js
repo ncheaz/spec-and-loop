@@ -227,13 +227,15 @@ async function main() {
       );
     }
 
-    process.exit(result.completed ? 0 : 1);
+    process.exitCode = result.completed ? 0 : 1;
+    setTimeout(() => process.exit(result.completed ? 0 : 1), 5000).unref();
   } catch (err) {
     process.stderr.write(`[mini-ralph] error: ${err.message}\n`);
     if (opts.verbose && err.stack) {
       process.stderr.write(err.stack + '\n');
     }
-    process.exit(1);
+    process.exitCode = 1;
+    setTimeout(() => process.exit(1), 5000).unref();
   }
 }
 

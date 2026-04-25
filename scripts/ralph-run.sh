@@ -1,6 +1,27 @@
 #!/bin/bash
 
-VERSION="1.0.0"
+resolve_version() {
+    local pkg_json="$SCRIPT_DIR/../package.json"
+    if [[ ! -f "$pkg_json" ]]; then
+        echo "Error: package.json not found at $pkg_json" >&2
+        exit 1
+    fi
+    if [[ ! -r "$pkg_json" ]]; then
+        echo "Error: package.json not readable at $pkg_json" >&2
+        exit 1
+    fi
+    local version
+    version=$(node -e "console.log(require('$pkg_json').version)" 2>/dev/null) || {
+        echo "Error: Failed to read version from $pkg_json" >&2
+        exit 1
+    }
+    if [[ -z "$version" ]]; then
+        echo "Error: Empty version read from $pkg_json" >&2
+        exit 1
+    fi
+    echo "$version"
+}
+VERSION=""
 
 # Detect OS for cross-platform compatibility
 detect_os() {
@@ -55,6 +76,7 @@ get_realpath() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION=$(resolve_version)
 LOCAL_NODE_BIN="$SCRIPT_DIR/../node_modules/.bin"
 # Allow tests to inject a mock by setting MINI_RALPH_CLI_OVERRIDE in the environment
 MINI_RALPH_CLI="${MINI_RALPH_CLI_OVERRIDE:-$SCRIPT_DIR/mini-ralph-cli.js}"
@@ -108,6 +130,7 @@ CHANGE_NAME=""
 MAX_ITERATIONS=""
 NO_COMMIT=false
 SHOW_STATUS=false
+SHOW_VERSION=false
 ADD_CONTEXT=""
 CLEAR_CONTEXT=false
 ERROR_OCCURRED=false
@@ -164,6 +187,7 @@ OPTIONS:
     --no-commit              Suppress automatic git commits during the loop
     --verbose, -v            Enable verbose mode for debugging
     --quiet                  Suppress the per-iteration progress stream
+    --version                Print the version and exit
     --help, -h               Show this help message
 
 OBSERVABILITY AND CONTROL:
@@ -226,6 +250,10 @@ parse_arguments() {
                 ;;
             --help|-h)
                 SHOW_HELP=true
+                shift
+                ;;
+            --version)
+                SHOW_VERSION=true
                 shift
                 ;;
             *)
@@ -1085,6 +1113,11 @@ main() {
     set -e
     parse_arguments "$@"
     
+    if [[ "$SHOW_VERSION" == true ]]; then
+        echo "$VERSION"
+        exit 0
+    fi
+
     log_verbose "Starting ralph-run v$VERSION"
     log_verbose "Change name: ${CHANGE_NAME:-<auto-detect>}"
 
