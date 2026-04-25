@@ -844,6 +844,15 @@ EOF
     if [[ -n "$agents_line" ]]; then
         manifest_body+=$'\n'"$agents_line"
     fi
+
+    # Append Ralph best practices guide if project is ralphified
+    if check_ralphified; then
+        local bp_path
+        bp_path=$(get_realpath "$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md")
+        if [[ -n "$bp_path" ]]; then
+            manifest_body+=$'\n'"- $bp_path    (Ralph best practices guide)"
+        fi
+    fi
     
     # Substitute {{_openspec_manifest}} using awk with a manifest temp file
     # (awk -v cannot handle multi-line values; use getline from a file instead)
