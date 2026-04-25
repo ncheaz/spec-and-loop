@@ -1046,7 +1046,6 @@ execute_ralph_loop() {
     
     # Build the mini-ralph-cli arguments
     local mini_ralph_args=(
-        "--prompt-file" "$ralph_dir/PRD.md"
         "--prompt-template" "$template_file"
         "--ralph-dir" "$ralph_dir"
         "--tasks-file" "$change_dir/tasks.md"
