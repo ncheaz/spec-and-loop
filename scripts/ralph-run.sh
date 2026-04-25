@@ -1211,6 +1211,66 @@ check_ralphified() {
     return 0
 }
 
+show_ralphify_warning() {
+    local change_name="$1"
+
+    cat >&2 << 'WARNING_BOX'
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   WARNING: Project not configured for Ralph Wiggum best practices   │
+│                                                                     │
+│   This project has not been ralphified. Proposals and artifacts     │
+│   may not follow Ralph Wiggum conventions.                          │
+│                                                                     │
+│   It is recommended to run: ralph-run init                          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+WARNING_BOX
+
+    while true; do
+        echo "" >&2
+        echo "Choose an option:" >&2
+        echo "  [A] Run ralphify init and redo the proposal, then continue" >&2
+        echo "  [C] Continue without init" >&2
+        echo "  [Q] Quit" >&2
+        printf "Enter choice: " >&2
+        read -r choice <&2
+
+        case "$choice" in
+            [Aa])
+                log_info "Running ralphify init..."
+                if ! ralphify_init; then
+                    log_error "ralphify init failed. Aborting."
+                    exit 1
+                fi
+
+                local change_dir="openspec/changes/$change_name"
+                if [[ -f "$change_dir/proposal.md" ]]; then
+                    rm "$change_dir/proposal.md"
+                    log_info "Deleted proposal.md for redo"
+                fi
+
+                log_info "Invoking opencode to regenerate proposal..."
+                opencode -p "/opsx-continue $change_name" || true
+
+                log_info "Returning to loop execution..."
+                return 0
+                ;;
+            [Cc])
+                log_info "Continuing without Ralph Wiggum configuration."
+                return 0
+                ;;
+            [Qq])
+                log_info "Exiting."
+                exit 0
+                ;;
+            *)
+                echo "Invalid choice '$choice'. Please enter A, C, or Q." >&2
+                ;;
+        esac
+    done
+}
+
 main() {
     set -e
     parse_arguments "$@"
@@ -1271,6 +1331,15 @@ main() {
     # Normal loop execution path
     validate_git_repository
     validate_dependencies
+    
+    # Ralphify guard: check if project is configured for Ralph Wiggum best practices
+    if ! check_ralphified; then
+        if [[ -z "$CHANGE_NAME" ]]; then
+            CHANGE_NAME=$(auto_detect_change)
+            log_info "Auto-detected change for ralphify guard: $CHANGE_NAME"
+        fi
+        show_ralphify_warning "$CHANGE_NAME"
+    fi
     
     if [[ -z "$CHANGE_NAME" ]]; then
         CHANGE_NAME=$(auto_detect_change)
