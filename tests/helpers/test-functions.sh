@@ -393,13 +393,7 @@ generate_prd() {
     prd_content+="$OPENSPEC_DESIGN"$'\n'$'\n'
     
     # Add current task context for Ralph to use in commits
-    local task_context
-    task_context=$(get_current_task_context "$change_dir")
-    
-    if [[ -n "$task_context" ]]; then
-        prd_content+="## Current Task Context"$'\n'$'\n'
-        prd_content+="$task_context"$'\n'$'\n'
-    fi
+    # (Removed: task context is now provided via {{task_context}} template variable only)
     
     echo "$prd_content"
 }
@@ -434,17 +428,19 @@ parse_tasks() {
     TASKS=()
     TASK_IDS=()
     
-    local line_number=0
-    while IFS= read -r line; do
-        ((line_number++)) || true
-        
-        if [[ "$line" == "- [ ]"* ]]; then
-            local task_desc="${line#- \[ \] }"
-            TASKS+=("$task_desc")
-            TASK_IDS+=("$line_number")
-            log_verbose "Found incomplete task (line $line_number): $task_desc"
-        fi
-    done < "$tasks_file"
+    if [[ -f "$tasks_file" ]]; then
+        local line_number=0
+        while IFS= read -r line; do
+            ((line_number++)) || true
+            
+            if [[ "$line" == "- [ ]"* ]]; then
+                local task_desc="${line#- \[ \] }"
+                TASKS+=("$task_desc")
+                TASK_IDS+=("$line_number")
+                log_verbose "Found incomplete task (line $line_number): $task_desc"
+            fi
+        done < "$tasks_file"
+    fi
     
     log_verbose "Found ${#TASKS[@]} incomplete tasks"
 }
@@ -1113,7 +1109,10 @@ WARNING_BOX
         echo "  [C] Continue without init" >&2
         echo "  [Q] Quit" >&2
         printf "Enter choice: " >&2
-        read -r choice
+        if ! read -r choice; then
+            log_info "Non-interactive environment detected. Continuing without Ralph Wiggum configuration."
+            return 0
+        fi
 
         case "$choice" in
             [Aa])
