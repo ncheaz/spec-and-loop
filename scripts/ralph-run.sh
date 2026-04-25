@@ -133,6 +133,7 @@ SHOW_STATUS=false
 SHOW_VERSION=false
 ADD_CONTEXT=""
 CLEAR_CONTEXT=false
+SUBCOMMAND=""
 ERROR_OCCURRED=false
 CLEANUP_IN_PROGRESS=false
 
@@ -189,6 +190,9 @@ OPTIONS:
     --quiet                  Suppress the per-iteration progress stream
     --version                Print the version and exit
     --help, -h               Show this help message
+
+SUBCOMMANDS:
+    init                     Configure the project for Ralph-friendly artifact generation
 
 OBSERVABILITY AND CONTROL:
     --status                 Print the current loop status dashboard and exit
@@ -254,6 +258,10 @@ parse_arguments() {
                 ;;
             --version)
                 SHOW_VERSION=true
+                shift
+                ;;
+            init)
+                SUBCOMMAND="init"
                 shift
                 ;;
             *)
@@ -1210,6 +1218,15 @@ main() {
     if [[ "$SHOW_VERSION" == true ]]; then
         echo "$VERSION"
         exit 0
+    fi
+
+    if [[ "$SUBCOMMAND" == "init" ]]; then
+        if [[ -n "$CHANGE_NAME" ]]; then
+            log_error "Cannot use --change with the init subcommand"
+            exit 1
+        fi
+        ralphify_init
+        exit $?
     fi
 
     log_verbose "Starting ralph-run v$VERSION"
