@@ -1037,11 +1037,6 @@ execute_ralph_loop() {
     sync_tasks_to_ralph "$change_dir" "$ralph_dir"
     create_prompt_template "$change_dir" "$template_file"
     
-    # Generate PRD and write to file
-    local prd_content
-    prd_content=$(generate_prd "$change_dir")
-    echo "$prd_content" > "$ralph_dir/PRD.md"
-    
     # Output files
     local stdout_log="$output_dir/ralph-stdout.log"
     local stderr_log="$output_dir/ralph-stderr.log"
