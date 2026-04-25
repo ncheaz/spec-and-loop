@@ -117,7 +117,7 @@ teardown() {
   initial_mtime=$(get_file_mtime "$tasks_file")
   
   # Wait briefly and modify the file
-  sleep 0.1
+  sleep 1
   echo "[TEST] Modified content" >> "$tasks_file"
   
   # Get new mtime

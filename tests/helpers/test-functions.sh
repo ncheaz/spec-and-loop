@@ -1122,22 +1122,8 @@ WARNING_BOX
                     log_info "Deleted proposal.md for redo"
                 fi
 
-                if [[ -f "$change_dir/tasks.md" ]]; then
-                    rm "$change_dir/tasks.md"
-                    log_info "Deleted tasks.md for redo"
-                fi
-
-                local bp_file="openspec/OPENSPEC-RALPH-BP.md"
-                if [[ ! -f "$bp_file" ]]; then
-                    bp_file="$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md"
-                fi
-                local ralph_guidance=""
-                if [[ -f "$bp_file" ]]; then
-                    ralph_guidance=" When creating artifacts, read ${bp_file} and follow the Ralph Wiggum task template and authoring checklist. Ensure the proposal includes explicit scope, non-goals, first-rollout boundaries, and capabilities that map to Ralph-friendly tasks. Ensure tasks use the task template with objective done-when conditions and explicit stop-and-hand-off conditions. Do NOT restore or copy from any .bak backup files - write fresh artifacts from scratch."
-                fi
-
-                log_info "Invoking opencode to regenerate proposal and tasks with Ralph Wiggum best practices..."
-                opencode run "/opsx-continue $change_name${ralph_guidance}" || true
+                log_info "Invoking opencode to regenerate proposal..."
+                opencode -p "/opsx-continue $change_name" || true
 
                 log_info "Returning to loop execution..."
                 return 0
