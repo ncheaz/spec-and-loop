@@ -1441,13 +1441,8 @@ main() {
     log_info "Change directory: $change_dir"
     log_info "Ralph directory: $ralph_dir"
     
-    read_openspec_artifacts "$change_dir"
-    local prd_content=$(generate_prd "$change_dir")
-    write_prd "$ralph_dir" "$prd_content"
-    
     parse_tasks "$change_dir"
     
-    log_info "PRD generation complete"
     log_info "Found ${#TASKS[@]} tasks to execute"
     
     local max_iterations="${MAX_ITERATIONS:-50}"
