@@ -1243,7 +1243,7 @@ WARNING_BOX
         echo "  [C] Continue without init" >&2
         echo "  [Q] Quit" >&2
         printf "Enter choice: " >&2
-        read -r choice <&2
+        read -r choice
 
         case "$choice" in
             [Aa])
