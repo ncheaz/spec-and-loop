@@ -53,16 +53,19 @@ git init
 # 2. Initialize OpenSpec
 openspec init
 
-# 3. Create a new change
+# 3. Ralphify your project (enables Ralph-friendly artifact generation)
+ralph-run init
+
+# 4. Create a new change
 openspec new change add-hello-world
 
-# 4. Review and complete the OpenSpec artifacts
+# 5. Review and complete the OpenSpec artifacts
 #    (openspec/changes/add-hello-world/proposal.md)
 #    (openspec/changes/add-hello-world/design.md)
 #    (openspec/changes/add-hello-world/specs/*/spec.md)
 #    (openspec/changes/add-hello-world/tasks.md)
 
-# 5. Run the ralph loop (executes tasks with opencode)
+# 6. Run the ralph loop (executes tasks with opencode)
 ralph-run --change add-hello-world
 ```
 
@@ -145,6 +148,7 @@ openspec schemas               # List available workflow schemas
 ### Ralph Loop Commands
 
 ```bash
+ralph-run init                                    # Configure project for Ralph-friendly artifact generation
 ralph-run                                    # Auto-detect most recent change and run
 ralph-run --change <name>                    # Run for specific change
 ralph-run --verbose                          # Run with debug output
@@ -165,31 +169,34 @@ cd my-web-app
 git init
 openspec init
 
-# 2. Create a feature
+# 2. Ralphify your project
+ralph-run init
+
+# 3. Create a feature
 openspec new change user-authentication
 
-# 3. Go through the workflow
+# 4. Go through the workflow
 # - Create proposal: Why add auth?
 # - Create specs: Login flow, password reset, OAuth
 # - Create design: Use JWT, store hashed passwords
 # - Create tasks: 15 checkboxes for implementation
 
-# 4. Execute the implementation
+# 5. Execute the implementation
 ralph-run --change user-authentication
 
-# 5. Watch the magic happen!
+# 6. Watch the magic happen!
 # [INFO] Found 15 tasks to execute
 # [INFO] Executing task 1/15: Create User model
 # [INFO] Executing task 2/15: Implement password hashing
 # ...
 
-# 6. Add context mid-run if needed (from another terminal)
+# 7. Add context mid-run if needed (from another terminal)
 ralph-run --add-context "Prefer bcrypt over argon2 for password hashing"
 
-# 7. Check status
+# 8. Check status
 ralph-run --status
 
-# 8. Verify the implementation
+# 9. Verify the implementation
 git log --oneline      # 15 commits, one per task
 git diff HEAD~15        # See full implementation
 ```
@@ -411,6 +418,21 @@ nvm use 24
 
 # Or install from https://nodejs.org
 ```
+
+### "Project not ralphified"
+
+**Problem:** Running `ralph-run --change <name>` shows a warning that the project is not ralphified, or artifacts are missing Ralph-friendly structure.
+
+**Solution:**
+```bash
+# Run ralphify init to configure the project (run once after openspec init)
+ralph-run init
+
+# Verify ralphification succeeded
+ralph-run --status
+```
+
+This sets up Ralph-friendly rules in `openspec/config.yaml` and `AGENTS.md`. Run it once per project after `openspec init`.
 
 ### "npm: command not found"
 
