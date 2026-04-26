@@ -1,6 +1,27 @@
 #!/bin/bash
 
-VERSION="1.0.0"
+resolve_version() {
+    local pkg_json="$SCRIPT_DIR/../package.json"
+    if [[ ! -f "$pkg_json" ]]; then
+        echo "Error: package.json not found at $pkg_json" >&2
+        exit 1
+    fi
+    if [[ ! -r "$pkg_json" ]]; then
+        echo "Error: package.json not readable at $pkg_json" >&2
+        exit 1
+    fi
+    local version
+    version=$(node -e "console.log(require('$pkg_json').version)" 2>/dev/null) || {
+        echo "Error: Failed to read version from $pkg_json" >&2
+        exit 1
+    }
+    if [[ -z "$version" ]]; then
+        echo "Error: Empty version read from $pkg_json" >&2
+        exit 1
+    fi
+    echo "$version"
+}
+VERSION=""
 
 # Detect OS for cross-platform compatibility
 detect_os() {
@@ -55,6 +76,7 @@ get_realpath() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION=$(resolve_version)
 LOCAL_NODE_BIN="$SCRIPT_DIR/../node_modules/.bin"
 # Allow tests to inject a mock by setting MINI_RALPH_CLI_OVERRIDE in the environment
 MINI_RALPH_CLI="${MINI_RALPH_CLI_OVERRIDE:-$SCRIPT_DIR/mini-ralph-cli.js}"
@@ -108,8 +130,10 @@ CHANGE_NAME=""
 MAX_ITERATIONS=""
 NO_COMMIT=false
 SHOW_STATUS=false
+SHOW_VERSION=false
 ADD_CONTEXT=""
 CLEAR_CONTEXT=false
+SUBCOMMAND=""
 ERROR_OCCURRED=false
 CLEANUP_IN_PROGRESS=false
 
@@ -164,7 +188,11 @@ OPTIONS:
     --no-commit              Suppress automatic git commits during the loop
     --verbose, -v            Enable verbose mode for debugging
     --quiet                  Suppress the per-iteration progress stream
+    --version                Print the version and exit
     --help, -h               Show this help message
+
+SUBCOMMANDS:
+    init                     Configure the project for Ralph-friendly artifact generation
 
 OBSERVABILITY AND CONTROL:
     --status                 Print the current loop status dashboard and exit
@@ -226,6 +254,14 @@ parse_arguments() {
                 ;;
             --help|-h)
                 SHOW_HELP=true
+                shift
+                ;;
+            --version)
+                SHOW_VERSION=true
+                shift
+                ;;
+            init)
+                SUBCOMMAND="init"
                 shift
                 ;;
             *)
@@ -462,17 +498,19 @@ parse_tasks() {
     TASKS=()
     TASK_IDS=()
     
-    local line_number=0
-    while IFS= read -r line; do
-        ((line_number++)) || true
-        
-        if [[ "$line" == "- [ ]"* ]]; then
-            local task_desc="${line#- \[ \] }"
-            TASKS+=("$task_desc")
-            TASK_IDS+=("$line_number")
-            log_verbose "Found incomplete task (line $line_number): $task_desc"
-        fi
-    done < "$tasks_file"
+    if [[ -f "$tasks_file" ]]; then
+        local line_number=0
+        while IFS= read -r line; do
+            ((line_number++)) || true
+            
+            if [[ "$line" == "- [ ]"* ]]; then
+                local task_desc="${line#- \[ \] }"
+                TASKS+=("$task_desc")
+                TASK_IDS+=("$line_number")
+                log_verbose "Found incomplete task (line $line_number): $task_desc"
+            fi
+        done < "$tasks_file"
+    fi
     
     log_verbose "Found ${#TASKS[@]} incomplete tasks"
 }
@@ -800,13 +838,22 @@ EOF
         done < <(find "$abs_change_dir/specs" -name spec.md -type f 2>/dev/null | sort)
     fi
     
-    manifest_body+="- .ralph/PRD.md    (pre-concatenated convenience copy of the above)"
-    
     # Optionally append AGENTS.md reference
     local agents_line
     agents_line=$(probe_agents_md "$repo_root")
     if [[ -n "$agents_line" ]]; then
         manifest_body+=$'\n'"$agents_line"
+    fi
+
+    # Append Ralph best practices guide if project is ralphified
+    if check_ralphified; then
+        local bp_manifest_path="$abs_change_dir/../../OPENSPEC-RALPH-BP.md"
+        if [[ ! -f "$bp_manifest_path" ]]; then
+            bp_manifest_path="$repo_root/openspec/OPENSPEC-RALPH-BP.md"
+        fi
+        if [[ -f "$bp_manifest_path" ]]; then
+            manifest_body+=$'\n'"- $bp_manifest_path    (Ralph best practices guide)"
+        fi
     fi
     
     # Substitute {{_openspec_manifest}} using awk with a manifest temp file
@@ -990,11 +1037,6 @@ execute_ralph_loop() {
     sync_tasks_to_ralph "$change_dir" "$ralph_dir"
     create_prompt_template "$change_dir" "$template_file"
     
-    # Generate PRD and write to file
-    local prd_content
-    prd_content=$(generate_prd "$change_dir")
-    echo "$prd_content" > "$ralph_dir/PRD.md"
-    
     # Output files
     local stdout_log="$output_dir/ralph-stdout.log"
     local stderr_log="$output_dir/ralph-stderr.log"
@@ -1004,7 +1046,6 @@ execute_ralph_loop() {
     
     # Build the mini-ralph-cli arguments
     local mini_ralph_args=(
-        "--prompt-file" "$ralph_dir/PRD.md"
         "--prompt-template" "$template_file"
         "--ralph-dir" "$ralph_dir"
         "--tasks-file" "$change_dir/tasks.md"
@@ -1028,8 +1069,9 @@ execute_ralph_loop() {
     {
         node "$MINI_RALPH_CLI" "${mini_ralph_args[@]}"
     } > >(tee "$stdout_log") 2> >(tee "$stderr_log")
-    
-    return $?
+    local node_exit_code=$?
+    wait
+    return $node_exit_code
 }
 
 
@@ -1081,10 +1123,259 @@ run_observability_command() {
     esac
 }
 
+resolve_bp_path() {
+    local repo_root="${1:-.}"
+    local bp_candidates=(
+        "$repo_root/node_modules/spec-and-loop/OPENSPEC-RALPH-BP.md"
+        "$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md"
+    )
+
+    for candidate in "${bp_candidates[@]}"; do
+        local resolved
+        resolved=$(get_realpath "$candidate")
+        if [[ -n "$resolved" && -f "$resolved" ]]; then
+            printf "%s" "$resolved"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+ralphify_init() {
+    local config_file="openspec/config.yaml"
+    local agents_file="AGENTS.md"
+    local bp_local_path="openspec/OPENSPEC-RALPH-BP.md"
+
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        log_error "Not a git repository. Please run: git init"
+        return 1
+    fi
+
+    if [[ ! -d "openspec" ]]; then
+        log_error "openspec/ directory not found. Please run: openspec init"
+        return 1
+    fi
+
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="$(pwd)"
+
+    local bp_source
+    bp_source=$(resolve_bp_path "$repo_root")
+    if [[ -z "$bp_source" ]]; then
+        log_error "OPENSPEC-RALPH-BP.md not found in node_modules or package directory"
+        log_error "Package installation may be incomplete. Run: npm install"
+        return 1
+    fi
+
+    if ! cmp -s "$bp_source" "$bp_local_path" 2>/dev/null; then
+        cp "$bp_source" "$bp_local_path"
+        log_info "Copied OPENSPEC-RALPH-BP.md to openspec/"
+    else
+        log_verbose "OPENSPEC-RALPH-BP.md already up to date in openspec/"
+    fi
+
+    if ! grep -q "Ralph Wiggum" "$config_file" 2>/dev/null; then
+        cat >> "$config_file" << 'RALPH_CONFIG'
+
+# --- Ralph Wiggum ---
+# This project uses the Ralph Wiggum method for iterative development.
+# See OPENSPEC-RALPH-BP.md for the detailed authoring guide shipped with spec-and-loop.
+context: |
+  This project follows the Ralph Wiggum method for task authoring.
+  Read openspec/OPENSPEC-RALPH-BP.md before generating OpenSpec artifacts.
+  Verify proposals against the Ralph checklist before approval.
+rules:
+  proposal:
+    - Include explicit scope, non-goals, and first-rollout boundaries
+    - Resolve all policy decisions before implementation tasks
+  tasks:
+    - Use the task template from OPENSPEC-RALPH-BP.md
+    - Each task has one dominant outcome and one verification cluster
+    - Include explicit stop-and-hand-off conditions
+  design:
+    - Do not leave core policy choices unresolved
+    - Specify algorithms, config shapes, and failure semantics
+RALPH_CONFIG
+        log_verbose "Updated $config_file with Ralph Wiggum rules"
+    else
+        log_verbose "Ralph Wiggum rules already present in $config_file"
+    fi
+
+    if ! grep -q "Ralph Wiggum Compliance" "$agents_file" 2>/dev/null; then
+        cat >> "$agents_file" << 'RALPH_AGENTS'
+
+## Ralph Wiggum Compliance
+
+This project follows the Ralph Wiggum method for iterative OpenSpec development.
+
+Before generating any OpenSpec artifacts, you MUST:
+- Read `openspec/OPENSPEC-RALPH-BP.md` (Ralph Wiggum authoring guide)
+- Verify proposals against the Ralph authoring checklist
+- Ensure tasks use the task template with objective done-when conditions
+- Include explicit stop-and-hand-off conditions in every task
+RALPH_AGENTS
+        log_verbose "Updated $agents_file with Ralph Wiggum compliance section"
+    else
+        log_verbose "Ralph Wiggum compliance section already present in $agents_file"
+    fi
+
+    log_info "Project ralphified successfully. Proposals will now follow Ralph Wiggum best practices."
+    return 0
+}
+
+check_ralphified() {
+    local config_file="openspec/config.yaml"
+    local agents_file="AGENTS.md"
+
+    if [[ ! -f "$config_file" ]]; then
+        return 1
+    fi
+
+    if [[ ! -f "$agents_file" ]]; then
+        return 1
+    fi
+
+    if ! grep -q "Ralph Wiggum" "$config_file" 2>/dev/null; then
+        return 1
+    fi
+
+    if ! grep -q "Ralph Wiggum Compliance" "$agents_file" 2>/dev/null; then
+        return 1
+    fi
+
+    return 0
+}
+
+show_ralphify_warning() {
+    local change_name="$1"
+
+    cat >&2 << 'WARNING_BOX'
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   WARNING: Project not configured for Ralph Wiggum best practices   │
+│                                                                     │
+│   This project has not been ralphified. Proposals and artifacts     │
+│   may not follow Ralph Wiggum conventions.                          │
+│                                                                     │
+│   It is recommended to run: ralph-run init                          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+WARNING_BOX
+
+    while true; do
+        echo "" >&2
+        echo "Choose an option:" >&2
+        echo "  [A] Run ralphify init and redo the proposal, then continue" >&2
+        echo "  [C] Continue without init" >&2
+        echo "  [Q] Quit" >&2
+        printf "Enter choice: " >&2
+        if ! read -r choice; then
+            log_info "Non-interactive environment detected. Continuing without Ralph Wiggum configuration."
+            return 0
+        fi
+
+        case "$choice" in
+            [Aa])
+                log_info "Running ralphify init..."
+                if ! ralphify_init; then
+                    log_error "ralphify init failed. Aborting."
+                    exit 1
+                fi
+
+                local change_dir="openspec/changes/$change_name"
+                local backup_dir
+                backup_dir=$(make_temp_dir "ralph-artifact-backup")
+
+                local proposal_backup=""
+                if [[ -f "$change_dir/proposal.md" ]]; then
+                    proposal_backup="$backup_dir/proposal.md"
+                    mv "$change_dir/proposal.md" "$proposal_backup"
+                    log_info "Backed up proposal.md"
+                fi
+
+                local tasks_backup=""
+                if [[ -f "$change_dir/tasks.md" ]]; then
+                    tasks_backup="$backup_dir/tasks.md"
+                    mv "$change_dir/tasks.md" "$tasks_backup"
+                    log_info "Backed up tasks.md"
+                fi
+
+                local bp_file="openspec/OPENSPEC-RALPH-BP.md"
+                if [[ ! -f "$bp_file" ]]; then
+                    bp_file="$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md"
+                fi
+                local ralph_guidance=""
+                if [[ -f "$bp_file" ]]; then
+                    ralph_guidance=" When creating artifacts, read ${bp_file} and follow the Ralph Wiggum task template and authoring checklist. Ensure the proposal includes explicit scope, non-goals, first-rollout boundaries, and capabilities that map to Ralph-friendly tasks. Ensure tasks use the task template with objective done-when conditions and explicit stop-and-hand-off conditions. Do NOT restore or copy from any .bak backup files - write fresh artifacts from scratch."
+                fi
+
+                log_info "Invoking opencode to regenerate proposal and tasks with Ralph Wiggum best practices..."
+                opencode run "/opsx-continue $change_name${ralph_guidance}" || true
+                local proposal_ok=false
+                if [[ -f "$change_dir/proposal.md" ]]; then
+                    proposal_ok=true
+                    log_info "Proposal regenerated successfully"
+                else
+                    log_error "opencode did not create a new proposal.md"
+                fi
+
+                if [[ -f "$change_dir/tasks.md" ]]; then
+                    log_info "Tasks regenerated successfully"
+                else
+                    log_error "opencode did not create a new tasks.md (only proposal may have been created; tasks may require a second /opsx-continue)"
+                fi
+
+                if [[ "$proposal_ok" == true ]]; then
+                    log_info "Artifact regeneration complete"
+                else
+                    log_error "Restoring backed-up artifacts"
+                    if [[ -n "$proposal_backup" && -f "$proposal_backup" ]]; then
+                        mv "$proposal_backup" "$change_dir/proposal.md"
+                        log_info "Restored original proposal.md"
+                    fi
+                    if [[ -n "$tasks_backup" && -f "$tasks_backup" ]]; then
+                        mv "$tasks_backup" "$change_dir/tasks.md"
+                        log_info "Restored original tasks.md"
+                    fi
+                fi
+
+                log_info "Returning to loop execution..."
+                return 0
+                ;;
+            [Cc])
+                log_info "Continuing without Ralph Wiggum configuration."
+                return 0
+                ;;
+            [Qq])
+                log_info "Exiting."
+                exit 0
+                ;;
+            *)
+                echo "Invalid choice '$choice'. Please enter A, C, or Q." >&2
+                ;;
+        esac
+    done
+}
+
 main() {
     set -e
     parse_arguments "$@"
     
+    if [[ "$SHOW_VERSION" == true ]]; then
+        echo "$VERSION"
+        exit 0
+    fi
+
+    if [[ "$SUBCOMMAND" == "init" ]]; then
+        if [[ -n "$CHANGE_NAME" ]]; then
+            log_error "Cannot use --change with the init subcommand"
+            exit 1
+        fi
+        ralphify_init
+        exit $?
+    fi
+
     log_verbose "Starting ralph-run v$VERSION"
     log_verbose "Change name: ${CHANGE_NAME:-<auto-detect>}"
 
@@ -1128,6 +1419,15 @@ main() {
     validate_git_repository
     validate_dependencies
     
+    # Ralphify guard: check if project is configured for Ralph Wiggum best practices
+    if ! check_ralphified; then
+        if [[ -z "$CHANGE_NAME" ]]; then
+            CHANGE_NAME=$(auto_detect_change)
+            log_info "Auto-detected change for ralphify guard: $CHANGE_NAME"
+        fi
+        show_ralphify_warning "$CHANGE_NAME"
+    fi
+    
     if [[ -z "$CHANGE_NAME" ]]; then
         CHANGE_NAME=$(auto_detect_change)
         log_info "Auto-detected change: $CHANGE_NAME"
@@ -1141,13 +1441,8 @@ main() {
     log_info "Change directory: $change_dir"
     log_info "Ralph directory: $ralph_dir"
     
-    read_openspec_artifacts "$change_dir"
-    local prd_content=$(generate_prd "$change_dir")
-    write_prd "$ralph_dir" "$prd_content"
-    
     parse_tasks "$change_dir"
     
-    log_info "PRD generation complete"
     log_info "Found ${#TASKS[@]} tasks to execute"
     
     local max_iterations="${MAX_ITERATIONS:-50}"

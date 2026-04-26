@@ -171,8 +171,7 @@ teardown() {
 
   if [[ "$os" == "Linux" ]]; then
     target_inode=$(stat -c %i "$change_dir/tasks.md")
-    # Follow the symlink to get the target inode
-    symlink_inode=$(stat -c %i "$ralph_dir/ralph-tasks.md")
+    symlink_inode=$(stat -L -c %i "$ralph_dir/ralph-tasks.md")
   elif [[ "$os" == "macOS" ]]; then
     target_inode=$(stat -f %i "$change_dir/tasks.md")
     # On macOS, stat -f %i returns the symlink's own inode; use -L to follow the symlink

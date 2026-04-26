@@ -154,9 +154,9 @@ teardown() {
 }
 
 @test "get_realpath: returns empty string for non-existent path" {
-  # Mock realpath
+  # Mock command to report realpath as available
   command() {
-    [[ "$1" == "realpath" ]] && return 0
+    [[ "${1:-}" == "-v" ]] && return 0
     return 1
   }
   

@@ -56,7 +56,7 @@ get_realpath() {
     fi
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 LOCAL_NODE_BIN="$SCRIPT_DIR/../../node_modules/.bin"
 MINI_RALPH_CLI="$SCRIPT_DIR/../../scripts/mini-ralph-cli.js"
 
@@ -393,13 +393,7 @@ generate_prd() {
     prd_content+="$OPENSPEC_DESIGN"$'\n'$'\n'
     
     # Add current task context for Ralph to use in commits
-    local task_context
-    task_context=$(get_current_task_context "$change_dir")
-    
-    if [[ -n "$task_context" ]]; then
-        prd_content+="## Current Task Context"$'\n'$'\n'
-        prd_content+="$task_context"$'\n'$'\n'
-    fi
+    # (Removed: task context is now provided via {{task_context}} template variable only)
     
     echo "$prd_content"
 }
@@ -434,17 +428,19 @@ parse_tasks() {
     TASKS=()
     TASK_IDS=()
     
-    local line_number=0
-    while IFS= read -r line; do
-        ((line_number++)) || true
-        
-        if [[ "$line" == "- [ ]"* ]]; then
-            local task_desc="${line#- \[ \] }"
-            TASKS+=("$task_desc")
-            TASK_IDS+=("$line_number")
-            log_verbose "Found incomplete task (line $line_number): $task_desc"
-        fi
-    done < "$tasks_file"
+    if [[ -f "$tasks_file" ]]; then
+        local line_number=0
+        while IFS= read -r line; do
+            ((line_number++)) || true
+            
+            if [[ "$line" == "- [ ]"* ]]; then
+                local task_desc="${line#- \[ \] }"
+                TASKS+=("$task_desc")
+                TASK_IDS+=("$line_number")
+                log_verbose "Found incomplete task (line $line_number): $task_desc"
+            fi
+        done < "$tasks_file"
+    fi
     
     log_verbose "Found ${#TASKS[@]} incomplete tasks"
 }
@@ -768,7 +764,7 @@ EOF
         done < <(find "$abs_change_dir/specs" -name spec.md -type f 2>/dev/null | sort)
     fi
     
-    manifest_body+="- .ralph/PRD.md    (pre-concatenated convenience copy of the above)"
+    # PRD.md manifest line removed (no longer generated)
     
     # Optionally append AGENTS.md reference
     local agents_line
@@ -957,11 +953,6 @@ execute_ralph_loop() {
     sync_tasks_to_ralph "$change_dir" "$ralph_dir"
     create_prompt_template "$change_dir" "$template_file"
     
-    # Generate PRD and write to file
-    local prd_content
-    prd_content=$(generate_prd "$change_dir")
-    echo "$prd_content" > "$ralph_dir/PRD.md"
-    
     # Output files
     local stdout_log="$output_dir/ralph-stdout.log"
     local stderr_log="$output_dir/ralph-stderr.log"
@@ -971,7 +962,6 @@ execute_ralph_loop() {
     
     # Build the mini-ralph-cli arguments
     local mini_ralph_args=(
-        "--prompt-file" "$ralph_dir/PRD.md"
         "--prompt-template" "$template_file"
         "--ralph-dir" "$ralph_dir"
         "--tasks-file" "$change_dir/tasks.md"
@@ -996,6 +986,162 @@ execute_ralph_loop() {
 }
 
 
+
+ralphify_init() {
+    local bp_file="$SCRIPT_DIR/../OPENSPEC-RALPH-BP.md"
+    local config_file="openspec/config.yaml"
+    local agents_file="AGENTS.md"
+
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        log_error "Not a git repository. Please run: git init"
+        return 1
+    fi
+
+    if [[ ! -d "openspec" ]]; then
+        log_error "openspec/ directory not found. Please run: openspec init"
+        return 1
+    fi
+
+    if [[ ! -f "$bp_file" ]]; then
+        log_error "OPENSPEC-RALPH-BP.md not found at $bp_file"
+        log_error "Package installation may be incomplete. Run: npm install"
+        return 1
+    fi
+
+    if ! grep -q "Ralph Wiggum" "$config_file" 2>/dev/null; then
+        cat >> "$config_file" << 'RALPH_CONFIG'
+
+# --- Ralph Wiggum ---
+# This project uses the Ralph Wiggum method for iterative development.
+# See OPENSPEC-RALPH-BP.md for the detailed authoring guide shipped with spec-and-loop.
+context: |
+  This project follows the Ralph Wiggum method for task authoring.
+  Read OPENSPEC-RALPH-BP.md before generating OpenSpec artifacts.
+  Verify proposals against the Ralph checklist before approval.
+rules:
+  proposal:
+    - Include explicit scope, non-goals, and first-rollout boundaries
+    - Resolve all policy decisions before implementation tasks
+  tasks:
+    - Use the task template from OPENSPEC-RALPH-BP.md
+    - Each task has one dominant outcome and one verification cluster
+    - Include explicit stop-and-hand-off conditions
+  design:
+    - Do not leave core policy choices unresolved
+    - Specify algorithms, config shapes, and failure semantics
+RALPH_CONFIG
+        log_verbose "Updated $config_file with Ralph Wiggum rules"
+    else
+        log_verbose "Ralph Wiggum rules already present in $config_file"
+    fi
+
+    if ! grep -q "Ralph Wiggum Compliance" "$agents_file" 2>/dev/null; then
+        cat >> "$agents_file" << 'RALPH_AGENTS'
+
+## Ralph Wiggum Compliance
+
+This project follows the Ralph Wiggum method for iterative OpenSpec development.
+
+Before generating any OpenSpec artifacts, you MUST:
+- Read `OPENSPEC-RALPH-BP.md` in the project root
+- Verify proposals against the Ralph authoring checklist
+- Ensure tasks use the task template with objective done-when conditions
+- Include explicit stop-and-hand-off conditions in every task
+RALPH_AGENTS
+        log_verbose "Updated $agents_file with Ralph Wiggum compliance section"
+    else
+        log_verbose "Ralph Wiggum compliance section already present in $agents_file"
+    fi
+
+    log_info "Project ralphified successfully. Proposals will now follow Ralph Wiggum best practices."
+    return 0
+}
+
+check_ralphified() {
+    local config_file="openspec/config.yaml"
+    local agents_file="AGENTS.md"
+
+    if [[ ! -f "$config_file" ]]; then
+        return 1
+    fi
+
+    if [[ ! -f "$agents_file" ]]; then
+        return 1
+    fi
+
+    if ! grep -q "Ralph Wiggum" "$config_file" 2>/dev/null; then
+        return 1
+    fi
+
+    if ! grep -q "Ralph Wiggum Compliance" "$agents_file" 2>/dev/null; then
+        return 1
+    fi
+
+    return 0
+}
+
+show_ralphify_warning() {
+    local change_name="$1"
+
+    cat >&2 << 'WARNING_BOX'
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   WARNING: Project not configured for Ralph Wiggum best practices   │
+│                                                                     │
+│   This project has not been ralphified. Proposals and artifacts     │
+│   may not follow Ralph Wiggum conventions.                          │
+│                                                                     │
+│   It is recommended to run: ralph-run init                          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+WARNING_BOX
+
+    while true; do
+        echo "" >&2
+        echo "Choose an option:" >&2
+        echo "  [A] Run ralphify init and redo the proposal, then continue" >&2
+        echo "  [C] Continue without init" >&2
+        echo "  [Q] Quit" >&2
+        printf "Enter choice: " >&2
+        if ! read -r choice; then
+            log_info "Non-interactive environment detected. Continuing without Ralph Wiggum configuration."
+            return 0
+        fi
+
+        case "$choice" in
+            [Aa])
+                log_info "Running ralphify init..."
+                if ! ralphify_init; then
+                    log_error "ralphify init failed. Aborting."
+                    exit 1
+                fi
+
+                local change_dir="openspec/changes/$change_name"
+                if [[ -f "$change_dir/proposal.md" ]]; then
+                    rm "$change_dir/proposal.md"
+                    log_info "Deleted proposal.md for redo"
+                fi
+
+                log_info "Invoking opencode to regenerate proposal..."
+                opencode -p "/opsx-continue $change_name" || true
+
+                log_info "Returning to loop execution..."
+                return 0
+                ;;
+            [Cc])
+                log_info "Continuing without Ralph Wiggum configuration."
+                return 0
+                ;;
+            [Qq])
+                log_info "Exiting."
+                exit 0
+                ;;
+            *)
+                echo "Invalid choice '$choice'. Please enter A, C, or Q." >&2
+                ;;
+        esac
+    done
+}
 
 # Initialize OS detection (only when run directly, not when sourced)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

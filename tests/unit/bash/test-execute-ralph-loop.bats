@@ -152,7 +152,7 @@ FAKECLI
   [ -f "$ralph_dir/prompt-template.md" ]
 }
 
-@test "execute_ralph_loop: creates PRD.md in ralph_dir" {
+@test "execute_ralph_loop: does NOT create PRD.md in ralph_dir" {
   local test_dir
   test_dir=$(setup_test_dir)
   local change_dir
@@ -165,7 +165,7 @@ FAKECLI
 
   run execute_ralph_loop "$change_dir" "$ralph_dir" 1
   [ "$status" -eq 0 ]
-  [ -f "$ralph_dir/PRD.md" ]
+  [ ! -f "$ralph_dir/PRD.md" ]
 }
 
 @test "execute_ralph_loop: creates ralph-tasks.md symlink in ralph_dir" {
@@ -223,7 +223,7 @@ FAKECLI
 # execute_ralph_loop: CLI argument passing
 # ---------------------------------------------------------------------------
 
-@test "execute_ralph_loop: passes --prompt-file to the CLI" {
+@test "execute_ralph_loop: does NOT pass --prompt-file to the CLI" {
   local test_dir
   test_dir=$(setup_test_dir)
   local change_dir
@@ -231,7 +231,6 @@ FAKECLI
   local ralph_dir="$test_dir/.ralph"
   mkdir -p "$ralph_dir"
 
-  # CLI records its arguments to a file for inspection
   local args_file="$test_dir/cli-args.txt"
   cat > "$test_dir/fake-cli.js" << FAKECLI
 #!/usr/bin/env node
@@ -245,7 +244,7 @@ FAKECLI
   execute_ralph_loop "$change_dir" "$ralph_dir" 1
 
   run grep -q -- "--prompt-file" "$args_file"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
 }
 
 @test "execute_ralph_loop: passes --prompt-template to the CLI" {

@@ -47,16 +47,19 @@ brew install anomalyco/tap/opencode
 # 1. Initialize OpenSpec in your project
 openspec init
 
-# 2. Create a new change
+# 2. Ralphify your project (enables Ralph-friendly artifact generation)
+ralph-run init
+
+# 3. Create a new change
 openspec new change add-user-auth
 
-# 3. Review and complete the OpenSpec artifacts
+# 4. Review and complete the OpenSpec artifacts
 #    (openspec/changes/add-user-auth/proposal.md)
 #    (openspec/changes/add-user-auth/design.md)
 #    (openspec/changes/add-user-auth/specs/*/spec.md)
 #    (openspec/changes/add-user-auth/tasks.md)
 
-# 4. Run the ralph loop (executes tasks with opencode)
+# 5. Run the ralph loop (executes tasks with opencode)
 ralph-run --change add-user-auth
 ```
 
@@ -144,6 +147,8 @@ For complete installation instructions, see [QUICKSTART.md](./QUICKSTART.md).
 
 ### Ralph Loop Commands
 
+- `ralph-run init` - Configure project for Ralph-friendly artifact generation (run once after `openspec init`)
+
 ```
 ralph-run [OPTIONS]
 
@@ -158,6 +163,9 @@ OBSERVABILITY AND CONTROL:
     --status                 Print the current loop status dashboard and exit
     --add-context <text>     Add pending context to inject into the next iteration and exit
     --clear-context          Clear any pending context and exit
+
+SUBCOMMANDS:
+    init                     Configure project for Ralph-friendly artifact generation
 ```
 
 ## How It Works
@@ -232,13 +240,16 @@ cd my-web-app
 git init
 openspec init
 
-# 2. Create a new change
+# 2. Ralphify your project
+ralph-run init
+
+# 3. Create a new change
 openspec new change user-auth
 
-# 3. Complete OpenSpec artifacts manually or use opencode skills
+# 4. Complete OpenSpec artifacts manually or use opencode skills
 #    (review and fill in proposal.md, design.md, specs/*/spec.md, tasks.md)
 
-# 4. Execute with Ralph
+# 5. Execute with Ralph
 ralph-run --change user-auth
 
 # Output:

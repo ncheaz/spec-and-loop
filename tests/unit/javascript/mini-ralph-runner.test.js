@@ -322,10 +322,17 @@ describe('_validateOptions()', () => {
     expect(() => _validateOptions(opts)).toThrow(/ralphDir is required/);
   });
 
-  test('throws when neither promptFile nor promptText is provided', () => {
+  test('throws when no prompt source is provided', () => {
     const opts = baseOptions();
     delete opts.promptText;
-    expect(() => _validateOptions(opts)).toThrow(/promptFile or options.promptText is required/);
+    expect(() => _validateOptions(opts)).toThrow(/at least one of options\.promptFile, options\.promptText, or options\.promptTemplate is required/);
+  });
+
+  test('accepts promptTemplate alone without promptFile or promptText', () => {
+    const opts = baseOptions();
+    delete opts.promptText;
+    opts.promptTemplate = '/path/to/template.md';
+    expect(() => _validateOptions(opts)).not.toThrow();
   });
 
   test('throws when both promptFile and promptText are provided', () => {
