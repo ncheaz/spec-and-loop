@@ -174,18 +174,6 @@ describe('tasks helpers', () => {
     expect(tasks.hashFile(tasksFile)).toMatch(/^[a-f0-9]{32}$/);
   });
 
-  test('taskContext lists current task and progress only', () => {
-    const tasksFile = path.join(tmpDir, 'tasks.md');
-    fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [ ] 1.2 Next task\n');
-
-    const output = tasks.taskContext(tasksFile);
-    expect(output).toContain('## Current Task');
-    expect(output).toContain('- 1.2 Next task');
-    expect(output).toContain('## Progress');
-    expect(output).not.toContain('## Completed Tasks for Git Commit');
-    expect(output).not.toContain('- [x] 1.1 Done task');
-  });
-
   test('syncLink creates and replaces the managed symlink', () => {
     const linkedRalphDir = path.join(tmpDir, '.ralph-linked');
     const firstTasksFile = path.join(tmpDir, 'first-tasks.md');
@@ -216,11 +204,11 @@ describe('prompt helpers', () => {
     expect(prompt.render({ promptText: 'Base prompt' }, 2)).toBe('Base prompt');
   });
 
-  test('render applies template variables and task context', () => {
+  test('render applies template variables', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     const templateFile = path.join(tmpDir, 'template.md');
     fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [ ] 1.2 Next task\n');
-    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{base_prompt}}\n{{tasks}}\n{{task_context}}\n{{task_promise}} {{completion_promise}} {{change_dir}}');
+    fs.writeFileSync(templateFile, 'Iter {{iteration}}/{{max_iterations}}\n{{base_prompt}}\n{{tasks}}\n{{task_promise}} {{completion_promise}} {{change_dir}}');
 
     const rendered = prompt.render({
       promptText: 'Base prompt',
@@ -235,7 +223,6 @@ describe('prompt helpers', () => {
     expect(rendered).toContain('Iter 3/7');
     expect(rendered).toContain('Base prompt');
     expect(rendered).toContain('- [x] 1.1 Done task');
-    expect(rendered).toContain('## Current Task');
     expect(rendered).toContain('READY DONE /tmp/change');
   });
 
