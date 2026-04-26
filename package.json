@@ -1,6 +1,6 @@
 {
   "name": "spec-and-loop",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "OpenSpec + Ralph Loop integration for iterative development with opencode",
   "main": "index.js",
   "bin": {
@@ -17,8 +17,7 @@
     "lint": "shellcheck scripts/*.sh"
   },
   "dependencies": {
-    "@fission-ai/openspec": "1.3.1",
-    "spec-and-loop": "^2.1.2"
+    "@fission-ai/openspec": "1.3.1"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
