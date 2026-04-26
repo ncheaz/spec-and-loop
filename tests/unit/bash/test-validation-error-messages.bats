@@ -227,182 +227,6 @@ teardown() {
   [[ "$output" == *"not found"* || "$output" == *"missing"* ]] || true
 }
 
-@test "validation functions: validate_openspec_artifacts returns exit code 0 for complete change" {
-  # Create a test directory with complete OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Run validate_openspec_artifacts - should succeed with exit code 0
-  run validate_openspec_artifacts "$change_dir"
-  
-  [ "$status" -eq 0 ]
-}
-
-@test "validation functions: validate_openspec_artifacts returns exit code 1 when proposal.md missing" {
-  # Create a test directory with OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Remove proposal.md
-  rm "$change_dir/proposal.md"
-  
-  # Run validate_openspec_artifacts - should fail with exit code 1
-  run validate_openspec_artifacts "$change_dir"
-  
-  [ "$status" -eq 1 ]
-}
-
-@test "validation functions: validate_openspec_artifacts identifies missing proposal.md in error message" {
-  # Create a test directory with OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Remove proposal.md
-  rm "$change_dir/proposal.md"
-  
-  # Run validate_openspec_artifacts
-  run validate_openspec_artifacts "$change_dir"
-  
-  # Should identify proposal.md as missing
-  [[ "$output" == *"proposal.md"* ]] || true
-  [[ "$output" == *"Required file"* || "$output" == *"missing"* ]] || true
-}
-
-@test "validation functions: validate_openspec_artifacts returns exit code 1 when design.md missing" {
-  # Create a test directory with OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Remove design.md
-  rm "$change_dir/design.md"
-  
-  # Run validate_openspec_artifacts - should fail with exit code 1
-  run validate_openspec_artifacts "$change_dir"
-  
-  [ "$status" -eq 1 ]
-}
-
-@test "validation functions: validate_openspec_artifacts identifies missing design.md in error message" {
-  # Create a test directory with OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Remove design.md
-  rm "$change_dir/design.md"
-  
-  # Run validate_openspec_artifacts
-  run validate_openspec_artifacts "$change_dir"
-  
-  # Should identify design.md as missing
-  [[ "$output" == *"design.md"* ]] || true
-  [[ "$output" == *"Required file"* || "$output" == *"missing"* ]] || true
-}
-
-@test "validation functions: validate_openspec_artifacts returns exit code 1 when tasks.md missing" {
-  # Create a test directory with OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Remove tasks.md
-  rm "$change_dir/tasks.md"
-  
-  # Run validate_openspec_artifacts - should fail with exit code 1
-  run validate_openspec_artifacts "$change_dir"
-  
-  [ "$status" -eq 1 ]
-}
-
-@test "validation functions: validate_openspec_artifacts identifies missing tasks.md in error message" {
-  # Create a test directory with OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Remove tasks.md
-  rm "$change_dir/tasks.md"
-  
-  # Run validate_openspec_artifacts
-  run validate_openspec_artifacts "$change_dir"
-  
-  # Should identify tasks.md as missing
-  [[ "$output" == *"tasks.md"* ]] || true
-  [[ "$output" == *"Required file"* || "$output" == *"missing"* ]] || true
-}
-
-@test "validation functions: validate_openspec_artifacts returns exit code 1 when specs directory missing" {
-  # Create a test directory with OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Remove specs directory
-  rm -rf "$change_dir/specs"
-  
-  # Run validate_openspec_artifacts - should fail with exit code 1
-  run validate_openspec_artifacts "$change_dir"
-  
-  [ "$status" -eq 1 ]
-}
-
-@test "validation functions: validate_openspec_artifacts identifies missing specs directory in error message" {
-  # Create a test directory with OpenSpec change structure
-  local test_dir
-  test_dir=$(setup_test_dir)
-  cd "$test_dir" || return 1
-  
-  # Create OpenSpec change structure
-  local change_dir
-  change_dir=$(create_openspec_change)
-  
-  # Remove specs directory
-  rm -rf "$change_dir/specs"
-  
-  # Run validate_openspec_artifacts
-  run validate_openspec_artifacts "$change_dir"
-  
-  # Should identify specs as missing
-  [[ "$output" == *"specs"* ]] || true
-  [[ "$output" == *"Required directory"* || "$output" == *"missing"* ]] || true
-}
-
 @test "validation functions: validate_script_state returns exit code 0 for valid state" {
   # Create a test directory with complete OpenSpec change structure
   local test_dir
@@ -484,12 +308,8 @@ teardown() {
   run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   [ "$status" -eq 1 ]
   
-  # Test validate_openspec_artifacts with error
-  mkdir -p "$test_dir/test-change"
-  run validate_openspec_artifacts "$test_dir/test-change"
-  [ "$status" -eq 1 ]
-  
   # Test validate_script_state with error
+  mkdir -p "$test_dir/test-change"
   run validate_script_state "$test_dir/test-change"
   [ "$status" -eq 1 ]
 }
@@ -522,10 +342,6 @@ teardown() {
   run validate_dependencies
   [ "$status" -eq 0 ]
   
-  # Test validate_openspec_artifacts
-  run validate_openspec_artifacts "$change_dir"
-  [ "$status" -eq 0 ]
-  
   # Test validate_script_state
   run validate_script_state "$change_dir"
   [ "$status" -eq 0 ]
@@ -551,12 +367,8 @@ teardown() {
   run bash -c 'source tests/helpers/test-functions.sh && validate_dependencies'
   [[ "$output" == *"ralph"* ]] || true
   
-  # Test validate_openspec_artifacts error message
-  mkdir -p "$test_dir/test-change"
-  run validate_openspec_artifacts "$test_dir/test-change"
-  [[ "$output" == *"Required"* ]] || true
-  
   # Test validate_script_state error message
+  mkdir -p "$test_dir/test-change"
   run validate_script_state "$test_dir/test-change"
   [[ "$output" == *"Required"* ]] || true
 }

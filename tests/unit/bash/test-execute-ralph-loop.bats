@@ -136,7 +136,7 @@ FAKECLI
 # execute_ralph_loop: pre-flight artifacts created in ralph_dir
 # ---------------------------------------------------------------------------
 
-@test "execute_ralph_loop: creates prompt-template.md in ralph_dir" {
+@test "execute_ralph_loop: does NOT create prompt-template.md in ralph_dir" {
   local test_dir
   test_dir=$(setup_test_dir)
   local change_dir
@@ -149,7 +149,7 @@ FAKECLI
 
   run execute_ralph_loop "$change_dir" "$ralph_dir" 1
   [ "$status" -eq 0 ]
-  [ -f "$ralph_dir/prompt-template.md" ]
+  [ ! -f "$ralph_dir/prompt-template.md" ]
 }
 
 @test "execute_ralph_loop: does NOT create PRD.md in ralph_dir" {
@@ -247,7 +247,57 @@ FAKECLI
   [ "$status" -ne 0 ]
 }
 
-@test "execute_ralph_loop: passes --prompt-template to the CLI" {
+@test "execute_ralph_loop: passes --prompt-text to the CLI" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--prompt-text" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: --prompt-text value starts with /opsx-apply" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  # Extract the value after --prompt-text and check it starts with /opsx-apply
+  local prompt_text
+  prompt_text=$(grep -A1 "^--prompt-text$" "$args_file" | tail -1)
+  [[ "$prompt_text" == "/opsx-apply"* ]]
+}
+
+@test "execute_ralph_loop: does NOT pass --prompt-template to the CLI" {
   local test_dir
   test_dir=$(setup_test_dir)
   local change_dir
@@ -268,7 +318,7 @@ FAKECLI
   execute_ralph_loop "$change_dir" "$ralph_dir" 1
 
   run grep -q -- "--prompt-template" "$args_file"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
 }
 
 @test "execute_ralph_loop: passes --max-iterations to the CLI" {
