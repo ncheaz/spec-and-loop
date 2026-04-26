@@ -333,6 +333,42 @@ validate_dependencies() {
     log_verbose "All dependencies validated"
 }
 
+ensure_artifacts_present() {
+    local change_dir="$1"
+    local change_name="$2"
+
+    local required_files=(
+        "proposal.md"
+        "tasks.md"
+        "design.md"
+    )
+
+    local missing=()
+    for file in "${required_files[@]}"; do
+        if [[ ! -f "$change_dir/$file" ]]; then
+            missing+=("$file")
+        fi
+    done
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    log_info "Missing artifacts: ${missing[*]}"
+    log_info "Invoking opencode to complete missing artifacts..."
+
+    opencode run "/opsx-ff $change_name" || true
+
+    for file in "${required_files[@]}"; do
+        if [[ ! -f "$change_dir/$file" ]]; then
+            log_error "Required artifact still not found after /opsx-ff: $file"
+            exit 1
+        fi
+    done
+
+    log_info "All missing artifacts generated"
+}
+
 validate_openspec_artifacts() {
     local change_dir="$1"
     
@@ -1311,7 +1347,7 @@ WARNING_BOX
                 fi
 
                 log_info "Invoking opencode to regenerate proposal and tasks with Ralph Wiggum best practices..."
-                opencode run "/opsx-continue $change_name${ralph_guidance}" || true
+                opencode run "/opsx-ff $change_name${ralph_guidance}" || true
                 local proposal_ok=false
                 if [[ -f "$change_dir/proposal.md" ]]; then
                     proposal_ok=true
@@ -1334,10 +1370,11 @@ WARNING_BOX
                         mv "$proposal_backup" "$change_dir/proposal.md"
                         log_info "Restored original proposal.md"
                     fi
-                    if [[ -n "$tasks_backup" && -f "$tasks_backup" ]]; then
-                        mv "$tasks_backup" "$change_dir/tasks.md"
-                        log_info "Restored original tasks.md"
-                    fi
+                fi
+
+                if [[ ! -f "$change_dir/tasks.md" && -n "$tasks_backup" && -f "$tasks_backup" ]]; then
+                    mv "$tasks_backup" "$change_dir/tasks.md"
+                    log_info "Restored original tasks.md (regeneration did not produce new tasks)"
                 fi
 
                 log_info "Returning to loop execution..."
@@ -1434,6 +1471,9 @@ main() {
     fi
     
     local change_dir="openspec/changes/$CHANGE_NAME"
+
+    ensure_artifacts_present "$change_dir" "$CHANGE_NAME"
+
     validate_openspec_artifacts "$change_dir"
     validate_script_state "$change_dir"
     local ralph_dir=$(setup_ralph_directory "$change_dir")
