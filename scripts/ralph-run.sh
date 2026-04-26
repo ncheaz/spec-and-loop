@@ -337,65 +337,34 @@ ensure_artifacts_present() {
     local change_dir="$1"
     local change_name="$2"
 
-    local required_files=(
-        "proposal.md"
-        "tasks.md"
-        "design.md"
-    )
+    local status_json
+    status_json=$(openspec status --change "$change_name" --json 2>/dev/null)
+    if [[ $? -ne 0 ]]; then
+        log_error "Failed to query openspec status for change: $change_name"
+        exit 1
+    fi
 
-    local missing=()
-    for file in "${required_files[@]}"; do
-        if [[ ! -f "$change_dir/$file" ]]; then
-            missing+=("$file")
-        fi
-    done
-
-    if [[ ${#missing[@]} -eq 0 ]]; then
+    local blocked
+    blocked=$(echo "$status_json" | jq -r '.artifacts[] | select(.status == "blocked") | .id' 2>/dev/null)
+    if [[ -z "$blocked" ]]; then
         return 0
     fi
 
-    log_info "Missing artifacts: ${missing[*]}"
+    log_info "Blocked artifacts detected: $blocked"
     log_info "Invoking opencode to complete missing artifacts..."
 
     opencode run "/opsx-ff $change_name" || true
 
-    for file in "${required_files[@]}"; do
-        if [[ ! -f "$change_dir/$file" ]]; then
-            log_error "Required artifact still not found after /opsx-ff: $file"
-            exit 1
-        fi
-    done
+    status_json=$(openspec status --change "$change_name" --json 2>/dev/null)
+    blocked=$(echo "$status_json" | jq -r '.artifacts[] | select(.status == "blocked") | .id' 2>/dev/null)
+    if [[ -n "$blocked" ]]; then
+        log_error "Artifacts still blocked after /opsx-ff: $blocked"
+        exit 1
+    fi
 
     log_info "All missing artifacts generated"
 }
 
-validate_openspec_artifacts() {
-    local change_dir="$1"
-    
-    log_verbose "Validating OpenSpec artifacts..."
-    
-    local required_files=(
-        "proposal.md"
-        "tasks.md"
-        "design.md"
-    )
-    
-    for file in "${required_files[@]}"; do
-        if [[ ! -f "$change_dir/$file" ]]; then
-            log_error "Required artifact not found: $file"
-            exit 1
-        fi
-        log_verbose "Found artifact: $file"
-    done
-    
-    if [[ ! -d "$change_dir/specs" ]]; then
-        log_error "Required directory not found: specs/"
-        exit 1
-    fi
-    log_verbose "Found directory: specs/"
-    
-    log_info "All OpenSpec artifacts validated"
-}
 
 setup_ralph_directory() {
     local change_dir="$1"
@@ -810,111 +779,7 @@ sync_tasks_to_ralph() {
     log_verbose "Symlink configured: $ralph_tasks_file -> $abs_tasks_file"
 }
 
-create_prompt_template() {
-    local change_dir="$1"
-    local template_file="$2"
-    
-    log_verbose "Creating custom prompt template..."
-    
-    local abs_change_dir
-    abs_change_dir=$(get_realpath "$change_dir")
-    
-    cat > "$template_file" << 'EOF'
-# Ralph Wiggum Task Execution - Iteration {{iteration}} / {{max_iterations}}
 
-Change directory: {{change_dir}}
-
-## OpenSpec Artifacts
-
-{{_openspec_manifest}}
-
-## Fresh Task Context
-
-{{task_context}}
-
-## Instructions
-
-Before implementing, read the OpenSpec artifacts listed above that are relevant to the current task.
-
-Follow this loop contract EXACTLY. Do not skip steps. Do not batch. Do not output a promise until every step is done.
-
-1. Work on the task shown in `## Fresh Task Context` above. Before editing any marker, open `tasks.md` at `{{change_dir}}/tasks.md` and verify that same task is still `- [ ] ` or `- [/] ` on disk (it may have been closed by a prior iteration if you are resuming).
-2. Edit `tasks.md` in place to change that line's marker to `- [/] ` (in-progress). You MUST use your file edit tool to modify the file on disk — a shell `cp`, `sed`, or print-to-stdout does not count. Verify by re-reading the file.
-3. Implement the smallest change that fully satisfies the task's Done-when conditions. Run the task's verification command if one is specified.
-4. On success, edit `tasks.md` again in place to change that line's marker from `- [/] ` to `- [x] `. Verify by re-reading the file and confirming the `[x]` is present on that exact line.
-5. ONLY after step 4 writes `[x]` to disk, output `<promise>{{task_promise}}</promise>` on its own line.
-6. If and only if EVERY task line in `tasks.md` is `- [x] `, output `<promise>{{completion_promise}}</promise>` instead.
-
-Hard rules:
-- If you do not actually modify `tasks.md` on disk in this iteration, DO NOT output any promise tag. Output a short failure note instead and stop.
-- Never output `<promise>{{task_promise}}</promise>` while the task you just worked on is still `- [ ]` on disk. That causes the same task to repeat forever.
-- Promise tags must be on their own line, literal, unquoted, and not described in prose.
-- If an approach fails twice, try a different one.
-- If the task is already satisfied by prior work (e.g. target file already exists with the right content), you STILL must flip the checkbox to `[x]` in `tasks.md` before emitting the promise.
-
-## Commit Contract
-
-{{commit_contract}}
-EOF
-    
-    # Determine repo root for AGENTS.md probe
-    local repo_root
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=""
-    
-    # Build the manifest body
-    local manifest_body
-    manifest_body="Read these as needed (source of truth for this change):"$'\n'$'\n'
-    manifest_body+="- $abs_change_dir/proposal.md"$'\n'
-    manifest_body+="- $abs_change_dir/design.md"$'\n'
-    
-    # Pre-expand specs/*/spec.md into concrete paths
-    if [[ -d "$abs_change_dir/specs" ]]; then
-        while IFS= read -r spec_path; do
-            [[ -n "$spec_path" ]] && manifest_body+="- $spec_path"$'\n'
-        done < <(find "$abs_change_dir/specs" -name spec.md -type f 2>/dev/null | sort)
-    fi
-    
-    # Optionally append AGENTS.md reference
-    local agents_line
-    agents_line=$(probe_agents_md "$repo_root")
-    if [[ -n "$agents_line" ]]; then
-        manifest_body+=$'\n'"$agents_line"
-    fi
-
-    # Append Ralph best practices guide if project is ralphified
-    if check_ralphified; then
-        local bp_manifest_path="$abs_change_dir/../../OPENSPEC-RALPH-BP.md"
-        if [[ ! -f "$bp_manifest_path" ]]; then
-            bp_manifest_path="$repo_root/openspec/OPENSPEC-RALPH-BP.md"
-        fi
-        if [[ -f "$bp_manifest_path" ]]; then
-            manifest_body+=$'\n'"- $bp_manifest_path    (Ralph best practices guide)"
-        fi
-    fi
-    
-    # Substitute {{_openspec_manifest}} using awk with a manifest temp file
-    # (awk -v cannot handle multi-line values; use getline from a file instead)
-    local _manifest_file
-    _manifest_file=$(mktemp 2>/dev/null || mktemp -t ralph-manifest)
-    printf '%s' "$manifest_body" > "$_manifest_file"
-    local _tmpfile
-    _tmpfile=$(mktemp 2>/dev/null || mktemp -t ralph-template)
-    awk -v mf="$_manifest_file" '
-        {
-            if ($0 == "{{_openspec_manifest}}") {
-                while ((getline line < mf) > 0) { print line }
-                close(mf)
-            } else { print }
-        }
-    ' "$template_file" > "$_tmpfile" && mv "$_tmpfile" "$template_file"
-    rm -f "$_manifest_file"
-    
-    # Substitute {{change_dir}}
-    _tmpfile=$(mktemp 2>/dev/null || mktemp -t ralph-template)
-    sed "s|{{change_dir}}|$abs_change_dir|g" "$template_file" > "$_tmpfile" && mv "$_tmpfile" "$template_file"
-    
-    log_verbose "Prompt template created: $template_file"
-}
 
 probe_agents_md() {
     local repo_root="$1"
@@ -1064,14 +929,11 @@ execute_ralph_loop() {
         return 1
     fi
     
-    local template_file="$ralph_dir/prompt-template.md"
-    
     # Clean up old output directories and setup new one
     cleanup_old_output
     local output_dir=$(setup_output_capture "$ralph_dir")
     
     sync_tasks_to_ralph "$change_dir" "$ralph_dir"
-    create_prompt_template "$change_dir" "$template_file"
     
     # Output files
     local stdout_log="$output_dir/ralph-stdout.log"
@@ -1080,13 +942,25 @@ execute_ralph_loop() {
     log_info "Invoking internal mini Ralph runtime..."
     log_info "Capturing output to: $output_dir"
     
+    local ralph_prompt_text="/opsx-apply $CHANGE_NAME
+
+You are operating inside an automated loop. Follow these constraints EXACTLY:
+
+1. Implement exactly ONE pending task from the task list /opsx-apply shows you.
+2. After marking the task checkbox [x] on disk, output <promise>READY_FOR_NEXT_TASK</promise> on its own line.
+3. If and only if EVERY task checkbox is [x], output <promise>COMPLETE</promise> instead.
+4. Do not ask questions or wait for input. If blocked, output a short failure note describing the blocker and stop.
+5. If the task is already satisfied by prior work, still flip the checkbox to [x] before emitting the promise.
+
+Do not create git commits yourself. The Ralph runner manages automatic task commits when auto-commit is enabled."
+
     # Build the mini-ralph-cli arguments
     local mini_ralph_args=(
-        "--prompt-template" "$template_file"
         "--ralph-dir" "$ralph_dir"
         "--tasks-file" "$change_dir/tasks.md"
         "--tasks"
         "--max-iterations" "$max_iterations"
+        "--prompt-text" "$ralph_prompt_text"
     )
 
     if [[ "$no_commit" == true ]]; then
@@ -1474,7 +1348,6 @@ main() {
 
     ensure_artifacts_present "$change_dir" "$CHANGE_NAME"
 
-    validate_openspec_artifacts "$change_dir"
     validate_script_state "$change_dir"
     local ralph_dir=$(setup_ralph_directory "$change_dir")
     

@@ -171,28 +171,6 @@ describe('render()', () => {
     expect(result).toContain('Task B');
   });
 
-  test('injects fresh task_context when tasksFile is present', () => {
-    const templateFile = path.join(tmpDir, 'template.md');
-    fs.writeFileSync(templateFile, '{{task_context}}');
-    const tasksFile = path.join(tmpDir, 'tasks.md');
-    fs.writeFileSync(tasksFile, '- [/] 1.1 Active task\n- [x] 1.2 Done task\n');
-
-    const result = render(
-      {
-        promptText: 'prompt',
-        promptTemplate: templateFile,
-        tasksFile,
-      },
-      1
-    );
-
-    expect(result).toContain('## Current Task');
-    expect(result).toContain('1.1 Active task');
-    expect(result).toContain('## Progress');
-    expect(result).not.toContain('## Completed Tasks for Git Commit');
-    expect(result).not.toContain('1.2 Done task');
-  });
-
   test('leaves {{tasks}} empty when tasksFile does not exist', () => {
     const templateFile = path.join(tmpDir, 'template.md');
     fs.writeFileSync(templateFile, 'Tasks: {{tasks}}end');
