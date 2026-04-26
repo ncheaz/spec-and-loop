@@ -968,12 +968,25 @@ execute_ralph_loop() {
     log_info "Invoking internal mini Ralph runtime..."
     log_info "Capturing output to: $output_dir"
     
+    local ralph_prompt_text="/opsx-apply $CHANGE_NAME
+
+You are operating inside an automated loop. Follow these constraints EXACTLY:
+
+1. Implement exactly ONE pending task from the task list /opsx-apply shows you.
+2. After marking the task checkbox [x] on disk, output <promise>READY_FOR_NEXT_TASK</promise> on its own line.
+3. If and only if EVERY task checkbox is [x], output <promise>COMPLETE</promise> instead.
+4. Do not ask questions or wait for input. If blocked, output a short failure note describing the blocker and stop.
+5. If the task is already satisfied by prior work, still flip the checkbox to [x] before emitting the promise.
+
+Do not create git commits yourself. The Ralph runner manages automatic task commits when auto-commit is enabled."
+
     # Build the mini-ralph-cli arguments
     local mini_ralph_args=(
         "--ralph-dir" "$ralph_dir"
         "--tasks-file" "$change_dir/tasks.md"
         "--tasks"
         "--max-iterations" "$max_iterations"
+        "--prompt-text" "$ralph_prompt_text"
     )
 
     if [[ "$no_commit" == true ]]; then
