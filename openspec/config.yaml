@@ -18,3 +18,22 @@ schema: spec-driven
 #       - Always include a "Non-goals" section
 #     tasks:
 #       - Break tasks into chunks of max 2 hours
+
+# --- Ralph Wiggum ---
+# This project uses the Ralph Wiggum method for iterative development.
+# See OPENSPEC-RALPH-BP.md for the detailed authoring guide shipped with spec-and-loop.
+context: |
+  This project follows the Ralph Wiggum method for task authoring.
+  Read openspec/OPENSPEC-RALPH-BP.md before generating OpenSpec artifacts.
+  Verify proposals against the Ralph checklist before approval.
+rules:
+  proposal:
+    - Include explicit scope, non-goals, and first-rollout boundaries
+    - Resolve all policy decisions before implementation tasks
+  tasks:
+    - Use the task template from OPENSPEC-RALPH-BP.md
+    - Each task has one dominant outcome and one verification cluster
+    - Include explicit stop-and-hand-off conditions
+  design:
+    - Do not leave core policy choices unresolved
+    - Specify algorithms, config shapes, and failure semantics
