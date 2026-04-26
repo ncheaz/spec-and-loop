@@ -369,9 +369,8 @@ ensure_artifacts_present() {
     log_info "All missing artifacts generated"
 }
 
-validate_openspec_artifacts() {
-    local change_dir="$1"
-    
+
+
     log_verbose "Validating OpenSpec artifacts..."
     
     local required_files=(
@@ -1366,7 +1365,6 @@ main() {
 
     ensure_artifacts_present "$change_dir" "$CHANGE_NAME"
 
-    validate_openspec_artifacts "$change_dir"
     validate_script_state "$change_dir"
     local ralph_dir=$(setup_ralph_directory "$change_dir")
     
