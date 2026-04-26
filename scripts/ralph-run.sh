@@ -337,34 +337,30 @@ ensure_artifacts_present() {
     local change_dir="$1"
     local change_name="$2"
 
-    local required_files=(
-        "proposal.md"
-        "tasks.md"
-        "design.md"
-    )
+    local status_json
+    status_json=$(openspec status --change "$change_name" --json 2>/dev/null)
+    if [[ $? -ne 0 ]]; then
+        log_error "Failed to query openspec status for change: $change_name"
+        exit 1
+    fi
 
-    local missing=()
-    for file in "${required_files[@]}"; do
-        if [[ ! -f "$change_dir/$file" ]]; then
-            missing+=("$file")
-        fi
-    done
-
-    if [[ ${#missing[@]} -eq 0 ]]; then
+    local blocked
+    blocked=$(echo "$status_json" | jq -r '.artifacts[] | select(.status == "blocked") | .id' 2>/dev/null)
+    if [[ -z "$blocked" ]]; then
         return 0
     fi
 
-    log_info "Missing artifacts: ${missing[*]}"
+    log_info "Blocked artifacts detected: $blocked"
     log_info "Invoking opencode to complete missing artifacts..."
 
     opencode run "/opsx-ff $change_name" || true
 
-    for file in "${required_files[@]}"; do
-        if [[ ! -f "$change_dir/$file" ]]; then
-            log_error "Required artifact still not found after /opsx-ff: $file"
-            exit 1
-        fi
-    done
+    status_json=$(openspec status --change "$change_name" --json 2>/dev/null)
+    blocked=$(echo "$status_json" | jq -r '.artifacts[] | select(.status == "blocked") | .id' 2>/dev/null)
+    if [[ -n "$blocked" ]]; then
+        log_error "Artifacts still blocked after /opsx-ff: $blocked"
+        exit 1
+    fi
 
     log_info "All missing artifacts generated"
 }
