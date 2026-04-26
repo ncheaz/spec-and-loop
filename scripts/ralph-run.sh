@@ -366,32 +366,6 @@ ensure_artifacts_present() {
 }
 
 
-
-    log_verbose "Validating OpenSpec artifacts..."
-    
-    local required_files=(
-        "proposal.md"
-        "tasks.md"
-        "design.md"
-    )
-    
-    for file in "${required_files[@]}"; do
-        if [[ ! -f "$change_dir/$file" ]]; then
-            log_error "Required artifact not found: $file"
-            exit 1
-        fi
-        log_verbose "Found artifact: $file"
-    done
-    
-    if [[ ! -d "$change_dir/specs" ]]; then
-        log_error "Required directory not found: specs/"
-        exit 1
-    fi
-    log_verbose "Found directory: specs/"
-    
-    log_info "All OpenSpec artifacts validated"
-}
-
 setup_ralph_directory() {
     local change_dir="$1"
     local ralph_dir="$change_dir/.ralph"
