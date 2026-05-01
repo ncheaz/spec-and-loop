@@ -22,6 +22,11 @@
  *   --stall-threshold <n>      Halt after N consecutive no-op iterations (default: 3; 0 disables)
  *   --completion-promise <s>   Completion promise string (default: COMPLETE)
  *   --task-promise <s>         Task promise string (default: READY_FOR_NEXT_TASK)
+ *   --blocked-handoff-promise <s>
+ *                              Blocked-handoff promise string (default: BLOCKED_HANDOFF).
+ *                              Loop exits cleanly with `blocked_handoff` when the
+ *                              agent emits this tag and writes the agent's note
+ *                              to <ralph-dir>/HANDOFF.md.
  *   --no-commit                Suppress auto-commit
  *   --model <name>             Optional model override
  *   --verbose                  Verbose output
@@ -53,6 +58,7 @@ function parseArgs(argv) {
     stallThreshold: 3,
     completionPromise: 'COMPLETE',
     taskPromise: 'READY_FOR_NEXT_TASK',
+    blockedHandoffPromise: 'BLOCKED_HANDOFF',
     noCommit: false,
     model: '',
     verbose: false,
@@ -100,6 +106,9 @@ function parseArgs(argv) {
         break;
       case '--task-promise':
         opts.taskPromise = args[++i];
+        break;
+      case '--blocked-handoff-promise':
+        opts.blockedHandoffPromise = args[++i];
         break;
       case '--no-commit':
         opts.noCommit = true;
@@ -154,6 +163,8 @@ Options:
   --stall-threshold <n>      Halt after N consecutive no-op iterations (default: 3; 0 disables)
   --completion-promise <s>   Completion promise string
   --task-promise <s>         Task promise string
+  --blocked-handoff-promise <s>
+                             Blocked-handoff promise string (default: BLOCKED_HANDOFF)
   --no-commit                Suppress auto-commit
   --model <name>             Model override
   --verbose                  Verbose output
@@ -212,6 +223,7 @@ async function main() {
     stallThreshold: opts.stallThreshold,
     completionPromise: opts.completionPromise,
     taskPromise: opts.taskPromise,
+    blockedHandoffPromise: opts.blockedHandoffPromise,
     noCommit: opts.noCommit,
     model: opts.model,
     verbose: opts.verbose,

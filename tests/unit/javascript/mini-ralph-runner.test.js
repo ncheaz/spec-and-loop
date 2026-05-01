@@ -31,6 +31,9 @@ const {
   _firstNonEmptyLine,
   _filterGitignored,
   _autoCommit,
+  _extractBlockerNote,
+  _writeHandoff,
+  _detectBlockerArtifacts,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -767,6 +770,160 @@ describe('_buildIterationFeedback()', () => {
     ]);
 
     expect(feedback).toContain('Iteration 2: opencode exited via signal SIGTERM');
+  });
+
+  test('describes BLOCKED_HANDOFF as an explicit handoff, not a missing promise', () => {
+    const feedback = _buildIterationFeedback([
+      {
+        iteration: 7,
+        exitCode: 0,
+        signal: '',
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: false,
+        blockedHandoffDetected: true,
+        blockedHandoffNote: '## Blocker Note Contract validation failed again; use the prior parser fix.',
+        taskNumber: '3.1',
+        taskDescription: 'Align support/content and typed page contracts',
+      },
+    ]);
+
+    expect(feedback).toContain('Iteration 7 [Task 3.1 (Align support/content and typed page contracts)]: agent emitted BLOCKED_HANDOFF and requested operator handoff');
+    expect(feedback).toContain('Blocker note: ## Blocker Note Contract validation failed again');
+    expect(feedback).not.toContain('no loop promise emitted');
+  });
+});
+
+describe('_buildIterationFeedback() - task identity & same-task streak', () => {
+  test('per-iteration line includes task number and short description when present', () => {
+    const feedback = _buildIterationFeedback([
+      {
+        iteration: 4,
+        exitCode: 0,
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: false,
+        taskNumber: '4.cross-route',
+        taskDescription: 'Verify shared-chrome carve-out',
+      },
+    ]);
+
+    expect(feedback).toContain('Iteration 4 [Task 4.cross-route (Verify shared-chrome carve-out)]: no loop promise emitted');
+  });
+
+  test('falls back to bare task description when number is missing', () => {
+    const feedback = _buildIterationFeedback([
+      {
+        iteration: 7,
+        exitCode: 0,
+        filesChanged: [],
+        completionDetected: false,
+        taskDetected: false,
+        taskNumber: '',
+        taskDescription: 'Refresh baseline',
+      },
+    ]);
+
+    expect(feedback).toContain('Iteration 7 [Task Refresh baseline]:');
+  });
+
+  test('omits the task stamp when no task identity is recorded', () => {
+    const feedback = _buildIterationFeedback([
+      { iteration: 2, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false },
+    ]);
+
+    expect(feedback).toContain('Iteration 2: no loop promise emitted');
+    expect(feedback).not.toContain('[Task');
+  });
+
+  test('emits STUCK ON SAME TASK hard prefix when streak reaches 3', () => {
+    const sameTask = { taskNumber: '4.cross-route', taskDescription: 'Verify shared-chrome carve-out' };
+    const feedback = _buildIterationFeedback([
+      { iteration: 1, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...sameTask },
+      { iteration: 2, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...sameTask },
+      { iteration: 3, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...sameTask },
+    ]);
+
+    expect(feedback).toContain('STUCK ON SAME TASK');
+    expect(feedback).toContain('3 iterations in a row');
+    expect(feedback).toContain('4.cross-route');
+    expect(feedback).toContain('BLOCKED_HANDOFF');
+  });
+
+  test('does NOT emit the hard prefix when the streak resets mid-window', () => {
+    const a = { taskNumber: '4.cross-route', taskDescription: 'A' };
+    const b = { taskNumber: '5.final', taskDescription: 'B' };
+    const feedback = _buildIterationFeedback([
+      { iteration: 1, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...a },
+      { iteration: 2, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...a },
+      { iteration: 3, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...b },
+    ]);
+
+    expect(feedback).not.toContain('STUCK ON SAME TASK');
+  });
+
+  test('does NOT emit the hard prefix when the trailing streak is shorter than 3', () => {
+    const a = { taskNumber: '1.foo', taskDescription: 'A' };
+    const b = { taskNumber: '2.bar', taskDescription: 'B' };
+    const feedback = _buildIterationFeedback([
+      { iteration: 1, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...a },
+      { iteration: 2, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...b },
+      { iteration: 3, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false, ...b },
+    ]);
+
+    expect(feedback).not.toContain('STUCK ON SAME TASK');
+  });
+});
+
+describe('_buildIterationFeedback() - blocker artifact tee', () => {
+  test('appends artifact section with code-fenced content', () => {
+    const feedback = _buildIterationFeedback(
+      [{ iteration: 4, exitCode: 0, filesChanged: [], completionDetected: false, taskDetected: false }],
+      [],
+      [
+        {
+          path: '.ralph/baselines/foo/shared-chrome-invariant-report.txt',
+          content: 'STATUS=BLOCKED\nREASON=carve-out hash drift',
+          truncated: false,
+        },
+      ],
+    );
+
+    expect(feedback).toContain('Prior-iteration blocker artifacts');
+    expect(feedback).toContain('### .ralph/baselines/foo/shared-chrome-invariant-report.txt');
+    expect(feedback).toContain('STATUS=BLOCKED');
+    expect(feedback).toContain('REASON=carve-out hash drift');
+  });
+
+  test('marks truncated artifacts and renders multiple artifacts', () => {
+    const feedback = _buildIterationFeedback(
+      [],
+      [],
+      [
+        { path: 'a.txt', content: 'first', truncated: true },
+        { path: 'b.txt', content: 'second', truncated: false },
+      ],
+    );
+
+    expect(feedback).toContain('### a.txt  (truncated)');
+    expect(feedback).toContain('### b.txt');
+    expect(feedback).toContain('first');
+    expect(feedback).toContain('second');
+  });
+
+  test('returns empty string when there is neither history nor artifacts', () => {
+    expect(_buildIterationFeedback([], [], [])).toBe('');
+  });
+
+  test('returns artifacts-only feedback when no problematic iterations exist', () => {
+    const feedback = _buildIterationFeedback(
+      [{ iteration: 1, exitCode: 0, filesChanged: ['x'], completionDetected: true, taskDetected: false }],
+      [],
+      [{ path: 'HANDOFF.md', content: 'note', truncated: false }],
+    );
+
+    expect(feedback).toContain('Prior-iteration blocker artifacts');
+    expect(feedback).not.toContain('Use these signals');
   });
 });
 
@@ -1792,6 +1949,87 @@ describe('run() with mocked invoker', () => {
       expect(prompts[1]).toContain('signal: SIGTERM');
       expect(prompts[1]).toContain('---');
       expect(prompts[1]).toContain('stdout: partial output');
+    } finally {
+      restore();
+    }
+  });
+
+  test('injects prior BLOCKED_HANDOFF and stale HANDOFF.md on resume', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-handoff-feedback');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    history.append(ralphDir, {
+      iteration: 7,
+      duration: 123,
+      completionDetected: false,
+      taskDetected: false,
+      blockedHandoffDetected: true,
+      taskNumber: '3.1',
+      taskDescription: 'Align contracts',
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: 0,
+      signal: '',
+      failureStage: '',
+      completedTasks: [],
+    });
+    const handoffPath = path.join(ralphDir, 'HANDOFF.md');
+    fs.writeFileSync(handoffPath, '## Blocker Note\nRepo-wide contract debt blocks task 3.1.');
+    const stale = (Date.now() - 30 * 60 * 1000) / 1000;
+    fs.utimesSync(handoffPath, stale, stale);
+
+    const prompts = [];
+    const restore = mockInvoker(invoker, async (opts) => {
+      prompts.push(opts.prompt);
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 1, noCommit: true }));
+      expect(prompts[0]).toContain('agent emitted BLOCKED_HANDOFF and requested operator handoff');
+      expect(prompts[0]).not.toContain('no loop promise emitted');
+      expect(prompts[0]).toContain('Prior-iteration blocker artifacts');
+      expect(prompts[0]).toContain('Repo-wide contract debt blocks task 3.1');
+    } finally {
+      restore();
+    }
+  });
+
+  test('injects stale HANDOFF.md when older state records blocked_handoff without newer history metadata', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-legacy-handoff-feedback');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    state.init(ralphDir, {
+      active: false,
+      iteration: 1,
+      maxIterations: 2,
+      tasksMode: false,
+      tasksFile: null,
+      exitReason: 'blocked_handoff',
+    });
+    const handoffPath = path.join(ralphDir, 'HANDOFF.md');
+    fs.writeFileSync(handoffPath, '## Blocker Note\nLegacy handoff still matters.');
+    const stale = (Date.now() - 30 * 60 * 1000) / 1000;
+    fs.utimesSync(handoffPath, stale, stale);
+
+    const prompts = [];
+    const restore = mockInvoker(invoker, async (opts) => {
+      prompts.push(opts.prompt);
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, maxIterations: 2, noCommit: true }));
+      expect(prompts[0]).toContain('Prior-iteration blocker artifacts');
+      expect(prompts[0]).toContain('Legacy handoff still matters');
     } finally {
       restore();
     }
@@ -3338,6 +3576,323 @@ describe('_autoCommit loud stderr block (task 5.1)', () => {
       stderrSpy.mockRestore();
       process.chdir(originalCwd);
       fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BLOCKED_HANDOFF: _extractBlockerNote, _writeHandoff, run() integration
+// ---------------------------------------------------------------------------
+
+describe('_extractBlockerNote()', () => {
+  test('extracts the structured note from "## Blocker Note" sentinel up to the promise tag', () => {
+    const out = [
+      'some leading agent narration',
+      '',
+      '## Blocker Note',
+      'Carve-out drift detected outside the change scope.',
+      '',
+      '## Why',
+      'Six baseline files have changed; baseline refresh requires human review.',
+      '',
+      '## Suggested Next Step',
+      '- Review the diff and decide between revert / refresh / scope expansion.',
+      '',
+      '<promise>BLOCKED_HANDOFF</promise>',
+      'trailing junk that should be ignored',
+    ].join('\n');
+
+    const note = _extractBlockerNote(out, 'BLOCKED_HANDOFF');
+    expect(note).toContain('## Blocker Note');
+    expect(note).toContain('Carve-out drift detected');
+    expect(note).toContain('## Why');
+    expect(note).toContain('## Suggested Next Step');
+    expect(note).not.toContain('trailing junk');
+    expect(note).not.toContain('<promise>BLOCKED_HANDOFF</promise>');
+  });
+
+  test('falls back to the last 40 non-blank lines when no sentinel header is present', () => {
+    const lines = [];
+    for (let i = 1; i <= 60; i++) lines.push(`line ${i}`);
+    lines.push('<promise>BLOCKED_HANDOFF</promise>');
+    const note = _extractBlockerNote(lines.join('\n'), 'BLOCKED_HANDOFF');
+
+    expect(note).toContain('line 21');
+    expect(note).toContain('line 60');
+    expect(note).not.toContain('line 1');
+    expect(note).not.toContain('line 20');
+  });
+
+  test('returns empty string when the promise tag is absent', () => {
+    expect(_extractBlockerNote('nothing of interest here', 'BLOCKED_HANDOFF')).toBe('');
+  });
+
+  test('returns empty string for empty inputs', () => {
+    expect(_extractBlockerNote('', 'BLOCKED_HANDOFF')).toBe('');
+    expect(_extractBlockerNote('text', '')).toBe('');
+  });
+});
+
+describe('_writeHandoff()', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  test('creates HANDOFF.md with iteration and task metadata', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-handoff');
+    const result = _writeHandoff(ralphDir, {
+      iteration: 5,
+      task: '4.cross-route Verify shared-chrome',
+      note: '## Blocker Note\nDetail here.',
+    });
+
+    expect(result).toBe(path.join(ralphDir, 'HANDOFF.md'));
+    const body = fs.readFileSync(result, 'utf8');
+    expect(body).toContain('# Ralph Handoff Log');
+    expect(body).toContain('## Iteration 5 —');
+    expect(body).toContain('**Task:** 4.cross-route Verify shared-chrome');
+    expect(body).toContain('## Blocker Note');
+    expect(body).toContain('Detail here.');
+    expect(body).toContain('Operator next step:');
+  });
+
+  test('appends a second section instead of overwriting on a repeat call', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-handoff-append');
+    _writeHandoff(ralphDir, { iteration: 1, task: 'A', note: 'first' });
+    _writeHandoff(ralphDir, { iteration: 2, task: 'B', note: 'second' });
+
+    const body = fs.readFileSync(path.join(ralphDir, 'HANDOFF.md'), 'utf8');
+    expect(body).toContain('## Iteration 1');
+    expect(body).toContain('## Iteration 2');
+    expect(body).toContain('first');
+    expect(body).toContain('second');
+    // Ensure header appears once (the ascending-iteration order is by write time)
+    expect(body.match(/# Ralph Handoff Log/g) || []).toHaveLength(1);
+  });
+
+  test('substitutes a placeholder when the agent emits BLOCKED_HANDOFF without a note', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-handoff-empty');
+    _writeHandoff(ralphDir, { iteration: 1, task: 'X', note: '' });
+
+    const body = fs.readFileSync(path.join(ralphDir, 'HANDOFF.md'), 'utf8');
+    expect(body).toContain('agent emitted BLOCKED_HANDOFF without a structured blocker note');
+  });
+});
+
+describe('_detectBlockerArtifacts()', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  test('returns an empty array when ralphDir does not exist', () => {
+    expect(_detectBlockerArtifacts(path.join(tmpDir, 'no-such-dir'))).toEqual([]);
+  });
+
+  test('detects HANDOFF.md / BLOCKED.md inside ralphDir', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(path.join(ralphDir, 'HANDOFF.md'), 'handoff body');
+    fs.writeFileSync(path.join(ralphDir, 'BLOCKED.md'), 'blocked body');
+
+    const artifacts = _detectBlockerArtifacts(ralphDir);
+    const names = artifacts.map(a => a.path).sort();
+    expect(names.some(n => n.endsWith('HANDOFF.md'))).toBe(true);
+    expect(names.some(n => n.endsWith('BLOCKED.md'))).toBe(true);
+  });
+
+  test('detects baseline report files under <repoRoot>/.ralph/baselines/<change>/', () => {
+    const repoRoot = path.join(tmpDir, 'repo');
+    const changeName = 'sample-change';
+    const ralphDir = path.join(repoRoot, 'openspec', 'changes', changeName, '.ralph');
+    const baselineDir = path.join(repoRoot, '.ralph', 'baselines', changeName);
+
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.mkdirSync(baselineDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(baselineDir, 'shared-chrome-invariant-report.txt'),
+      'STATUS=BLOCKED\nREASON=...'
+    );
+
+    const artifacts = _detectBlockerArtifacts(ralphDir, { repoRoot });
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].path).toContain('shared-chrome-invariant-report.txt');
+    expect(artifacts[0].content).toContain('STATUS=BLOCKED');
+  });
+
+  test('caps at maxArtifacts and prefers freshest by mtime', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-cap');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    const olderPath = path.join(ralphDir, 'old-report.md');
+    const newerPath = path.join(ralphDir, 'new-report.md');
+    fs.writeFileSync(olderPath, 'old');
+    fs.writeFileSync(newerPath, 'new');
+    // Backdate the older file so the freshness sort is deterministic.
+    const past = (Date.now() - 60_000) / 1000;
+    fs.utimesSync(olderPath, past, past);
+
+    const artifacts = _detectBlockerArtifacts(ralphDir, { maxArtifacts: 1 });
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].path).toContain('new-report.md');
+  });
+
+  test('truncates content to maxCharsEach and marks truncated=true', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-trunc');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.writeFileSync(path.join(ralphDir, 'HANDOFF.md'), 'x'.repeat(2000));
+
+    const artifacts = _detectBlockerArtifacts(ralphDir, { maxCharsEach: 100 });
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].truncated).toBe(true);
+    expect(artifacts[0].content.length).toBeLessThanOrEqual(100);
+  });
+
+  test('skips artifacts older than the 10-minute freshness window', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-stale');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    const stalePath = path.join(ralphDir, 'HANDOFF.md');
+    fs.writeFileSync(stalePath, 'stale body');
+    // Backdate to 30 minutes ago.
+    const stale = (Date.now() - 30 * 60 * 1000) / 1000;
+    fs.utimesSync(stalePath, stale, stale);
+
+    expect(_detectBlockerArtifacts(ralphDir)).toEqual([]);
+  });
+
+  test('keeps stale HANDOFF.md when prior history says the run stopped for handoff', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-stale-handoff-allowed');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    const stalePath = path.join(ralphDir, 'HANDOFF.md');
+    fs.writeFileSync(stalePath, 'stale handoff body');
+    const stale = (Date.now() - 30 * 60 * 1000) / 1000;
+    fs.utimesSync(stalePath, stale, stale);
+
+    const artifacts = _detectBlockerArtifacts(ralphDir, {
+      includeStaleHandoff: true,
+    });
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].path).toContain('HANDOFF.md');
+    expect(artifacts[0].content).toContain('stale handoff body');
+  });
+});
+
+describe('run() — BLOCKED_HANDOFF integration', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const invoker = require('../../../lib/mini-ralph/invoker');
+
+  function mockInvoker(mockFn) {
+    const original = invoker.invoke;
+    invoker.invoke = mockFn;
+    return () => { invoker.invoke = original; };
+  }
+
+  test('exits with reason=blocked_handoff and writes HANDOFF.md when the promise tag is detected', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-handoff-int');
+    const restore = mockInvoker(async () => ({
+      stdout: [
+        '## Blocker Note',
+        'Cannot continue: external review required.',
+        '',
+        '## Why',
+        'Carve-out drift outside change scope.',
+        '',
+        '## Suggested Next Step',
+        '- Operator must decide between revert and baseline refresh.',
+        '',
+        '<promise>BLOCKED_HANDOFF</promise>',
+      ].join('\n'),
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run({
+        ralphDir,
+        promptText: 'Do the thing.',
+        maxIterations: 5,
+        minIterations: 1,
+      });
+
+      expect(result.completed).toBe(false);
+      expect(result.iterations).toBe(1);
+      expect(result.exitReason).toBe('blocked_handoff');
+
+      const persistedState = state.read(ralphDir);
+      expect(persistedState.exitReason).toBe('blocked_handoff');
+      expect(persistedState.active).toBe(false);
+
+      const handoffPath = path.join(ralphDir, 'HANDOFF.md');
+      expect(fs.existsSync(handoffPath)).toBe(true);
+      const handoffBody = fs.readFileSync(handoffPath, 'utf8');
+      expect(handoffBody).toContain('# Ralph Handoff Log');
+      expect(handoffBody).toContain('Cannot continue: external review required.');
+      expect(handoffBody).toContain('Carve-out drift outside change scope.');
+
+      const recent = history.recent(ralphDir, 1);
+      expect(recent[0].blockedHandoffDetected).toBe(true);
+      expect(recent[0].blockedHandoffNote).toContain('Cannot continue: external review required.');
+      expect(recent[0].blockedHandoffNote).toContain('Carve-out drift outside change scope.');
+    } finally {
+      restore();
+    }
+  });
+
+  test('exits immediately on BLOCKED_HANDOFF even when minIterations has not been reached', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-handoff-min');
+    const restore = mockInvoker(async () => ({
+      stdout: '## Blocker Note\nblocked\n<promise>BLOCKED_HANDOFF</promise>',
+      exitCode: 0,
+      filesChanged: [],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run({
+        ralphDir,
+        promptText: 'Do the thing.',
+        maxIterations: 10,
+        minIterations: 5,
+      });
+
+      expect(result.iterations).toBe(1);
+      expect(result.exitReason).toBe('blocked_handoff');
+    } finally {
+      restore();
+    }
+  });
+
+  test('does NOT count a BLOCKED_HANDOFF iteration toward the stall streak', async () => {
+    let n = 0;
+    const ralphDir = path.join(tmpDir, '.ralph-handoff-stall');
+    const restore = mockInvoker(async () => {
+      n++;
+      // Iter 1 + 2 are stalls (no promise, no files), iter 3 is a BLOCKED_HANDOFF.
+      // With stallThreshold=3 we'd otherwise halt at iter 3 with reason=stalled;
+      // BLOCKED_HANDOFF must take precedence.
+      if (n >= 3) {
+        return {
+          stdout: '## Blocker Note\nstop\n<promise>BLOCKED_HANDOFF</promise>',
+          exitCode: 0,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+      return { stdout: 'no progress', exitCode: 0, filesChanged: [], toolUsage: [] };
+    });
+
+    try {
+      const result = await run({
+        ralphDir,
+        promptText: 'Do the thing.',
+        maxIterations: 10,
+        minIterations: 1,
+        stallThreshold: 3,
+      });
+
+      expect(result.iterations).toBe(3);
+      expect(result.exitReason).toBe('blocked_handoff');
+    } finally {
+      restore();
     }
   });
 });

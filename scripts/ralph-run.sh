@@ -333,6 +333,19 @@ validate_dependencies() {
     log_verbose "All dependencies validated"
 }
 
+should_auto_fix_artifacts() {
+    case "${RALPH_RUN_AUTO_FIX_ARTIFACTS:-}" in
+        1|true|TRUE|yes|YES)
+            return 0
+            ;;
+        0|false|FALSE|no|NO)
+            return 1
+            ;;
+    esac
+
+    [[ -t 0 ]]
+}
+
 ensure_artifacts_present() {
     local change_dir="$1"
     local change_name="$2"
@@ -351,6 +364,13 @@ ensure_artifacts_present() {
     fi
 
     log_info "Blocked artifacts detected: $blocked"
+    if ! should_auto_fix_artifacts; then
+        log_error "OpenSpec artifacts are blocked and this is a non-interactive run."
+        log_error 'Run `ralph-run init` or complete the artifacts manually, then rerun.'
+        log_error "Set RALPH_RUN_AUTO_FIX_ARTIFACTS=true to opt into opencode artifact repair in automation."
+        exit 1
+    fi
+
     log_info "Invoking opencode to complete missing artifacts..."
 
     opencode run "/opsx-ff $change_name" || true
@@ -651,15 +671,21 @@ validate_script_state() {
     
     log_verbose "Validating script state..."
     
-    local required_dirs=(
-        ".ralph"
-    )
-    
-    for dir in "${required_dirs[@]}"; do
-        if [[ ! -d "$change_dir/$dir" ]]; then
-            log_verbose "Required directory not found: $dir (will be created)"
-        fi
-    done
+    if [[ ! -d "$change_dir/.ralph" ]]; then
+        log_verbose "Required directory not found: .ralph (will be created)"
+    fi
+
+    if [[ ! -d "$change_dir/specs" ]]; then
+        log_error "Required directory not found: specs"
+        return 1
+    fi
+
+    local first_spec=""
+    first_spec=$(find "$change_dir/specs" -name "spec.md" -type f -print -quit 2>/dev/null || true)
+    if [[ -z "$first_spec" ]]; then
+        log_error "No spec.md files found under specs"
+        return 1
+    fi
     
     local required_files=(
         "tasks.md"
@@ -949,7 +975,20 @@ You are operating inside an automated loop. Follow these constraints EXACTLY:
 1. Implement exactly ONE pending task from the task list /opsx-apply shows you.
 2. After marking the task checkbox [x] on disk, output <promise>READY_FOR_NEXT_TASK</promise> on its own line.
 3. If and only if EVERY task checkbox is [x], output <promise>COMPLETE</promise> instead.
-4. Do not ask questions or wait for input. If blocked, output a short failure note describing the blocker and stop.
+4. Do not ask questions or wait for input. If you cannot make progress on the current task because an external decision is required (revert protected drift outside the change scope, file an out-of-scope refactor, escalate to a human reviewer, etc.), STOP and emit a structured handoff in this exact form:
+
+   ## Blocker Note
+   <one paragraph describing what is blocked>
+
+   ## Why
+   <one paragraph: which task spec clause / invariant fired, and what evidence (file paths, hashes, test names) supports the diagnosis>
+
+   ## Suggested Next Step
+   <one or two bullets the human can execute to unblock>
+
+   <promise>BLOCKED_HANDOFF</promise>
+
+   The runner will save this note to .ralph/HANDOFF.md and exit cleanly with reason=blocked_handoff. Do NOT keep retrying the same task; emit the handoff and stop. Do NOT emit BLOCKED_HANDOFF for transient errors that a retry could fix (network blips, tool-not-found that is fixable by an absolute path, etc.) — those are normal failures the loop will retry on its own.
 5. If the task is already satisfied by prior work, still flip the checkbox to [x] before emitting the promise.
 
 Do not create git commits yourself. The Ralph runner manages automatic task commits when auto-commit is enabled."
@@ -975,12 +1014,53 @@ Do not create git commits yourself. The Ralph runner manages automatic task comm
         mini_ralph_args+=("--quiet")
     fi
 
-    # Run the internal mini Ralph CLI and capture output
-    {
-        node "$MINI_RALPH_CLI" "${mini_ralph_args[@]}"
-    } > >(tee "$stdout_log") 2> >(tee "$stderr_log")
-    local node_exit_code=$?
-    wait
+    # Run the internal mini Ralph CLI and capture output.
+    #
+    # Avoid Bash process substitution here. macOS ships Bash 3.2, and under
+    # Bats' captured `run` wrapper a bare `wait` after `> >(tee ...)` can hang
+    # after the node child has already exited. Explicit FIFOs give us concrete
+    # tee PIDs to wait on and work consistently on macOS and Linux.
+    local stdout_pipe="$output_dir/ralph-stdout.pipe"
+    local stderr_pipe="$output_dir/ralph-stderr.pipe"
+    local node_exit_code=0
+    local tee_stdout_pid=""
+    local tee_stderr_pid=""
+    local had_errexit=false
+    case $- in
+        *e*)
+            had_errexit=true
+            set +e
+            ;;
+    esac
+
+    if mkfifo "$stdout_pipe" "$stderr_pipe" 2>/dev/null; then
+        tee "$stdout_log" < "$stdout_pipe" &
+        tee_stdout_pid=$!
+        tee "$stderr_log" < "$stderr_pipe" >&2 &
+        tee_stderr_pid=$!
+
+        node "$MINI_RALPH_CLI" "${mini_ralph_args[@]}" > "$stdout_pipe" 2> "$stderr_pipe"
+        node_exit_code=$?
+
+        wait "$tee_stdout_pid" 2>/dev/null || true
+        wait "$tee_stderr_pid" 2>/dev/null || true
+        rm -f "$stdout_pipe" "$stderr_pipe"
+    else
+        log_verbose "mkfifo unavailable; capturing output without live tee"
+        node "$MINI_RALPH_CLI" "${mini_ralph_args[@]}" > "$stdout_log" 2> "$stderr_log"
+        node_exit_code=$?
+        if [[ -s "$stdout_log" ]]; then
+            cat "$stdout_log"
+        fi
+        if [[ -s "$stderr_log" ]]; then
+            cat "$stderr_log" >&2
+        fi
+    fi
+
+    if [[ "$had_errexit" == true ]]; then
+        set -e
+    fi
+
     return $node_exit_code
 }
 
@@ -1159,6 +1239,7 @@ check_ralphified() {
 
 show_ralphify_warning() {
     local change_name="$1"
+    local preset_choice="${RALPH_RUN_RALPHIFY_CHOICE:-}"
 
     cat >&2 << 'WARNING_BOX'
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -1173,16 +1254,29 @@ show_ralphify_warning() {
 └─────────────────────────────────────────────────────────────────────┘
 WARNING_BOX
 
+    if [[ -z "$preset_choice" && ! -t 0 ]]; then
+        log_info "Non-interactive environment detected. Continuing without Ralph Wiggum configuration."
+        log_info 'Run `ralph-run init` to configure Ralph Wiggum best practices before the next interactive run.'
+        return 0
+    fi
+
     while true; do
-        echo "" >&2
-        echo "Choose an option:" >&2
-        echo "  [A] Run ralphify init and redo the proposal, then continue" >&2
-        echo "  [C] Continue without init" >&2
-        echo "  [Q] Quit" >&2
-        printf "Enter choice: " >&2
-        if ! read -r choice; then
-            log_info "Non-interactive environment detected. Continuing without Ralph Wiggum configuration."
-            return 0
+        local choice=""
+        if [[ -n "$preset_choice" ]]; then
+            choice="$preset_choice"
+            preset_choice=""
+            log_info "Using RALPH_RUN_RALPHIFY_CHOICE=$choice"
+        else
+            echo "" >&2
+            echo "Choose an option:" >&2
+            echo "  [A] Run ralphify init and redo the proposal, then continue" >&2
+            echo "  [C] Continue without init" >&2
+            echo "  [Q] Quit" >&2
+            printf "Enter choice: " >&2
+            if ! read -r choice; then
+                log_info "Non-interactive environment detected. Continuing without Ralph Wiggum configuration."
+                return 0
+            fi
         fi
 
         case "$choice" in
