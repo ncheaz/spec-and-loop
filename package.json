@@ -1,6 +1,6 @@
 {
   "name": "spec-and-loop",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "description": "OpenSpec + Ralph Loop integration for iterative development with opencode",
   "main": "index.js",
   "bin": {

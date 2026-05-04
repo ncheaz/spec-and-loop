@@ -438,6 +438,32 @@ describe('render()', () => {
     expect(output).not.toContain('Completed:');
   });
 
+  test('shows pending dirty paths from a blocked handoff', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 8,
+      maxIterations: 50,
+      startedAt: new Date().toISOString(),
+      stoppedAt: '2026-05-01T12:34:56.000Z',
+      exitReason: 'pending_dirty_paths',
+      pendingDirtyPaths: {
+        iteration: 7,
+        reason: 'blocked_handoff',
+        taskNumber: '3.1',
+        taskDescription: 'Align contracts',
+        files: ['src/data/page-contracts/release.ts', 'src/lib/search.ts'],
+      },
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('--- Pending Dirty Paths ---');
+    expect(output).toContain('Reason: blocked_handoff');
+    expect(output).toContain('From iteration: 7');
+    expect(output).toContain('Prior task: 3.1 Align contracts');
+    expect(output).toContain('src/data/page-contracts/release.ts');
+    expect(output).toContain('Resolve before continuing');
+  });
+
   test('prefers completed lifecycle over stale stopped metadata', () => {
     state.init(ralphDir, {
       active: false,

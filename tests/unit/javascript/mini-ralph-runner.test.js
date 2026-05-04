@@ -27,6 +27,10 @@ const {
   _gitErrorMessage,
   _isFailedIteration,
   _wasSuccessfulIteration,
+  _normalizePendingDirtyPaths,
+  _recordPendingDirtyPaths,
+  _remainingPendingDirtyPathsAfterCommit,
+  _samePendingTask,
   _failureFingerprint,
   _firstNonEmptyLine,
   _filterGitignored,
@@ -506,6 +510,55 @@ describe('_buildAutoCommitAllowlist()', () => {
         tasksFile
       ).sort()
     ).toEqual(['openspec/change/tasks.md', 'src/current.js']);
+  });
+});
+
+describe('pending dirty path helpers', () => {
+  test('normalizes and merges pending blocked-handoff paths', () => {
+    const pending = _recordPendingDirtyPaths(null, {
+      iteration: 7,
+      reason: 'blocked_handoff',
+      taskNumber: '3.1',
+      taskDescription: 'Align contracts',
+      task: '3.1 Align contracts',
+      files: ['src/a.js', 'src/a.js', path.join(process.cwd(), 'src/b.js')],
+      recordedAt: '2026-05-01T00:00:00.000Z',
+    });
+
+    expect(pending).toMatchObject({
+      iteration: 7,
+      reason: 'blocked_handoff',
+      taskNumber: '3.1',
+      taskDescription: 'Align contracts',
+      files: ['src/a.js', 'src/b.js'],
+    });
+    expect(_normalizePendingDirtyPaths({ files: [] })).toBeNull();
+  });
+
+  test('matches pending patches by task number first', () => {
+    const pending = {
+      taskNumber: '3.1',
+      taskDescription: 'Align contracts',
+      task: '3.1 Align contracts',
+      files: ['src/a.js'],
+    };
+
+    expect(_samePendingTask(pending, { number: '3.1', description: 'Renamed task' }, '3.1 Renamed task')).toBe(true);
+    expect(_samePendingTask(pending, { number: '4.1', description: 'Next task' }, '4.1 Next task')).toBe(false);
+  });
+
+  test('keeps only ignored pending paths after a partial commit', () => {
+    const pending = {
+      taskNumber: '3.1',
+      files: ['src/committed.js', 'ignored/output.png'],
+    };
+
+    expect(
+      _remainingPendingDirtyPathsAfterCommit(pending, {
+        ignoredPaths: ['ignored/output.png'],
+      })
+    ).toMatchObject({ files: ['ignored/output.png'] });
+    expect(_remainingPendingDirtyPathsAfterCommit(pending, null)).toBeNull();
   });
 });
 
@@ -2032,6 +2085,138 @@ describe('run() with mocked invoker', () => {
       expect(prompts[0]).toContain('Legacy handoff still matters');
     } finally {
       restore();
+    }
+  });
+
+  test('persists dirty paths from a blocked handoff for operator recovery', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-pending-blocked');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 3.1 Align contracts\n', 'utf8');
+
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: [
+        '## Blocker Note',
+        'Contract suite is red outside the current task.',
+        '<promise>BLOCKED_HANDOFF</promise>',
+      ].join('\n'),
+      exitCode: 0,
+      filesChanged: ['src/data/page-contracts/release.ts'],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const persistedState = state.read(ralphDir);
+
+      expect(result.exitReason).toBe('blocked_handoff');
+      expect(persistedState.pendingDirtyPaths).toMatchObject({
+        iteration: 1,
+        reason: 'blocked_handoff',
+        taskNumber: '3.1',
+        taskDescription: 'Align contracts',
+        files: ['src/data/page-contracts/release.ts'],
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  test('commits pending dirty paths when the same blocked task later completes', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-pending-same-task');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 3.1 Align contracts\n', 'utf8');
+    state.init(ralphDir, {
+      active: false,
+      iteration: 7,
+      tasksMode: true,
+      tasksFile,
+      exitReason: 'blocked_handoff',
+      pendingDirtyPaths: {
+        iteration: 7,
+        reason: 'blocked_handoff',
+        taskNumber: '3.1',
+        taskDescription: 'Align contracts',
+        task: '3.1 Align contracts',
+        files: ['src/data/page-contracts/release.ts'],
+        recordedAt: '2026-05-01T00:00:00.000Z',
+      },
+    });
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'status') return ' M src/data/page-contracts/release.ts\n M tasks.md\n';
+      if (command === 'git' && args[0] === 'check-ignore') return '';
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return 'tasks.md\nsrc/data/page-contracts/release.ts\n';
+      if (command === 'git' && args[0] === 'commit') return '';
+      return '';
+    });
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 3.1 Align contracts\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [tasksFile],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 8 }));
+
+      expect(execSpy).toHaveBeenCalledWith(
+        'git',
+        ['add', '-A', '--', 'tasks.md', 'src/data/page-contracts/release.ts'],
+        expect.any(Object)
+      );
+      expect(state.read(ralphDir).pendingDirtyPaths).toBeNull();
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+    }
+  });
+
+  test('halts before another task when pending blocked-handoff paths are still dirty', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-pending-different-task');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 4.1 Reconcile visuals\n', 'utf8');
+    state.init(ralphDir, {
+      active: false,
+      iteration: 7,
+      tasksMode: true,
+      tasksFile,
+      exitReason: 'blocked_handoff',
+      pendingDirtyPaths: {
+        iteration: 7,
+        reason: 'blocked_handoff',
+        taskNumber: '3.1',
+        taskDescription: 'Align contracts',
+        task: '3.1 Align contracts',
+        files: ['src/data/page-contracts/release.ts'],
+        recordedAt: '2026-05-01T00:00:00.000Z',
+      },
+    });
+
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'status') return ' M src/data/page-contracts/release.ts\n';
+      return '';
+    });
+    const invokeSpy = jest.spyOn(invoker, 'invoke');
+
+    try {
+      const result = await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 8 }));
+      const persistedState = state.read(ralphDir);
+
+      expect(result.exitReason).toBe('pending_dirty_paths');
+      expect(invokeSpy).not.toHaveBeenCalled();
+      expect(persistedState.pendingDirtyPaths).toMatchObject({
+        taskNumber: '3.1',
+        files: ['src/data/page-contracts/release.ts'],
+      });
+    } finally {
+      execSpy.mockRestore();
+      invokeSpy.mockRestore();
     }
   });
 
