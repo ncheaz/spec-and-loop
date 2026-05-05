@@ -443,6 +443,80 @@ FAKECLI
   [ "$status" -ne 0 ]
 }
 
+@test "execute_ralph_loop: passes --auto-resolve-handoffs when enabled" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+  AUTO_RESOLVE_HANDOFFS=true
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--auto-resolve-handoffs" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "execute_ralph_loop: does NOT pass --auto-resolve-handoffs by default" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--auto-resolve-handoffs" "$args_file"
+  [ "$status" -ne 0 ]
+}
+
+@test "execute_ralph_loop: passes --no-auto-resolve-handoffs when disabled" {
+  local test_dir
+  test_dir=$(setup_test_dir)
+  local change_dir
+  change_dir=$(_make_change_dir "$test_dir")
+  local ralph_dir="$test_dir/.ralph"
+  mkdir -p "$ralph_dir"
+
+  local args_file="$test_dir/cli-args.txt"
+  cat > "$test_dir/fake-cli.js" << FAKECLI
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync('$args_file', process.argv.slice(2).join('\n') + '\n');
+process.exit(0);
+FAKECLI
+  chmod +x "$test_dir/fake-cli.js"
+  MINI_RALPH_CLI="$test_dir/fake-cli.js"
+  AUTO_RESOLVE_HANDOFFS=false
+
+  execute_ralph_loop "$change_dir" "$ralph_dir" 1
+
+  run grep -q -- "--no-auto-resolve-handoffs" "$args_file"
+  [ "$status" -eq 0 ]
+}
+
 # ---------------------------------------------------------------------------
 # execute_ralph_loop: missing internal runtime
 # ---------------------------------------------------------------------------

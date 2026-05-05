@@ -129,6 +129,7 @@ resolve_ralph_command() {
 CHANGE_NAME=""
 MAX_ITERATIONS=""
 NO_COMMIT=false
+AUTO_RESOLVE_HANDOFFS=""
 SHOW_STATUS=false
 SHOW_VERSION=false
 ADD_CONTEXT=""
@@ -186,6 +187,9 @@ OPTIONS:
     --change <name>          Specify the OpenSpec change to execute (default: auto-detect)
     --max-iterations <n>     Maximum iterations for Ralph loop (default: 50)
     --no-commit              Suppress automatic git commits during the loop
+    --auto-resolve-handoffs  Enable bounded continuation for explicit safe handoffs
+    --no-auto-resolve-handoffs
+                             Disable bounded continuation for explicit safe handoffs
     --verbose, -v            Enable verbose mode for debugging
     --quiet                  Suppress the per-iteration progress stream
     --version                Print the version and exit
@@ -230,6 +234,14 @@ parse_arguments() {
                 ;;
             --no-commit)
                 NO_COMMIT=true
+                shift
+                ;;
+            --auto-resolve-handoffs)
+                AUTO_RESOLVE_HANDOFFS=true
+                shift
+                ;;
+            --no-auto-resolve-handoffs)
+                AUTO_RESOLVE_HANDOFFS=false
                 shift
                 ;;
             --verbose|-v)
@@ -1004,6 +1016,12 @@ Do not create git commits yourself. The Ralph runner manages automatic task comm
 
     if [[ "$no_commit" == true ]]; then
         mini_ralph_args+=("--no-commit")
+    fi
+
+    if [[ "$AUTO_RESOLVE_HANDOFFS" == true ]]; then
+        mini_ralph_args+=("--auto-resolve-handoffs")
+    elif [[ "$AUTO_RESOLVE_HANDOFFS" == false ]]; then
+        mini_ralph_args+=("--no-auto-resolve-handoffs")
     fi
 
     if [[ "$VERBOSE" == true ]]; then

@@ -862,6 +862,12 @@ Do not create git commits yourself. The Ralph runner manages automatic task comm
         mini_ralph_args+=("--no-commit")
     fi
 
+    if [[ "$AUTO_RESOLVE_HANDOFFS" == true ]]; then
+        mini_ralph_args+=("--auto-resolve-handoffs")
+    elif [[ "$AUTO_RESOLVE_HANDOFFS" == false ]]; then
+        mini_ralph_args+=("--no-auto-resolve-handoffs")
+    fi
+
     if [[ "$VERBOSE" == true ]]; then
         mini_ralph_args+=("--verbose")
     fi

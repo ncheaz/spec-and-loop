@@ -27,6 +27,10 @@
  *                              Loop exits cleanly with `blocked_handoff` when the
  *                              agent emits this tag and writes the agent's note
  *                              to <ralph-dir>/HANDOFF.md.
+ *   --auto-resolve-handoffs   Enable bounded continuation attempts for
+ *                              explicit, safe BLOCKED_HANDOFF classes
+ *   --no-auto-resolve-handoffs
+ *                              Disable auto-resolution even when enabled by env
  *   --no-commit                Suppress auto-commit
  *   --model <name>             Optional model override
  *   --verbose                  Verbose output
@@ -44,6 +48,11 @@ const miniRalph = require('../lib/mini-ralph/index');
 // Argument parsing
 // ---------------------------------------------------------------------------
 
+function _envFlagDefaultEnabled(value) {
+  if (value === undefined) return true;
+  return !/^(0|false|no|off)$/i.test(String(value || '').trim());
+}
+
 function parseArgs(argv) {
   const args = argv.slice(2);
   const opts = {
@@ -59,6 +68,7 @@ function parseArgs(argv) {
     completionPromise: 'COMPLETE',
     taskPromise: 'READY_FOR_NEXT_TASK',
     blockedHandoffPromise: 'BLOCKED_HANDOFF',
+    autoResolveHandoffs: _envFlagDefaultEnabled(process.env.RALPH_AUTO_RESOLVE_HANDOFFS),
     noCommit: false,
     model: '',
     verbose: false,
@@ -109,6 +119,12 @@ function parseArgs(argv) {
         break;
       case '--blocked-handoff-promise':
         opts.blockedHandoffPromise = args[++i];
+        break;
+      case '--auto-resolve-handoffs':
+        opts.autoResolveHandoffs = true;
+        break;
+      case '--no-auto-resolve-handoffs':
+        opts.autoResolveHandoffs = false;
         break;
       case '--no-commit':
         opts.noCommit = true;
@@ -165,6 +181,8 @@ Options:
   --task-promise <s>         Task promise string
   --blocked-handoff-promise <s>
                              Blocked-handoff promise string (default: BLOCKED_HANDOFF)
+  --auto-resolve-handoffs    Enable bounded continuation for explicit safe handoffs
+  --no-auto-resolve-handoffs Disable bounded continuation for explicit safe handoffs
   --no-commit                Suppress auto-commit
   --model <name>             Model override
   --verbose                  Verbose output
@@ -224,6 +242,7 @@ async function main() {
     completionPromise: opts.completionPromise,
     taskPromise: opts.taskPromise,
     blockedHandoffPromise: opts.blockedHandoffPromise,
+    autoResolveHandoffs: opts.autoResolveHandoffs,
     noCommit: opts.noCommit,
     model: opts.model,
     verbose: opts.verbose,
@@ -251,4 +270,11 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  _envFlagDefaultEnabled,
+  _parseArgs: parseArgs,
+};
