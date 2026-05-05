@@ -1182,6 +1182,7 @@ rules:
   tasks:
     - Use the task template from OPENSPEC-RALPH-BP.md
     - Each task has one dominant outcome and one verification cluster
+    - Use surgical, scope-targeted validation commands; reserve broad gates for pre-flight baselines or final integration tasks
     - Include explicit stop-and-hand-off conditions
   design:
     - Do not leave core policy choices unresolved
@@ -1203,6 +1204,7 @@ Before generating any OpenSpec artifacts, you MUST:
 - Read `openspec/OPENSPEC-RALPH-BP.md` (Ralph Wiggum authoring guide)
 - Verify proposals against the Ralph authoring checklist
 - Ensure tasks use the task template with objective done-when conditions
+- Ensure each task uses the narrowest verifier that proves its scope; use broad gates only with baseline classification or final integration tasks
 - Include explicit stop-and-hand-off conditions in every task
 RALPH_AGENTS
         log_verbose "Updated $agents_file with Ralph Wiggum compliance section"
@@ -1311,7 +1313,7 @@ WARNING_BOX
                 fi
                 local ralph_guidance=""
                 if [[ -f "$bp_file" ]]; then
-                    ralph_guidance=" When creating artifacts, read ${bp_file} and follow the Ralph Wiggum task template and authoring checklist. Ensure the proposal includes explicit scope, non-goals, first-rollout boundaries, and capabilities that map to Ralph-friendly tasks. Ensure tasks use the task template with objective done-when conditions and explicit stop-and-hand-off conditions. Do NOT restore or copy from any .bak backup files - write fresh artifacts from scratch."
+                    ralph_guidance=" When creating artifacts, read ${bp_file} and follow the Ralph Wiggum task template and authoring checklist. Ensure the proposal includes explicit scope, non-goals, first-rollout boundaries, and capabilities that map to Ralph-friendly tasks. Ensure tasks use the task template with objective done-when conditions, surgical scope-targeted verifier commands, and explicit stop-and-hand-off conditions. Prefer direct test-file or validator commands over full-suite commands; reserve broad gates for pre-flight baselines or final integration tasks. Do NOT restore or copy from any .bak backup files - write fresh artifacts from scratch."
                 fi
 
                 log_info "Invoking opencode to regenerate proposal and tasks with Ralph Wiggum best practices..."

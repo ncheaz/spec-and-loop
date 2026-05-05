@@ -21,12 +21,27 @@ const {
   _formatAutoCommitMessage,
   _truncateSubjectSummary,
   _buildIterationFeedback,
+  _buildBaselineGateFeedback,
+  _analyzeBaselineGateConflict,
+  _formatBaselineGateFeedback,
+  _extractCurrentTaskBlock,
+  _detectStrictCleanGates,
+  _detectFailingBaselineGates,
+  _detectRecordedBaselineGates,
+  _detectMissingBaselineGates,
+  _detectAuthorizedBaselineCleanup,
+  _baselineGateRepairBudgetUsed,
+  _baselineGateRepairAttempted,
   _extractErrorForIteration,
   _getCurrentTaskDescription,
   _detectProtectedCommitArtifacts,
   _gitErrorMessage,
   _isFailedIteration,
   _wasSuccessfulIteration,
+  _normalizePendingDirtyPaths,
+  _recordPendingDirtyPaths,
+  _remainingPendingDirtyPathsAfterCommit,
+  _samePendingTask,
   _failureFingerprint,
   _firstNonEmptyLine,
   _filterGitignored,
@@ -509,6 +524,55 @@ describe('_buildAutoCommitAllowlist()', () => {
   });
 });
 
+describe('pending dirty path helpers', () => {
+  test('normalizes and merges pending blocked-handoff paths', () => {
+    const pending = _recordPendingDirtyPaths(null, {
+      iteration: 7,
+      reason: 'blocked_handoff',
+      taskNumber: '3.1',
+      taskDescription: 'Align contracts',
+      task: '3.1 Align contracts',
+      files: ['src/a.js', 'src/a.js', path.join(process.cwd(), 'src/b.js')],
+      recordedAt: '2026-05-01T00:00:00.000Z',
+    });
+
+    expect(pending).toMatchObject({
+      iteration: 7,
+      reason: 'blocked_handoff',
+      taskNumber: '3.1',
+      taskDescription: 'Align contracts',
+      files: ['src/a.js', 'src/b.js'],
+    });
+    expect(_normalizePendingDirtyPaths({ files: [] })).toBeNull();
+  });
+
+  test('matches pending patches by task number first', () => {
+    const pending = {
+      taskNumber: '3.1',
+      taskDescription: 'Align contracts',
+      task: '3.1 Align contracts',
+      files: ['src/a.js'],
+    };
+
+    expect(_samePendingTask(pending, { number: '3.1', description: 'Renamed task' }, '3.1 Renamed task')).toBe(true);
+    expect(_samePendingTask(pending, { number: '4.1', description: 'Next task' }, '4.1 Next task')).toBe(false);
+  });
+
+  test('keeps only ignored pending paths after a partial commit', () => {
+    const pending = {
+      taskNumber: '3.1',
+      files: ['src/committed.js', 'ignored/output.png'],
+    };
+
+    expect(
+      _remainingPendingDirtyPathsAfterCommit(pending, {
+        ignoredPaths: ['ignored/output.png'],
+      })
+    ).toMatchObject({ files: ['ignored/output.png'] });
+    expect(_remainingPendingDirtyPathsAfterCommit(pending, null)).toBeNull();
+  });
+});
+
 describe('_detectProtectedCommitArtifacts()', () => {
   test('detects protected proposal, design, and spec artifacts for the active change', () => {
     const tasksFile = path.join(process.cwd(), 'openspec/changes/demo/tasks.md');
@@ -938,6 +1002,330 @@ describe('iteration outcome helpers', () => {
     expect(_wasSuccessfulIteration({ exitCode: 0, signal: '' })).toBe(true);
     expect(_wasSuccessfulIteration({ exitCode: 1, signal: '' })).toBe(false);
     expect(_wasSuccessfulIteration({ exitCode: null, signal: 'SIGINT' })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _buildBaselineGateFeedback
+// ---------------------------------------------------------------------------
+
+describe('_buildBaselineGateFeedback()', () => {
+  function writeBaseline(ralphDir, name, exitCode) {
+    const baselinesDir = path.join(ralphDir, 'baselines');
+    fs.mkdirSync(baselinesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(baselinesDir, name),
+      `gate output\n\nEXIT=${exitCode}\n`,
+      'utf8'
+    );
+  }
+
+  test('detects strict clean gate conflicts against failing baselines', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [x] 0.1 Pre-flight',
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0',
+      '',
+    ].join('\n'), 'utf8');
+    writeBaseline(ralphDir, 'demo-typecheck.txt', 2);
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    });
+
+    expect(feedback).toContain('requires a clean gate');
+    expect(feedback).toContain('pnpm typecheck');
+    expect(feedback).toContain('baselines/demo-typecheck.txt exits 2');
+    expect(feedback).toContain('emit BLOCKED_HANDOFF');
+  });
+
+  test('allows explicit baseline classification without requesting cleanup', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0, or failures match the 0.1 baseline with no new failures',
+      '',
+    ].join('\n'), 'utf8');
+    writeBaseline(ralphDir, 'demo-typecheck.txt', 2);
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    });
+
+    expect(feedback).toContain('appears to authorize baseline classification');
+    expect(feedback).toContain('do not repair unrelated baseline failures');
+  });
+
+  test('allows one authorized cleanup attempt for named files', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0 after fixing the named baseline failures in `src/app/docs/page.tsx` and `src/components/docs-mdx.tsx`',
+      '',
+    ].join('\n'), 'utf8');
+    writeBaseline(ralphDir, 'demo-typecheck.txt', 2);
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    });
+
+    expect(feedback).toContain('exactly one repair attempt');
+    expect(feedback).toContain('Authorized cleanup files: src/app/docs/page.tsx, src/components/docs-mdx.tsx');
+  });
+
+  test('switches authorized cleanup to handoff guidance after the budget is used', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0 after fixing the named baseline failures in `src/app/docs/page.tsx`',
+      '',
+    ].join('\n'), 'utf8');
+    writeBaseline(ralphDir, 'demo-typecheck.txt', 2);
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    }, [
+      {
+        taskNumber: '0.3',
+        taskDescription: 'Add config gates',
+        baselineGateRepairAttempted: true,
+        filesChanged: ['src/app/docs/page.tsx'],
+      },
+    ]);
+
+    expect(feedback).toContain('one repair attempt has already been used');
+    expect(feedback).toContain('emit BLOCKED_HANDOFF');
+  });
+
+  test('detects authorized cleanup files from backticked paths only', () => {
+    const cleanup = _detectAuthorizedBaselineCleanup([
+      'Done when:',
+      '- `pnpm typecheck` exits 0 after fixing the named baseline failures in `src/app/docs/page.tsx`, `src/components/docs-mdx.tsx`, and `pnpm typecheck`',
+    ].join('\n'));
+
+    expect(cleanup.allowedFiles).toEqual([
+      'src/app/docs/page.tsx',
+      'src/components/docs-mdx.tsx',
+    ]);
+  });
+
+  test('marks repair budget used only when authorized files changed for the same task', () => {
+    const conflict = {
+      mode: 'authorized_cleanup',
+      allowedFiles: ['src/app/docs/page.tsx'],
+    };
+
+    expect(_baselineGateRepairAttempted(conflict, ['src/app/docs/page.tsx'])).toBe(true);
+    expect(_baselineGateRepairAttempted(conflict, ['src/lib/observability/config.ts'])).toBe(false);
+    expect(_baselineGateRepairBudgetUsed([
+      {
+        taskNumber: '0.3',
+        taskDescription: 'Add config gates',
+        filesChanged: ['src/app/docs/page.tsx'],
+      },
+    ], { number: '0.3', description: 'Add config gates' }, ['src/app/docs/page.tsx'])).toBe(true);
+    expect(_baselineGateRepairBudgetUsed([
+      {
+        taskNumber: '0.4',
+        taskDescription: 'Different task',
+        filesChanged: ['src/app/docs/page.tsx'],
+      },
+    ], { number: '0.3', description: 'Add config gates' }, ['src/app/docs/page.tsx'])).toBe(false);
+  });
+
+  test('full history keeps the one-repair budget after it falls out of the recent window', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-full-history-budget');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0 after fixing the named baseline failures in `src/app/docs/page.tsx`',
+      '',
+    ].join('\n'), 'utf8');
+    writeBaseline(ralphDir, 'demo-typecheck.txt', 2);
+    history.append(ralphDir, {
+      iteration: 1,
+      duration: 1,
+      completionDetected: false,
+      taskDetected: false,
+      blockedHandoffDetected: false,
+      taskNumber: '0.3',
+      taskDescription: 'Add config gates',
+      filesChanged: ['src/app/docs/page.tsx'],
+      exitCode: 0,
+    });
+    for (let iteration = 2; iteration <= 5; iteration++) {
+      history.append(ralphDir, {
+        iteration,
+        duration: 1,
+        completionDetected: false,
+        taskDetected: false,
+        blockedHandoffDetected: false,
+        taskNumber: '0.3',
+        taskDescription: 'Add config gates',
+        filesChanged: [],
+        exitCode: 0,
+      });
+    }
+
+    expect(_buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    }, history.recent(ralphDir, 3))).toContain('exactly one repair attempt');
+    expect(_buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    }, history.read(ralphDir))).toContain('one repair attempt has already been used');
+  });
+
+  test('returns empty feedback when matching baseline passes', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0',
+      '',
+    ].join('\n'), 'utf8');
+    writeBaseline(ralphDir, 'demo-typecheck.txt', 0);
+
+    expect(_buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    })).toBe('');
+  });
+
+  test('warns when a completed pre-flight baseline task has no matching baseline artifact', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [x] 0.1 Pre-flight: record quality gate baselines',
+      '  - Done when:',
+      '    - `.ralph/baselines/demo-typecheck.txt` exists',
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0',
+      '',
+    ].join('\n'), 'utf8');
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    });
+
+    expect(feedback).toContain('matching baseline artifact is missing');
+    expect(feedback).toContain('pnpm typecheck');
+    expect(feedback).toContain('emit BLOCKED_HANDOFF');
+  });
+
+  test('warns when baseline classification is explicit but the baseline artifact is missing', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0, or failures match the pre-flight baseline with no new failures',
+      '',
+    ].join('\n'), 'utf8');
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    });
+
+    expect(feedback).toContain('matching baseline artifact is missing');
+    expect(feedback).toContain('restore the pre-flight baseline artifact');
+  });
+
+  test('does not warn about missing baselines when no pre-flight baseline policy is present', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0',
+      '',
+    ].join('\n'), 'utf8');
+
+    expect(_buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    })).toBe('');
+  });
+
+  test('extracts current task block and detects strict gates', () => {
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [x] 0.1 Pre-flight',
+      '  - Done when:',
+      '    - `pnpm lint` exits 0',
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0',
+      '',
+    ].join('\n'), 'utf8');
+
+    const block = _extractCurrentTaskBlock(tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    });
+
+    expect(block).toContain('0.3 Add config gates');
+    expect(block).not.toContain('0.1 Pre-flight');
+    expect(_detectStrictCleanGates(block)).toEqual([
+      expect.objectContaining({ name: 'typecheck' }),
+    ]);
+  });
+
+  test('finds failing gate baselines by filename and EXIT footer', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    writeBaseline(ralphDir, 'demo-typecheck.txt', 2);
+    writeBaseline(ralphDir, 'demo-lint.txt', 0);
+    writeBaseline(ralphDir, 'demo-test.txt', 1);
+
+    expect(_detectRecordedBaselineGates(ralphDir)).toEqual([
+      { name: 'typecheck', file: path.join('baselines', 'demo-typecheck.txt'), exitCode: 2 },
+      { name: 'lint', file: path.join('baselines', 'demo-lint.txt'), exitCode: 0 },
+      { name: 'test', file: path.join('baselines', 'demo-test.txt'), exitCode: 1 },
+    ]);
+    expect(_detectFailingBaselineGates(ralphDir)).toEqual([
+      { name: 'typecheck', file: path.join('baselines', 'demo-typecheck.txt'), exitCode: 2 },
+      { name: 'test', file: path.join('baselines', 'demo-test.txt'), exitCode: 1 },
+    ]);
+  });
+
+  test('detects missing baseline gates only when a baseline policy exists', () => {
+    const strictGates = [
+      { name: 'typecheck', command: 'pnpm typecheck' },
+      { name: 'lint', command: 'pnpm lint' },
+    ];
+
+    expect(_detectMissingBaselineGates(
+      strictGates,
+      [{ name: 'lint', file: 'baselines/demo-lint.txt', exitCode: 0 }],
+      'Done when:\n- `pnpm typecheck` exits 0, or failures match the pre-flight baseline',
+      path.join(tmpDir, 'missing-tasks.md')
+    )).toEqual([{ name: 'typecheck', command: 'pnpm typecheck' }]);
+
+    expect(_detectMissingBaselineGates(
+      strictGates,
+      [],
+      'Done when:\n- `pnpm typecheck` exits 0',
+      path.join(tmpDir, 'missing-tasks.md')
+    )).toEqual([]);
   });
 });
 
@@ -2032,6 +2420,176 @@ describe('run() with mocked invoker', () => {
       expect(prompts[0]).toContain('Legacy handoff still matters');
     } finally {
       restore();
+    }
+  });
+
+  test('persists dirty paths from a blocked handoff for operator recovery', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-pending-blocked');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 3.1 Align contracts\n', 'utf8');
+
+    const restore = mockInvoker(invoker, async () => ({
+      stdout: [
+        '## Blocker Note',
+        'Contract suite is red outside the current task.',
+        '<promise>BLOCKED_HANDOFF</promise>',
+      ].join('\n'),
+      exitCode: 0,
+      filesChanged: ['src/data/page-contracts/release.ts'],
+      toolUsage: [],
+    }));
+
+    try {
+      const result = await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+      const persistedState = state.read(ralphDir);
+
+      expect(result.exitReason).toBe('blocked_handoff');
+      expect(persistedState.pendingDirtyPaths).toMatchObject({
+        iteration: 1,
+        reason: 'blocked_handoff',
+        taskNumber: '3.1',
+        taskDescription: 'Align contracts',
+        files: ['src/data/page-contracts/release.ts'],
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  test('injects baseline gate conflict feedback into task prompts', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-baseline-conflict');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0',
+      '',
+    ].join('\n'), 'utf8');
+    fs.mkdirSync(path.join(ralphDir, 'baselines'), { recursive: true });
+    fs.writeFileSync(
+      path.join(ralphDir, 'baselines', 'demo-typecheck.txt'),
+      'typecheck output\nEXIT=2\n',
+      'utf8'
+    );
+
+    let capturedPrompt = '';
+    const restore = mockInvoker(invoker, async (opts) => {
+      capturedPrompt = opts.prompt;
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 1 }));
+
+      expect(capturedPrompt).toContain('## Baseline Gate Conflict');
+      expect(capturedPrompt).toContain('baseline-matching failures may be classified');
+      expect(capturedPrompt).toContain('baselines/demo-typecheck.txt exits 2');
+    } finally {
+      restore();
+    }
+  });
+
+  test('commits pending dirty paths when the same blocked task later completes', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-pending-same-task');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 3.1 Align contracts\n', 'utf8');
+    state.init(ralphDir, {
+      active: false,
+      iteration: 7,
+      tasksMode: true,
+      tasksFile,
+      exitReason: 'blocked_handoff',
+      pendingDirtyPaths: {
+        iteration: 7,
+        reason: 'blocked_handoff',
+        taskNumber: '3.1',
+        taskDescription: 'Align contracts',
+        task: '3.1 Align contracts',
+        files: ['src/data/page-contracts/release.ts'],
+        recordedAt: '2026-05-01T00:00:00.000Z',
+      },
+    });
+
+    const cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'status') return ' M src/data/page-contracts/release.ts\n M tasks.md\n';
+      if (command === 'git' && args[0] === 'check-ignore') return '';
+      if (command === 'git' && args[0] === 'add') return '';
+      if (command === 'git' && args[0] === 'diff') return 'tasks.md\nsrc/data/page-contracts/release.ts\n';
+      if (command === 'git' && args[0] === 'commit') return '';
+      return '';
+    });
+    const restore = mockInvoker(invoker, async () => {
+      fs.writeFileSync(tasksFile, '- [x] 3.1 Align contracts\n', 'utf8');
+      return {
+        stdout: '<promise>READY_FOR_NEXT_TASK</promise>',
+        exitCode: 0,
+        filesChanged: [tasksFile],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 8 }));
+
+      expect(execSpy).toHaveBeenCalledWith(
+        'git',
+        ['add', '-A', '--', 'tasks.md', 'src/data/page-contracts/release.ts'],
+        expect.any(Object)
+      );
+      expect(state.read(ralphDir).pendingDirtyPaths).toBeNull();
+    } finally {
+      restore();
+      execSpy.mockRestore();
+      cwdSpy.mockRestore();
+    }
+  });
+
+  test('halts before another task when pending blocked-handoff paths are still dirty', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-pending-different-task');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 4.1 Reconcile visuals\n', 'utf8');
+    state.init(ralphDir, {
+      active: false,
+      iteration: 7,
+      tasksMode: true,
+      tasksFile,
+      exitReason: 'blocked_handoff',
+      pendingDirtyPaths: {
+        iteration: 7,
+        reason: 'blocked_handoff',
+        taskNumber: '3.1',
+        taskDescription: 'Align contracts',
+        task: '3.1 Align contracts',
+        files: ['src/data/page-contracts/release.ts'],
+        recordedAt: '2026-05-01T00:00:00.000Z',
+      },
+    });
+
+    const execSpy = jest.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
+      if (command === 'git' && args[0] === 'status') return ' M src/data/page-contracts/release.ts\n';
+      return '';
+    });
+    const invokeSpy = jest.spyOn(invoker, 'invoke');
+
+    try {
+      const result = await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 8 }));
+      const persistedState = state.read(ralphDir);
+
+      expect(result.exitReason).toBe('pending_dirty_paths');
+      expect(invokeSpy).not.toHaveBeenCalled();
+      expect(persistedState.pendingDirtyPaths).toMatchObject({
+        taskNumber: '3.1',
+        files: ['src/data/page-contracts/release.ts'],
+      });
+    } finally {
+      execSpy.mockRestore();
+      invokeSpy.mockRestore();
     }
   });
 

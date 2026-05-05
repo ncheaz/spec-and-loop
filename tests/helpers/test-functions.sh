@@ -914,6 +914,7 @@ rules:
   tasks:
     - Use the task template from OPENSPEC-RALPH-BP.md
     - Each task has one dominant outcome and one verification cluster
+    - Use surgical, scope-targeted validation commands; reserve broad gates for pre-flight baselines or final integration tasks
     - Include explicit stop-and-hand-off conditions
   design:
     - Do not leave core policy choices unresolved
@@ -935,6 +936,7 @@ Before generating any OpenSpec artifacts, you MUST:
 - Read `OPENSPEC-RALPH-BP.md` in the project root
 - Verify proposals against the Ralph authoring checklist
 - Ensure tasks use the task template with objective done-when conditions
+- Ensure each task uses the narrowest verifier that proves its scope; use broad gates only with baseline classification or final integration tasks
 - Include explicit stop-and-hand-off conditions in every task
 RALPH_AGENTS
         log_verbose "Updated $agents_file with Ralph Wiggum compliance section"
