@@ -21,6 +21,9 @@ const {
   _formatAutoCommitMessage,
   _truncateSubjectSummary,
   _buildIterationFeedback,
+  _buildAutoResolveHandoffFeedback,
+  _handoffHasFocusedVerifierEvidence,
+  _decideAutoResolveHandoff,
   _buildBaselineGateFeedback,
   _analyzeBaselineGateConflict,
   _formatBaselineGateFeedback,
@@ -1589,6 +1592,74 @@ describe('_buildIterationFeedback() - fingerprint dedup', () => {
   });
 });
 
+describe('auto-resolve handoff helpers', () => {
+  test('recognizes explicit focused-verifier evidence', () => {
+    const note = [
+      '## Blocker Note',
+      'The focused verifier `pnpm test -t "one scenario"` passes.',
+      'The required broad verifier fails on unrelated pre-existing browser failures.',
+    ].join('\n');
+
+    expect(_handoffHasFocusedVerifierEvidence(note)).toBe(true);
+  });
+
+  test('rejects ambiguous handoffs without focused pass evidence', () => {
+    const note = [
+      '## Blocker Note',
+      'The broad suite fails, probably due to unrelated tests.',
+      'Please advise.',
+    ].join('\n');
+
+    expect(_handoffHasFocusedVerifierEvidence(note)).toBe(false);
+  });
+
+  test('decides disabled, authorized, and budget-exhausted cases', () => {
+    const note = [
+      'Focused verifier passes with exit 0.',
+      'The broad verifier failed on unrelated pre-existing failures.',
+    ].join('\n');
+    const task = { number: '4.1', description: 'Emit not-found telemetry' };
+
+    expect(_decideAutoResolveHandoff({ enabled: false }, note, task, null)).toMatchObject({
+      allowed: false,
+      reason: 'disabled',
+    });
+
+    expect(_decideAutoResolveHandoff({
+      enabled: true,
+      maxPerRun: 6,
+      state: { totalAttempts: 0, attempts: {} },
+    }, note, task, null)).toMatchObject({
+      allowed: true,
+      className: 'verifier_narrowing',
+      budgetKey: '4.1:verifier_narrowing',
+    });
+
+    expect(_decideAutoResolveHandoff({
+      enabled: true,
+      maxPerRun: 1,
+      state: { totalAttempts: 1, attempts: {} },
+    }, note, task, null)).toMatchObject({
+      allowed: false,
+      reason: 'global_budget_exhausted',
+    });
+  });
+
+  test('builds continuation guidance for verifier narrowing', () => {
+    const feedback = _buildAutoResolveHandoffFeedback([
+      {
+        iteration: 2,
+        autoResolveHandoffAttempted: true,
+        autoResolveHandoffClass: 'verifier_narrowing',
+      },
+    ]);
+
+    expect(feedback).toContain('exactly one continuation attempt');
+    expect(feedback).toContain('update only the current task verifier');
+    expect(feedback).toContain('emit BLOCKED_HANDOFF');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // _buildIterationFeedback() - paths_ignored_filtered / all_paths_ignored dedup bypass
 // ---------------------------------------------------------------------------
@@ -2456,6 +2527,197 @@ describe('run() with mocked invoker', () => {
     }
   });
 
+  test('auto-resolve handoffs can be disabled explicitly', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-auto-disabled');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 4.1 Emit not-found telemetry\n', 'utf8');
+    let callCount = 0;
+
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      return {
+        stdout: [
+          '## Blocker Note',
+          'The focused verifier `pnpm test -t "not-found"` passes.',
+          'The broad verifier fails on unrelated pre-existing tests.',
+          '<promise>BLOCKED_HANDOFF</promise>',
+        ].join('\n'),
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({
+        ralphDir,
+        tasksMode: true,
+        tasksFile,
+        maxIterations: 2,
+        autoResolveHandoffs: false,
+      }));
+
+      expect(callCount).toBe(1);
+      expect(result.exitReason).toBe('blocked_handoff');
+      expect(history.recent(ralphDir, 1)[0]).toMatchObject({
+        autoResolveHandoffAttempted: false,
+        autoResolveHandoffReason: 'disabled',
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  test('auto-resolve continues by default for explicit focused verifier narrowing', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-auto-verifier');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 4.1 Emit not-found telemetry\n', 'utf8');
+    const prompts = [];
+    let callCount = 0;
+
+    const restore = mockInvoker(invoker, async (opts) => {
+      callCount++;
+      prompts.push(opts.prompt);
+      if (callCount === 1) {
+        return {
+          stdout: [
+            '## Blocker Note',
+            'The focused verifier `pnpm test -t "not-found"` passes.',
+            'The required broad verifier fails on unrelated pre-existing route snapshots.',
+            '<promise>BLOCKED_HANDOFF</promise>',
+          ].join('\n'),
+          exitCode: 0,
+          filesChanged: [],
+          toolUsage: [],
+        };
+      }
+
+      return {
+        stdout: '<promise>COMPLETE</promise>',
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({
+        ralphDir,
+        tasksMode: true,
+        tasksFile,
+        maxIterations: 2,
+      }));
+      const entries = history.recent(ralphDir, 2);
+
+      expect(result.completed).toBe(true);
+      expect(result.iterations).toBe(2);
+      expect(prompts[1]).toContain('## Auto-Resolve Handoff');
+      expect(prompts[1]).toContain('update only the current task verifier');
+      expect(entries[0]).toMatchObject({
+        autoResolveHandoffAttempted: true,
+        autoResolveHandoffClass: 'verifier_narrowing',
+        autoResolveHandoffBudgetKey: '4.1:verifier_narrowing',
+      });
+      expect(state.read(ralphDir).autoResolveHandoffs).toMatchObject({
+        totalAttempts: 1,
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  test('auto-resolve keeps ambiguous handoffs blocked', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-auto-ambiguous');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 4.1 Emit not-found telemetry\n', 'utf8');
+    let callCount = 0;
+
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      return {
+        stdout: [
+          '## Blocker Note',
+          'The broad verifier fails. Please advise.',
+          '<promise>BLOCKED_HANDOFF</promise>',
+        ].join('\n'),
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({
+        ralphDir,
+        tasksMode: true,
+        tasksFile,
+        maxIterations: 2,
+        autoResolveHandoffs: true,
+      }));
+
+      expect(callCount).toBe(1);
+      expect(result.exitReason).toBe('blocked_handoff');
+      expect(history.recent(ralphDir, 1)[0]).toMatchObject({
+        autoResolveHandoffAttempted: false,
+        autoResolveHandoffReason: 'ambiguous_or_unsupported_handoff',
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  test('auto-resolve budget exhaustion stops instead of retrying', async () => {
+    const ralphDir = path.join(tmpDir, '.ralph-auto-budget');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, '- [ ] 4.1 Emit not-found telemetry\n', 'utf8');
+    fs.mkdirSync(ralphDir, { recursive: true });
+    state.init(ralphDir, {
+      active: false,
+      iteration: 1,
+      autoResolveHandoffs: {
+        enabled: true,
+        maxPerRun: 6,
+        totalAttempts: 6,
+        attempts: {},
+      },
+    });
+    let callCount = 0;
+
+    const restore = mockInvoker(invoker, async () => {
+      callCount++;
+      return {
+        stdout: [
+          '## Blocker Note',
+          'The focused verifier `pnpm test -t "not-found"` passes.',
+          'The broad verifier fails on unrelated pre-existing tests.',
+          '<promise>BLOCKED_HANDOFF</promise>',
+        ].join('\n'),
+        exitCode: 0,
+        filesChanged: [],
+        toolUsage: [],
+      };
+    });
+
+    try {
+      const result = await run(makeOptions({
+        ralphDir,
+        tasksMode: true,
+        tasksFile,
+        maxIterations: 2,
+        autoResolveHandoffs: true,
+      }));
+
+      expect(callCount).toBe(1);
+      expect(result.exitReason).toBe('blocked_handoff');
+      expect(history.recent(ralphDir, 1)[0]).toMatchObject({
+        autoResolveHandoffAttempted: false,
+        autoResolveHandoffReason: 'global_budget_exhausted',
+      });
+    } finally {
+      restore();
+    }
+  });
+
   test('injects baseline gate conflict feedback into task prompts', async () => {
     const ralphDir = path.join(tmpDir, '.ralph-baseline-conflict');
     const tasksFile = path.join(tmpDir, 'tasks.md');
@@ -2578,7 +2840,13 @@ describe('run() with mocked invoker', () => {
     const invokeSpy = jest.spyOn(invoker, 'invoke');
 
     try {
-      const result = await run(makeOptions({ ralphDir, tasksMode: true, tasksFile, maxIterations: 8 }));
+      const result = await run(makeOptions({
+        ralphDir,
+        tasksMode: true,
+        tasksFile,
+        maxIterations: 8,
+        autoResolveHandoffs: true,
+      }));
       const persistedState = state.read(ralphDir);
 
       expect(result.exitReason).toBe('pending_dirty_paths');

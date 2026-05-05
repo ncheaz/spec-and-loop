@@ -14,6 +14,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const CLI = path.join(__dirname, '../../../scripts/mini-ralph-cli.js');
+const { _parseArgs } = require('../../../scripts/mini-ralph-cli.js');
 
 describe('mini-ralph-cli flag parsing', () => {
   test('--help advertises --blocked-handoff-promise', () => {
@@ -21,6 +22,8 @@ describe('mini-ralph-cli flag parsing', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--blocked-handoff-promise');
+    expect(result.stdout).toContain('--auto-resolve-handoffs');
+    expect(result.stdout).toContain('--no-auto-resolve-handoffs');
     expect(result.stdout).toContain('BLOCKED_HANDOFF');
   });
 
@@ -43,6 +46,47 @@ describe('mini-ralph-cli flag parsing', () => {
     // --status path always exits 0 with a "no run yet" message even when the
     // dir is missing.
     expect(result.status).toBe(0);
+  });
+
+  test('RALPH_AUTO_RESOLVE_HANDOFFS enables by default and disables only for explicit false values', () => {
+    const original = process.env.RALPH_AUTO_RESOLVE_HANDOFFS;
+    try {
+      delete process.env.RALPH_AUTO_RESOLVE_HANDOFFS;
+      expect(_parseArgs(['node', CLI]).autoResolveHandoffs).toBe(true);
+
+      for (const value of ['1', 'true', 'TRUE', 'yes', 'on', '']) {
+        process.env.RALPH_AUTO_RESOLVE_HANDOFFS = value;
+        expect(_parseArgs(['node', CLI]).autoResolveHandoffs).toBe(true);
+      }
+
+      for (const value of ['0', 'false', 'FALSE', 'no', 'off']) {
+        process.env.RALPH_AUTO_RESOLVE_HANDOFFS = value;
+        expect(_parseArgs(['node', CLI]).autoResolveHandoffs).toBe(false);
+      }
+    } finally {
+      if (original === undefined) {
+        delete process.env.RALPH_AUTO_RESOLVE_HANDOFFS;
+      } else {
+        process.env.RALPH_AUTO_RESOLVE_HANDOFFS = original;
+      }
+    }
+  });
+
+  test('CLI auto-resolve flags override the env default', () => {
+    const original = process.env.RALPH_AUTO_RESOLVE_HANDOFFS;
+    try {
+      process.env.RALPH_AUTO_RESOLVE_HANDOFFS = '0';
+      expect(_parseArgs(['node', CLI, '--auto-resolve-handoffs']).autoResolveHandoffs).toBe(true);
+
+      process.env.RALPH_AUTO_RESOLVE_HANDOFFS = '1';
+      expect(_parseArgs(['node', CLI, '--no-auto-resolve-handoffs']).autoResolveHandoffs).toBe(false);
+    } finally {
+      if (original === undefined) {
+        delete process.env.RALPH_AUTO_RESOLVE_HANDOFFS;
+      } else {
+        process.env.RALPH_AUTO_RESOLVE_HANDOFFS = original;
+      }
+    }
   });
 
   test('rejects an actually-unknown flag with exit 1', () => {
