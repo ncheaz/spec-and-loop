@@ -27,6 +27,8 @@ const {
   _extractCurrentTaskBlock,
   _detectStrictCleanGates,
   _detectFailingBaselineGates,
+  _detectRecordedBaselineGates,
+  _detectMissingBaselineGates,
   _detectAuthorizedBaselineCleanup,
   _baselineGateRepairBudgetUsed,
   _baselineGateRepairAttempted,
@@ -1206,6 +1208,64 @@ describe('_buildBaselineGateFeedback()', () => {
     })).toBe('');
   });
 
+  test('warns when a completed pre-flight baseline task has no matching baseline artifact', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [x] 0.1 Pre-flight: record quality gate baselines',
+      '  - Done when:',
+      '    - `.ralph/baselines/demo-typecheck.txt` exists',
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0',
+      '',
+    ].join('\n'), 'utf8');
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    });
+
+    expect(feedback).toContain('matching baseline artifact is missing');
+    expect(feedback).toContain('pnpm typecheck');
+    expect(feedback).toContain('emit BLOCKED_HANDOFF');
+  });
+
+  test('warns when baseline classification is explicit but the baseline artifact is missing', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0, or failures match the pre-flight baseline with no new failures',
+      '',
+    ].join('\n'), 'utf8');
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    });
+
+    expect(feedback).toContain('matching baseline artifact is missing');
+    expect(feedback).toContain('restore the pre-flight baseline artifact');
+  });
+
+  test('does not warn about missing baselines when no pre-flight baseline policy is present', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [ ] 0.3 Add config gates',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0',
+      '',
+    ].join('\n'), 'utf8');
+
+    expect(_buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Add config gates',
+    })).toBe('');
+  });
+
   test('extracts current task block and detects strict gates', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     fs.writeFileSync(tasksFile, [
@@ -1236,10 +1296,36 @@ describe('_buildBaselineGateFeedback()', () => {
     writeBaseline(ralphDir, 'demo-lint.txt', 0);
     writeBaseline(ralphDir, 'demo-test.txt', 1);
 
+    expect(_detectRecordedBaselineGates(ralphDir)).toEqual([
+      { name: 'typecheck', file: path.join('baselines', 'demo-typecheck.txt'), exitCode: 2 },
+      { name: 'lint', file: path.join('baselines', 'demo-lint.txt'), exitCode: 0 },
+      { name: 'test', file: path.join('baselines', 'demo-test.txt'), exitCode: 1 },
+    ]);
     expect(_detectFailingBaselineGates(ralphDir)).toEqual([
       { name: 'typecheck', file: path.join('baselines', 'demo-typecheck.txt'), exitCode: 2 },
       { name: 'test', file: path.join('baselines', 'demo-test.txt'), exitCode: 1 },
     ]);
+  });
+
+  test('detects missing baseline gates only when a baseline policy exists', () => {
+    const strictGates = [
+      { name: 'typecheck', command: 'pnpm typecheck' },
+      { name: 'lint', command: 'pnpm lint' },
+    ];
+
+    expect(_detectMissingBaselineGates(
+      strictGates,
+      [{ name: 'lint', file: 'baselines/demo-lint.txt', exitCode: 0 }],
+      'Done when:\n- `pnpm typecheck` exits 0, or failures match the pre-flight baseline',
+      path.join(tmpDir, 'missing-tasks.md')
+    )).toEqual([{ name: 'typecheck', command: 'pnpm typecheck' }]);
+
+    expect(_detectMissingBaselineGates(
+      strictGates,
+      [],
+      'Done when:\n- `pnpm typecheck` exits 0',
+      path.join(tmpDir, 'missing-tasks.md')
+    )).toEqual([]);
   });
 });
 
