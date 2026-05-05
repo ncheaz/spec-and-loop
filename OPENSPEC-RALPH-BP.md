@@ -58,6 +58,12 @@ Split test: if the loop stopped halfway, would the repo be clean and reviewable?
 - "Pre-existing" requires a before-baseline. Without one, any failure could be a regression.
 - First task in a chain that needs clean gates must be a pre-flight baseline that records gate output.
 - Explicitly distinguish known-broken validators (document and continue) from required-clean validators (hard stop). If only one is named, the loop generalizes permissively.
+- If a pre-flight baseline records a failing gate, later tasks MUST NOT require only a strict clean result for that same gate unless the task is intentionally responsible for fixing that baseline failure. Use one of these explicit forms:
+  - Baseline classification: `` `<gate command>` exits 0, or failures match the pre-flight baseline with no new failures in this task's scope ``
+  - Authorized cleanup: `` `<gate command>` exits 0 after fixing the named baseline failures in `<path/one.ts>` and `<path/two.ts>` ``
+  - Hard blocker: `` `<gate command>` exits 0; baseline failures are not allowed for this task ``
+- When strict clean-gate text conflicts with a failing pre-flight baseline and no classification/cleanup rule is written, `ralph-run` will warn the agent to stop with `BLOCKED_HANDOFF` instead of spending iterations on unauthorized cleanup.
+- Authorized cleanup is intentionally narrow: the named files must be backticked, the cleanup is limited to compiler/lint-only fixes, and `ralph-run` gives the agent one repair attempt for those files on that task. If the gate still fails after that attempt, the next prompt tells the agent to hand off instead of retrying.
 
 Pre-flight template:
 ```markdown
