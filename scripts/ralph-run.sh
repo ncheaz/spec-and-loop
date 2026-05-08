@@ -130,6 +130,12 @@ CHANGE_NAME=""
 MAX_ITERATIONS=""
 NO_COMMIT=false
 AUTO_RESOLVE_HANDOFFS=""
+SELF_HEAL=""
+SELF_HEAL_MAX_TRIES=""
+SELF_HEAL_DOWNSTREAM=""
+SELF_HEAL_HINTS=""
+SELF_HEAL_LOG_ACCESS=""
+SELF_HEAL_VERBOSE=""
 SHOW_STATUS=false
 SHOW_VERSION=false
 ADD_CONTEXT=""
@@ -190,6 +196,16 @@ OPTIONS:
     --auto-resolve-handoffs  Enable bounded continuation for explicit safe handoffs
     --no-auto-resolve-handoffs
                              Disable bounded continuation for explicit safe handoffs
+    --no-self-heal           Disable supervisor self-heal (env: RALPH_SELF_HEAL=0)
+    --self-heal-max-tries <n>
+                             Supervisor tries per blocker (env: RALPH_SELF_HEAL_MAX_TRIES)
+    --no-self-heal-downstream
+                             Disable downstream supervisor patches (env: RALPH_SELF_HEAL_DOWNSTREAM=0)
+    --no-self-heal-hints     Disable supervisor investigation hints (env: RALPH_SELF_HEAL_HINTS=0)
+    --no-self-heal-log-access
+                             Disable supervisor log-path injection (env: RALPH_SELF_HEAL_LOG_ACCESS=0)
+    --self-heal-verbose      Enable supervisor debug logging (env: RALPH_SELF_HEAL_VERBOSE=1)
+    --no-self-heal-verbose   Disable supervisor debug logging, even with --verbose
     --verbose, -v            Enable verbose mode for debugging
     --quiet                  Suppress the per-iteration progress stream
     --version                Print the version and exit
@@ -242,6 +258,34 @@ parse_arguments() {
                 ;;
             --no-auto-resolve-handoffs)
                 AUTO_RESOLVE_HANDOFFS=false
+                shift
+                ;;
+            --no-self-heal)
+                SELF_HEAL=false
+                shift
+                ;;
+            --self-heal-max-tries)
+                SELF_HEAL_MAX_TRIES="$2"
+                shift 2
+                ;;
+            --no-self-heal-downstream)
+                SELF_HEAL_DOWNSTREAM=false
+                shift
+                ;;
+            --no-self-heal-hints)
+                SELF_HEAL_HINTS=false
+                shift
+                ;;
+            --no-self-heal-log-access)
+                SELF_HEAL_LOG_ACCESS=false
+                shift
+                ;;
+            --self-heal-verbose)
+                SELF_HEAL_VERBOSE=true
+                shift
+                ;;
+            --no-self-heal-verbose)
+                SELF_HEAL_VERBOSE=false
                 shift
                 ;;
             --verbose|-v)
@@ -1022,6 +1066,32 @@ Do not create git commits yourself. The Ralph runner manages automatic task comm
         mini_ralph_args+=("--auto-resolve-handoffs")
     elif [[ "$AUTO_RESOLVE_HANDOFFS" == false ]]; then
         mini_ralph_args+=("--no-auto-resolve-handoffs")
+    fi
+
+    if [[ "$SELF_HEAL" == false ]]; then
+        mini_ralph_args+=("--no-self-heal")
+    fi
+
+    if [[ -n "$SELF_HEAL_MAX_TRIES" ]]; then
+        mini_ralph_args+=("--self-heal-max-tries" "$SELF_HEAL_MAX_TRIES")
+    fi
+
+    if [[ "$SELF_HEAL_DOWNSTREAM" == false ]]; then
+        mini_ralph_args+=("--no-self-heal-downstream")
+    fi
+
+    if [[ "$SELF_HEAL_HINTS" == false ]]; then
+        mini_ralph_args+=("--no-self-heal-hints")
+    fi
+
+    if [[ "$SELF_HEAL_LOG_ACCESS" == false ]]; then
+        mini_ralph_args+=("--no-self-heal-log-access")
+    fi
+
+    if [[ "$SELF_HEAL_VERBOSE" == true ]]; then
+        mini_ralph_args+=("--self-heal-verbose")
+    elif [[ "$SELF_HEAL_VERBOSE" == false ]]; then
+        mini_ralph_args+=("--no-self-heal-verbose")
     fi
 
     if [[ "$VERBOSE" == true ]]; then

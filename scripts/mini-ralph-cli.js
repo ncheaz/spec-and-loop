@@ -31,6 +31,13 @@
  *                              explicit, safe BLOCKED_HANDOFF classes
  *   --no-auto-resolve-handoffs
  *                              Disable auto-resolution even when enabled by env
+ *   --no-self-heal            Disable supervisor self-heal (env: RALPH_SELF_HEAL=0)
+ *   --self-heal-max-tries <n> Supervisor tries per blocker (env: RALPH_SELF_HEAL_MAX_TRIES)
+ *   --no-self-heal-downstream Disable downstream supervisor patches (env: RALPH_SELF_HEAL_DOWNSTREAM=0)
+ *   --no-self-heal-hints      Disable supervisor investigation hints (env: RALPH_SELF_HEAL_HINTS=0)
+ *   --no-self-heal-log-access Disable supervisor log-path injection (env: RALPH_SELF_HEAL_LOG_ACCESS=0)
+ *   --self-heal-verbose       Enable supervisor debug logging (env: RALPH_SELF_HEAL_VERBOSE=1)
+ *   --no-self-heal-verbose    Disable supervisor debug logging, even with --verbose
  *   --no-commit                Suppress auto-commit
  *   --model <name>             Optional model override
  *   --verbose                  Verbose output
@@ -69,6 +76,12 @@ function parseArgs(argv) {
     taskPromise: 'READY_FOR_NEXT_TASK',
     blockedHandoffPromise: 'BLOCKED_HANDOFF',
     autoResolveHandoffs: _envFlagDefaultEnabled(process.env.RALPH_AUTO_RESOLVE_HANDOFFS),
+    selfHeal: null,
+    selfHealMaxTries: null,
+    selfHealDownstream: null,
+    selfHealHints: null,
+    selfHealLogAccess: null,
+    selfHealVerbose: null,
     noCommit: false,
     model: '',
     verbose: false,
@@ -126,6 +139,27 @@ function parseArgs(argv) {
       case '--no-auto-resolve-handoffs':
         opts.autoResolveHandoffs = false;
         break;
+      case '--no-self-heal':
+        opts.selfHeal = false;
+        break;
+      case '--self-heal-max-tries':
+        opts.selfHealMaxTries = parseInt(args[++i], 10);
+        break;
+      case '--no-self-heal-downstream':
+        opts.selfHealDownstream = false;
+        break;
+      case '--no-self-heal-hints':
+        opts.selfHealHints = false;
+        break;
+      case '--no-self-heal-log-access':
+        opts.selfHealLogAccess = false;
+        break;
+      case '--self-heal-verbose':
+        opts.selfHealVerbose = true;
+        break;
+      case '--no-self-heal-verbose':
+        opts.selfHealVerbose = false;
+        break;
       case '--no-commit':
         opts.noCommit = true;
         break;
@@ -180,9 +214,16 @@ Options:
   --completion-promise <s>   Completion promise string
   --task-promise <s>         Task promise string
   --blocked-handoff-promise <s>
-                             Blocked-handoff promise string (default: BLOCKED_HANDOFF)
+                              Blocked-handoff promise string (default: BLOCKED_HANDOFF)
   --auto-resolve-handoffs    Enable bounded continuation for explicit safe handoffs
   --no-auto-resolve-handoffs Disable bounded continuation for explicit safe handoffs
+  --no-self-heal             Disable supervisor self-heal (env: RALPH_SELF_HEAL=0)
+  --self-heal-max-tries <n>  Supervisor tries per blocker (env: RALPH_SELF_HEAL_MAX_TRIES)
+  --no-self-heal-downstream  Disable downstream supervisor patches (env: RALPH_SELF_HEAL_DOWNSTREAM=0)
+  --no-self-heal-hints       Disable supervisor investigation hints (env: RALPH_SELF_HEAL_HINTS=0)
+  --no-self-heal-log-access  Disable supervisor log-path injection (env: RALPH_SELF_HEAL_LOG_ACCESS=0)
+  --self-heal-verbose        Enable supervisor debug logging (env: RALPH_SELF_HEAL_VERBOSE=1)
+  --no-self-heal-verbose     Disable supervisor debug logging, even with --verbose
   --no-commit                Suppress auto-commit
   --model <name>             Model override
   --verbose                  Verbose output
@@ -243,6 +284,12 @@ async function main() {
     taskPromise: opts.taskPromise,
     blockedHandoffPromise: opts.blockedHandoffPromise,
     autoResolveHandoffs: opts.autoResolveHandoffs,
+    selfHeal: opts.selfHeal,
+    selfHealMaxTries: opts.selfHealMaxTries,
+    selfHealDownstream: opts.selfHealDownstream,
+    selfHealHints: opts.selfHealHints,
+    selfHealLogAccess: opts.selfHealLogAccess,
+    selfHealVerbose: opts.selfHealVerbose,
     noCommit: opts.noCommit,
     model: opts.model,
     verbose: opts.verbose,
