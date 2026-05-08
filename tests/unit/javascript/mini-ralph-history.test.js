@@ -64,6 +64,27 @@ describe('history.read()', () => {
     expect(result[0].iteration).toBe(1);
     expect(result[1].completionDetected).toBe(true);
   });
+
+  test('existing history-schema fixtures still pass when supervisor fields are missing', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+    const entries = [
+      {
+        iteration: 4,
+        duration: 200,
+        completionDetected: false,
+        taskDetected: true,
+        toolUsage: [],
+        filesChanged: [],
+        exitCode: 0,
+      },
+    ];
+    fs.writeFileSync(history.historyPath(ralphDir), JSON.stringify(entries), 'utf8');
+
+    const result = history.read(ralphDir);
+    expect(result).toEqual(entries);
+    expect(Object.prototype.hasOwnProperty.call(result[0], 'supervisorInvoked')).toBe(false);
+  });
 });
 
 describe('history.append()', () => {
@@ -130,6 +151,68 @@ describe('history.append()', () => {
     expect(entries[0].toolUsage).toEqual([{ tool: 'Read', count: 3 }]);
     expect(entries[0].filesChanged).toEqual(['src/foo.js']);
     expect(entries[0].exitCode).toBe(0);
+  });
+
+  test('history round-trips supervisor fields and supervisorEdit entries', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(ralphDir);
+
+    history.append(ralphDir, {
+      iteration: 7,
+      duration: 321,
+      completionDetected: false,
+      taskDetected: true,
+      toolUsage: [{ tool: 'Read', count: 1 }],
+      filesChanged: ['openspec/changes/add-supervisor-loop/tasks.md'],
+      exitCode: 0,
+      supervisorInvoked: true,
+      supervisorTryIndex: 2,
+      supervisorOutcome: 'patch_applied',
+      supervisorPatchedTasks: ['2.2', '2.3'],
+      supervisorBlockerHash: '0123456789abcdef',
+      supervisorSoftWarnings: ['soft warning'],
+      supervisorHints: [{ path: 'lib/mini-ralph/history.js', rationale: 'Read entry normalization.' }],
+      supervisorHintsDropped: [{ path: '../outside', reason: 'out_of_tree' }],
+      supervisorReadLogs: true,
+      supervisorReadLogsBytes: 4096,
+    });
+    history.append(ralphDir, {
+      type: 'supervisorEdit',
+      iteration: 7,
+      blockerHash: '0123456789abcdef',
+      tryIndex: 2,
+      taskNumber: '2.2',
+      rationaleSummary: 'Widen history schema for supervisor auditing.',
+      validatorOk: true,
+      softWarnings: ['warn-only note'],
+    });
+
+    const entries = history.read(ralphDir);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      iteration: 7,
+      supervisorInvoked: true,
+      supervisorTryIndex: 2,
+      supervisorOutcome: 'patch_applied',
+      supervisorPatchedTasks: ['2.2', '2.3'],
+      supervisorBlockerHash: '0123456789abcdef',
+      supervisorSoftWarnings: ['soft warning'],
+      supervisorHints: [{ path: 'lib/mini-ralph/history.js', rationale: 'Read entry normalization.' }],
+      supervisorHintsDropped: [{ path: '../outside', reason: 'out_of_tree' }],
+      supervisorReadLogs: true,
+      supervisorReadLogsBytes: 4096,
+    });
+    expect(entries[1]).toMatchObject({
+      type: 'supervisorEdit',
+      iteration: 7,
+      blockerHash: '0123456789abcdef',
+      tryIndex: 2,
+      taskNumber: '2.2',
+      rationaleSummary: 'Widen history schema for supervisor auditing.',
+      validatorOk: true,
+      softWarnings: ['warn-only note'],
+    });
+    expect(entries[1].timestamp).toBeDefined();
   });
 });
 
