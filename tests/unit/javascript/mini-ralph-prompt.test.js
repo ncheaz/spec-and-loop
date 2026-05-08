@@ -133,6 +133,19 @@ describe('render()', () => {
     expect(result).toBe('Do stuff.');
   });
 
+  test('appends supervisor hints when no template is specified', () => {
+    const result = render({
+      promptText: 'Do stuff.',
+      supervisorHints: [
+        { path: 'lib/mini-ralph/prompt.js', rationale: 'Read the prompt renderer first.' },
+      ],
+    }, 3);
+
+    expect(result).toContain('Do stuff.');
+    expect(result).toContain('## Supervisor Investigation Hints');
+    expect(result).toContain('`lib/mini-ralph/prompt.js`: Read the prompt renderer first.');
+  });
+
   test('renders template with iteration variables', () => {
     const templateFile = path.join(tmpDir, 'template.md');
     fs.writeFileSync(

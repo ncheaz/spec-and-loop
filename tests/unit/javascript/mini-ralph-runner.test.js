@@ -52,6 +52,7 @@ const {
   _extractBlockerNote,
   _writeHandoff,
   _detectBlockerArtifacts,
+  _recoverSupervisorStartupResidue,
   run,
 } = require('../../../lib/mini-ralph/runner');
 
@@ -60,6 +61,7 @@ const history = require('../../../lib/mini-ralph/history');
 const context = require('../../../lib/mini-ralph/context');
 const errors = require('../../../lib/mini-ralph/errors');
 const invokerHelpers = require('../../../lib/mini-ralph/invoker');
+const supervisor = require('../../../lib/mini-ralph/supervisor');
 
 let tmpDir;
 
@@ -4502,6 +4504,109 @@ describe('_writeHandoff()', () => {
     const body = fs.readFileSync(path.join(ralphDir, 'HANDOFF.md'), 'utf8');
     expect(body).toContain('agent emitted BLOCKED_HANDOFF without a structured blocker note');
   });
+
+  test('HANDOFF supervisor applied patch writes a Supervisor edits section', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-handoff-supervisor-edit');
+    _writeHandoff(ralphDir, {
+      iteration: 8,
+      task: '5.2 Wire HANDOFF sections',
+      note: '## Blocker Note\nSupervisor repaired the task definition.',
+      supervisor: {
+        iteration: 8,
+        tryIndex: 2,
+        blockerHash: 'deadbeefcafe1234',
+        patchedTasks: ['5.2', '5.3'],
+        softWarnings: ['soft verb without verifier'],
+        summary: 'Supervisor widened the current task and patched one downstream task.',
+        attempts: ['try 1: patch_rejected_structural missing audit comment'],
+        attemptsExhausted: false,
+      },
+    });
+
+    const body = fs.readFileSync(path.join(ralphDir, 'HANDOFF.md'), 'utf8');
+    expect(body).toContain('## Supervisor edits');
+    expect(body).toContain('- Iteration: 8');
+    expect(body).toContain('- Try index: 2');
+    expect(body).toContain('- Blocker hash: deadbeefcafe1234');
+    expect(body).toContain('- Patched tasks: 5.2, 5.3');
+    expect(body).toContain('- Soft warnings: soft verb without verifier');
+    expect(body).toContain('- Summary: Supervisor widened the current task and patched one downstream task.');
+    expect(body).not.toContain('### Supervisor attempts');
+  });
+
+  test('HANDOFF supervisor exhausted budget writes the Supervisor attempts subsection with try lines', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-handoff-supervisor-attempts');
+    _writeHandoff(ralphDir, {
+      iteration: 9,
+      task: '5.2 Wire HANDOFF sections',
+      note: '## Blocker Note\nSupervisor could not produce a valid patch.',
+      supervisor: {
+        iteration: 9,
+        tryIndex: 3,
+        blockerHash: 'feedfaceb00c1234',
+        patchedTasks: [],
+        softWarnings: [],
+        summary: 'Supervisor exhausted the configured self-heal try budget.',
+        attemptsExhausted: true,
+        attempts: [
+          'try 1: patch_rejected_structural missing audit comment',
+          'try 2: patch_rejected_validation openspec strict validation failed',
+          'try 3: declined requires human policy decision',
+        ],
+      },
+    });
+
+    const body = fs.readFileSync(path.join(ralphDir, 'HANDOFF.md'), 'utf8');
+    expect(body).toContain('### Supervisor attempts');
+    expect(body).toContain('- try 1: patch_rejected_structural missing audit comment');
+    expect(body).toContain('- try 2: patch_rejected_validation openspec strict validation failed');
+    expect(body).toContain('- try 3: declined requires human policy decision');
+    expect(body.match(/^\- try /gm) || []).toHaveLength(3);
+    expect(body).toContain('## Iteration 9');
+  });
+});
+
+describe('_recoverSupervisorStartupResidue()', () => {
+  test('runner recovers supervisor residue at startup', () => {
+    const tasksFile = path.join(tmpDir, 'openspec/changes/demo/tasks.md');
+    fs.mkdirSync(path.dirname(tasksFile), { recursive: true });
+    fs.writeFileSync(tasksFile, '# Tasks\n', 'utf8');
+
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const recoverSpy = jest.spyOn(supervisor, '_recoverSupervisorTmpFiles')
+      .mockReturnValueOnce({ recovered: false, actions: [] })
+      .mockReturnValueOnce({
+        recovered: true,
+        actions: ['restored tasks.md from tasks.md.supervisor-orig'],
+      });
+
+    try {
+      expect(_recoverSupervisorStartupResidue({ tasksFile })).toEqual({
+        recovered: false,
+        actions: [],
+      });
+      expect(stderrSpy).not.toHaveBeenCalled();
+
+      expect(_recoverSupervisorStartupResidue({ tasksFile })).toEqual({
+        recovered: true,
+        actions: ['restored tasks.md from tasks.md.supervisor-orig'],
+      });
+      expect(stderrSpy).toHaveBeenCalledWith(
+        '[mini-ralph] supervisor recovery: restored tasks.md from tasks.md.supervisor-orig\n'
+      );
+
+      expect(_recoverSupervisorStartupResidue({})).toEqual({
+        recovered: false,
+        actions: [],
+      });
+      expect(recoverSpy).toHaveBeenCalledTimes(2);
+      expect(recoverSpy).toHaveBeenNthCalledWith(1, { tasksFile: path.resolve(tasksFile) });
+      expect(recoverSpy).toHaveBeenNthCalledWith(2, { tasksFile: path.resolve(tasksFile) });
+    } finally {
+      stderrSpy.mockRestore();
+      recoverSpy.mockRestore();
+    }
+  });
 });
 
 describe('_detectBlockerArtifacts()', () => {
@@ -4647,6 +4752,8 @@ describe('run() — BLOCKED_HANDOFF integration', () => {
       patchedTasks: [],
       hints: [],
       hintsDropped: [],
+      attempts: [],
+      attemptsExhausted: false,
       softWarnings: [],
       blockerHash: 'abc123',
       readLogs: false,
