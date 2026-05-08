@@ -10,6 +10,7 @@ const {
   _extractProposalSections,
   _loadRuleSources,
   _parseSupervisorResponse,
+  _renderSupervisorPrompt,
   _SUPERVISOR_TEMPLATE_VARIABLES,
   _resetRuleSourceCache,
   _summarizeDownstreamTasks,
@@ -18,11 +19,20 @@ const {
 let tmpDir;
 let priorTasksEnv;
 let priorRuleCacheEnv;
+let retryEnvSnapshot;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-supervisor-test-'));
   priorTasksEnv = process.env.RALPH_TASKS_FILE;
   priorRuleCacheEnv = process.env.RALPH_SELF_HEAL_RULE_CACHE;
+  retryEnvSnapshot = {
+    keepDownstream: process.env.RALPH_SELF_HEAL_KEEP_DOWNSTREAM_ON_RETRY,
+    keepHandoffHistory: process.env.RALPH_SELF_HEAL_KEEP_HANDOFF_HISTORY_ON_RETRY,
+    fullDownstream: process.env.RALPH_SELF_HEAL_FULL_DOWNSTREAM,
+    fullDesign: process.env.RALPH_SELF_HEAL_FULL_DESIGN,
+    fullProposal: process.env.RALPH_SELF_HEAL_FULL_PROPOSAL,
+    fullBpContext: process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT,
+  };
   _resetRuleSourceCache();
 });
 
@@ -36,6 +46,36 @@ afterEach(() => {
     delete process.env.RALPH_SELF_HEAL_RULE_CACHE;
   } else {
     process.env.RALPH_SELF_HEAL_RULE_CACHE = priorRuleCacheEnv;
+  }
+  if (retryEnvSnapshot.keepDownstream === undefined) {
+    delete process.env.RALPH_SELF_HEAL_KEEP_DOWNSTREAM_ON_RETRY;
+  } else {
+    process.env.RALPH_SELF_HEAL_KEEP_DOWNSTREAM_ON_RETRY = retryEnvSnapshot.keepDownstream;
+  }
+  if (retryEnvSnapshot.keepHandoffHistory === undefined) {
+    delete process.env.RALPH_SELF_HEAL_KEEP_HANDOFF_HISTORY_ON_RETRY;
+  } else {
+    process.env.RALPH_SELF_HEAL_KEEP_HANDOFF_HISTORY_ON_RETRY = retryEnvSnapshot.keepHandoffHistory;
+  }
+  if (retryEnvSnapshot.fullDownstream === undefined) {
+    delete process.env.RALPH_SELF_HEAL_FULL_DOWNSTREAM;
+  } else {
+    process.env.RALPH_SELF_HEAL_FULL_DOWNSTREAM = retryEnvSnapshot.fullDownstream;
+  }
+  if (retryEnvSnapshot.fullDesign === undefined) {
+    delete process.env.RALPH_SELF_HEAL_FULL_DESIGN;
+  } else {
+    process.env.RALPH_SELF_HEAL_FULL_DESIGN = retryEnvSnapshot.fullDesign;
+  }
+  if (retryEnvSnapshot.fullProposal === undefined) {
+    delete process.env.RALPH_SELF_HEAL_FULL_PROPOSAL;
+  } else {
+    process.env.RALPH_SELF_HEAL_FULL_PROPOSAL = retryEnvSnapshot.fullProposal;
+  }
+  if (retryEnvSnapshot.fullBpContext === undefined) {
+    delete process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT;
+  } else {
+    process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT = retryEnvSnapshot.fullBpContext;
   }
   _resetRuleSourceCache();
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -332,5 +372,110 @@ describe('mini-ralph supervisor token economy preprocessors', () => {
     process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT = '1';
     expect(_distillRalphBP(bp)).toBe(bp);
     delete process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT;
+  });
+});
+
+describe('mini-ralph supervisor prompt rendering', () => {
+  function writePromptFixture() {
+    const changeDir = path.join(tmpDir, 'openspec', 'changes', 'demo-change');
+    const openspecRoot = path.join(tmpDir, 'openspec');
+    const tasksFile = path.join(changeDir, 'tasks.md');
+    fs.mkdirSync(changeDir, { recursive: true });
+    fs.writeFileSync(path.join(openspecRoot, 'config.yaml'), 'strict: true\n', 'utf8');
+    fs.writeFileSync(
+      path.join(openspecRoot, 'OPENSPEC-RALPH-BP.md'),
+      [
+        '## Task template',
+        '',
+        '```markdown',
+        '- [ ] Task',
+        '```',
+        '',
+        '**Medium profile** 3-7 bullets.',
+        '**Lightweight profile** 2-5 bullets.',
+        '',
+        '## Surgical validation',
+        '',
+        '- Start every task with the cheapest verifier.',
+      ].join('\n'),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(changeDir, 'proposal.md'), '## Why\nNeed a supervisor.\n', 'utf8');
+    fs.writeFileSync(path.join(changeDir, 'design.md'), '## Scope\nKeep prompts small.\n', 'utf8');
+    fs.writeFileSync(tasksFile, '# Tasks\n', 'utf8');
+    return { changeDir, openspecRoot, tasksFile };
+  }
+
+  test('renderSupervisorPrompt suppresses downstream and handoff_history on try 2', () => {
+    const fixture = writePromptFixture();
+
+    const rendered = _renderSupervisorPrompt({
+      ...fixture,
+      blockerNote: 'Task body is missing a scoped verifier.',
+      currentTaskNumber: '4.3',
+      currentTaskBody: '- [ ] 4.3 **Implement the prompt renderer with try-aware suppression**',
+      downstreamTasks: [
+        '- [ ] 4.4 **Implement the token-budget regression test**',
+        '  - Scope: `tests/unit/javascript/mini-ralph-supervisor-token-budget.test.js`',
+      ].join('\n'),
+      handoffHistory: 'Iteration 8: validation failed.',
+      recentIterations: 'Iteration 8 -> BLOCKED_HANDOFF',
+      tryIndex: 2,
+      previousSupervisorAttempts: 'Try 1 failed structural validation.',
+      runStdoutLogPath: '/tmp/ralph-stdout.log',
+      runStderrLogPath: '/tmp/ralph-stderr.log',
+    });
+
+    expect(rendered).toContain('[suppressed on retry; see try 1]');
+    expect(rendered).not.toContain('Implement the token-budget regression test');
+    expect(rendered).not.toContain('Iteration 8: validation failed.');
+
+    process.env.RALPH_SELF_HEAL_KEEP_DOWNSTREAM_ON_RETRY = '1';
+    process.env.RALPH_SELF_HEAL_KEEP_HANDOFF_HISTORY_ON_RETRY = '1';
+    const kept = _renderSupervisorPrompt({
+      ...fixture,
+      blockerNote: 'Task body is missing a scoped verifier.',
+      currentTaskNumber: '4.3',
+      currentTaskBody: '- [ ] 4.3 **Implement the prompt renderer with try-aware suppression**',
+      downstreamTasks: [
+        '- [ ] 4.4 **Implement the token-budget regression test**',
+        '  - Scope: `tests/unit/javascript/mini-ralph-supervisor-token-budget.test.js`',
+      ].join('\n'),
+      handoffHistory: 'Iteration 8: validation failed.',
+      recentIterations: 'Iteration 8 -> BLOCKED_HANDOFF',
+      tryIndex: 2,
+      previousSupervisorAttempts: 'Try 1 failed structural validation.',
+      runStdoutLogPath: '/tmp/ralph-stdout.log',
+      runStderrLogPath: '/tmp/ralph-stderr.log',
+    });
+
+    expect(kept).toContain('Implement the token-budget regression test');
+    expect(kept).toContain('Iteration 8: validation failed.');
+  });
+
+  test('renderSupervisorPrompt does not include tasks_md_path or blocker_hash literals', () => {
+    const fixture = writePromptFixture();
+
+    const rendered = _renderSupervisorPrompt({
+      ...fixture,
+      blockerNote: 'Blocked on current task structure.',
+      currentTaskNumber: '4.3',
+      currentTaskBody: '- [ ] 4.3 **Implement the prompt renderer with try-aware suppression**',
+      downstreamTasks: '',
+      handoffHistory: '',
+      recentIterations: 'Iteration 8 -> BLOCKED_HANDOFF',
+      tryIndex: 1,
+      previousSupervisorAttempts: '',
+      runStdoutLogPath: '',
+      runStderrLogPath: '',
+      tasksMdPath: fixture.tasksFile,
+      blockerHash: 'deadbeefdeadbeef',
+    });
+
+    expect(rendered).not.toContain('{{tasks_md_path}}');
+    expect(rendered).not.toContain('{{blocker_hash}}');
+    expect(rendered).not.toContain(fixture.tasksFile);
+    expect(rendered).not.toContain('deadbeefdeadbeef');
+    expect(rendered).toContain('Blocked on current task structure.');
   });
 });
