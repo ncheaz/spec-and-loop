@@ -1202,6 +1202,7 @@ rules:
     - Each task has one dominant outcome and one verification cluster
     - Use surgical, scope-targeted validation commands; reserve broad gates for pre-flight baselines or final integration tasks
     - Include explicit stop-and-hand-off conditions
+    - Run the OPENSPEC-RALPH-BP "Pre-loop scope-handoff pre-scan" against tasks.md before handing it to ralph-run; remediate every finding (dangling file paths, missing sections, scope/verifier mismatches, unclassified pre-existing failures, subjective stop conditions, unflagged manual-only tasks, cross-task scope conflicts)
   design:
     - Do not leave core policy choices unresolved
     - Specify algorithms, config shapes, and failure semantics
@@ -1224,6 +1225,18 @@ Before generating any OpenSpec artifacts, you MUST:
 - Ensure tasks use the task template with objective done-when conditions
 - Ensure each task uses the narrowest verifier that proves its scope; use broad gates only with baseline classification or final integration tasks
 - Include explicit stop-and-hand-off conditions in every task
+
+Before handing `tasks.md` to `ralph-run` (whether you just authored it or just edited it), you MUST run the **Pre-loop scope-handoff pre-scan** from `openspec/OPENSPEC-RALPH-BP.md` against every pending `- [ ]` task. For each pending task, statically verify:
+
+1. Every file path in `Scope:` / `Done when:` / `Stop and hand off if:` resolves on disk (`ls`, `git ls-files`).
+2. Every referenced section/heading exists in its named document with the exact heading text (`rg "^## <heading>$" <file>`).
+3. The verifier's actual reach matches the `Scope:` statement; broaden scope or narrow the verifier when they disagree.
+4. Multi-file gates that may hit pre-existing failures enumerate them in a "Pre-existing unrelated failures" sub-section with file:line references and a "do not stop on these" clause.
+5. `Stop and hand off if:` conditions are objective (grep-able evidence, exact class/selector names) — never subjective ("looks wrong", "cannot be explained").
+6. Any task requiring human-in-browser verification, deployed-URL checks, or visual judgment is tagged `[manual]` in its title with an explicit "manual verification required — emit BLOCKED_HANDOFF with verification template" stop condition.
+7. No two pending tasks claim ownership of the same file/route/symbol; no task's `Stop and hand off if:` would trigger on the normal completion of a later task.
+
+Remediate every finding by editing `tasks.md` directly, then re-run `openspec validate <change>` before starting the loop. If you cannot remediate a finding (it requires a product/policy decision), surface it to the user instead of starting the loop.
 RALPH_AGENTS
         log_verbose "Updated $agents_file with Ralph Wiggum compliance section"
     else
