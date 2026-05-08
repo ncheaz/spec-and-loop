@@ -24,6 +24,7 @@ const {
   _buildAutoResolveHandoffFeedback,
   _handoffHasFocusedVerifierEvidence,
   _decideAutoResolveHandoff,
+  _consumeAutoResolveHandoffBudget,
   _buildBaselineGateFeedback,
   _analyzeBaselineGateConflict,
   _formatBaselineGateFeedback,
@@ -1659,6 +1660,50 @@ describe('auto-resolve handoff helpers', () => {
     expect(feedback).toContain('exactly one continuation attempt');
     expect(feedback).toContain('update only the current task verifier');
     expect(feedback).toContain('emit BLOCKED_HANDOFF');
+  });
+
+  test('fast-path budget helpers delegate to supervisor budget machinery', () => {
+    const decideSpy = jest.spyOn(supervisor, '_decideBoundedBudget');
+    const consumeSpy = jest.spyOn(supervisor, '_consumeBoundedBudget');
+    const note = [
+      'Focused verifier passes with exit 0.',
+      'The broad verifier failed on unrelated pre-existing failures.',
+    ].join('\n');
+    const task = { number: '4.1', description: 'Emit not-found telemetry' };
+    const config = {
+      enabled: true,
+      maxPerRun: 6,
+      state: { totalAttempts: 0, attempts: {} },
+    };
+
+    const decision = _decideAutoResolveHandoff(config, note, task, null);
+    expect(decideSpy).toHaveBeenCalledWith(expect.objectContaining({
+      budgetKey: '4.1:verifier_narrowing',
+      maxTotalAttempts: 6,
+      totalAttempts: 0,
+      attempts: {},
+    }));
+
+    _consumeAutoResolveHandoffBudget(config, decision, 7);
+    expect(consumeSpy).toHaveBeenCalledWith(expect.objectContaining({
+      budgetKey: '4.1:verifier_narrowing',
+      state: { totalAttempts: 0, attempts: {} },
+      entry: expect.objectContaining({
+        className: 'verifier_narrowing',
+        iteration: 7,
+      }),
+    }));
+
+    _buildAutoResolveHandoffFeedback([
+      {
+        iteration: 2,
+        autoResolveHandoffAttempted: true,
+        autoResolveHandoffClass: 'verifier_narrowing',
+      },
+    ]);
+    expect(decideSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      budgetKey: 'spent',
+    }));
   });
 });
 
