@@ -1,15 +1,18 @@
 'use strict';
 
+const childProcess = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 const {
+  _applyTaskPatch,
   _distillRalphBP,
   _extractDesignSections,
   _extractProposalSections,
   _loadRuleSources,
   _parseSupervisorResponse,
+  _recoverSupervisorTmpFiles,
   _renderSupervisorPrompt,
   _SUPERVISOR_TEMPLATE_VARIABLES,
   _resetRuleSourceCache,
@@ -477,5 +480,116 @@ describe('mini-ralph supervisor prompt rendering', () => {
     expect(rendered).not.toContain(fixture.tasksFile);
     expect(rendered).not.toContain('deadbeefdeadbeef');
     expect(rendered).toContain('Blocked on current task structure.');
+  });
+});
+
+describe('mini-ralph supervisor patch application', () => {
+  function writePatchFixture() {
+    const workspaceRoot = path.join(tmpDir, 'workspace');
+    const changeDir = path.join(workspaceRoot, 'openspec', 'changes', 'demo-change');
+    const tasksFile = path.join(changeDir, 'tasks.md');
+    fs.mkdirSync(changeDir, { recursive: true });
+    fs.writeFileSync(tasksFile, '# Tasks\n\n- [ ] 4.6 **Apply supervisor patch**\n', 'utf8');
+    return {
+      workspaceRoot,
+      changeDir,
+      tasksFile,
+      patchedContent: '# Tasks\n\n- [ ] 4.6 **Apply supervisor patch**\n  - Scope: `lib/mini-ralph/supervisor.js`\n',
+    };
+  }
+
+  test('applyTaskPatch leaves no residue on validation success', () => {
+    const fixture = writePatchFixture();
+    const execSpy = jest.spyOn(childProcess, 'execFileSync').mockImplementation(() => Buffer.from('ok'));
+
+    const result = _applyTaskPatch({
+      tasksFile: fixture.tasksFile,
+      patchedContent: fixture.patchedContent,
+      cwd: fixture.workspaceRoot,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      activeChangeId: 'demo-change',
+    });
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(fixture.patchedContent);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-orig`)).toBe(false);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-tmp`)).toBe(false);
+    expect(execSpy).toHaveBeenCalledWith(
+      'npx',
+      ['openspec', 'validate', 'demo-change', '--strict'],
+      expect.objectContaining({
+        cwd: fixture.workspaceRoot,
+        timeout: 30000,
+      })
+    );
+
+    execSpy.mockRestore();
+  });
+
+  test('applyTaskPatch rolls back on validation failure and leaves no residue', () => {
+    const fixture = writePatchFixture();
+    const originalContent = fs.readFileSync(fixture.tasksFile, 'utf8');
+    const error = new Error('validation failed');
+    error.stderr = Buffer.from('strict validation failed\n');
+    error.stdout = Buffer.from('stdout details\n');
+    const execSpy = jest.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+      throw error;
+    });
+
+    const result = _applyTaskPatch({
+      tasksFile: fixture.tasksFile,
+      patchedContent: fixture.patchedContent,
+      cwd: fixture.workspaceRoot,
+      validationTimeoutMs: 1234,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('validation_failed');
+    expect(result.activeChangeId).toBe('demo-change');
+    expect(result.stderr).toBe('strict validation failed\n');
+    expect(result.stdout).toBe('stdout details\n');
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(originalContent);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-orig`)).toBe(false);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-tmp`)).toBe(false);
+    expect(execSpy).toHaveBeenCalledWith(
+      'npx',
+      ['openspec', 'validate', 'demo-change', '--strict'],
+      expect.objectContaining({
+        cwd: fixture.workspaceRoot,
+        timeout: 1234,
+      })
+    );
+
+    execSpy.mockRestore();
+  });
+
+  test('recoverSupervisorTmpFiles restores tasks.md from .supervisor-orig residue', () => {
+    const fixture = writePatchFixture();
+    fs.renameSync(fixture.tasksFile, `${fixture.tasksFile}.supervisor-orig`);
+
+    const result = _recoverSupervisorTmpFiles({ tasksFile: fixture.tasksFile });
+
+    expect(result.recovered).toBe(true);
+    expect(result.actions).toEqual([
+      `restored tasks file from rollback: ${fixture.tasksFile}.supervisor-orig -> ${fixture.tasksFile}`,
+    ]);
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toContain('Apply supervisor patch');
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-orig`)).toBe(false);
+  });
+
+  test('recoverSupervisorTmpFiles recovers orphaned .supervisor-tmp residue', () => {
+    const fixture = writePatchFixture();
+    fs.writeFileSync(`${fixture.tasksFile}.supervisor-tmp`, fixture.patchedContent, 'utf8');
+    fs.rmSync(fixture.tasksFile, { force: true });
+
+    const result = _recoverSupervisorTmpFiles({ tasksFile: fixture.tasksFile });
+
+    expect(result.recovered).toBe(true);
+    expect(result.actions).toEqual([
+      `restored tasks file from staged supervisor tmp: ${fixture.tasksFile}.supervisor-tmp -> ${fixture.tasksFile}`,
+    ]);
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(fixture.patchedContent);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-tmp`)).toBe(false);
   });
 });
