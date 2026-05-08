@@ -141,6 +141,45 @@ describe('state.update()', () => {
     expect(result.stoppedAt).toBe('2026-04-11T01:00:00.000Z');
     expect(result.exitReason).toBe('max_iterations');
   });
+
+  test('state writes and re-reads supervisor block', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    state.init(ralphDir, {
+      active: true,
+      iteration: 1,
+      supervisor: {
+        currentBlockerHash: 'abc123def4567890',
+        triesUsedForCurrentBlocker: 1,
+        totalAttemptsForCurrentBlocker: 2,
+        lastOutcome: 'patch_applied',
+      },
+    });
+
+    const result = state.read(ralphDir);
+    expect(result.supervisor).toEqual({
+      currentBlockerHash: 'abc123def4567890',
+      triesUsedForCurrentBlocker: 1,
+      totalAttemptsForCurrentBlocker: 2,
+      lastOutcome: 'patch_applied',
+    });
+  });
+
+  test('existing state-schema fixtures still pass when supervisor block is missing', () => {
+    const ralphDir = path.join(tmpDir, '.ralph');
+    state.init(ralphDir, {
+      active: true,
+      iteration: 4,
+      maxIterations: 10,
+    });
+
+    const result = state.read(ralphDir);
+    expect(result).toMatchObject({
+      active: true,
+      iteration: 4,
+      maxIterations: 10,
+    });
+    expect(Object.prototype.hasOwnProperty.call(result, 'supervisor')).toBe(false);
+  });
 });
 
 describe('state.remove()', () => {
