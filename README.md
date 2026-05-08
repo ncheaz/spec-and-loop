@@ -232,6 +232,24 @@ git log --oneline
 ralph-run --add-context "Prefer async/await over callbacks"
 ```
 
+## Supervisor Loop
+
+When an iteration emits `BLOCKED_HANDOFF` for a structural task-shaping problem that the existing fast-path classifier cannot safely resolve, `ralph-run` can invoke a bounded supervisor pass that patches `tasks.md`, validates the change with `npx openspec validate <change> --strict`, and then hands the next iteration a cleaner task instead of stopping immediately for manual intervention. Set `RALPH_SELF_HEAL=0` or pass `--no-self-heal` to restore the fully manual handoff flow.
+
+| Flag | Env var | Default | Effect |
+|------|---------|---------|--------|
+| `--no-self-heal` | `RALPH_SELF_HEAL=0` | self-heal enabled | Disable supervisor self-heal and exit on unresolved `BLOCKED_HANDOFF` as before. |
+| `--self-heal-max-tries <n>` | `RALPH_SELF_HEAL_MAX_TRIES` | `3` | Cap supervisor tries per blocker event. |
+| `--no-self-heal-downstream` | `RALPH_SELF_HEAL_DOWNSTREAM=0` | downstream patching enabled | Prevent supervisor edits to downstream pending tasks. |
+| `--no-self-heal-hints` | `RALPH_SELF_HEAL_HINTS=0` | hints enabled | Disable `## Supervisor Investigation Hints` injection into the next implementer prompt. |
+| `--no-self-heal-log-access` | `RALPH_SELF_HEAL_LOG_ACCESS=0` | log-path injection enabled | Keep supervisor prompts from receiving run-log paths. |
+| `--self-heal-verbose` | `RALPH_SELF_HEAL_VERBOSE=1` | verbose off | Emit supervisor debug logging. |
+| `--no-self-heal-verbose` | `RALPH_SELF_HEAL_VERBOSE=0` | inherits `--verbose` when present | Force supervisor debug logging off, even if `--verbose` is set for the main runner. |
+
+### Token economy
+
+Supervisor prompts keep the expensive rule context on by default but aggressively compact it: Tier 1 trims `downstream_tasks`, `change_design`, `change_proposal`, and retry-only context; Tier 2 distills `OPENSPEC-RALPH-BP.md`; Tier 3 consolidates per-patch rationale into summary fields. Escape hatches are available per variable: `RALPH_SELF_HEAL_FULL_DOWNSTREAM=1`, `RALPH_SELF_HEAL_FULL_DESIGN=1`, `RALPH_SELF_HEAL_FULL_PROPOSAL=1`, and `RALPH_SELF_HEAL_FULL_BP_CONTEXT=1` restore verbatim inputs; `RALPH_SELF_HEAL_KEEP_DOWNSTREAM_ON_RETRY=1` and `RALPH_SELF_HEAL_KEEP_HANDOFF_HISTORY_ON_RETRY=1` keep retry-suppressed sections; `RALPH_SELF_HEAL_PER_PATCH_RATIONALES=1` restores per-patch rationale output when you need the uncompressed response shape.
+
 ## Example Workflow
 
 ```bash
