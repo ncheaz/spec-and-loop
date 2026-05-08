@@ -11,7 +11,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { loadBase, render, _renderTemplate, _resetWarnNotice } = require('../../../lib/mini-ralph/prompt');
+const {
+  loadBase,
+  render,
+  _appendSupervisorInvestigationHints,
+  _renderTemplate,
+  _resetWarnNotice,
+} = require('../../../lib/mini-ralph/prompt');
 
 let tmpDir;
 
@@ -67,6 +73,19 @@ describe('_renderTemplate()', () => {
   test('handles multi-line templates', () => {
     const tpl = 'Line 1: {{a}}\nLine 2: {{b}}';
     expect(_renderTemplate(tpl, { a: 'alpha', b: 'beta' })).toBe('Line 1: alpha\nLine 2: beta');
+  });
+});
+
+describe('_appendSupervisorInvestigationHints()', () => {
+  test('appends a Supervisor Investigation Hints section when hints exist', () => {
+    const rendered = _appendSupervisorInvestigationHints('Base prompt', {
+      supervisorHints: [
+        { path: 'lib/mini-ralph/prompt.js', rationale: 'Read the prompt renderer first.' },
+      ],
+    });
+
+    expect(rendered).toContain('## Supervisor Investigation Hints');
+    expect(rendered).toContain('`lib/mini-ralph/prompt.js`: Read the prompt renderer first.');
   });
 });
 
