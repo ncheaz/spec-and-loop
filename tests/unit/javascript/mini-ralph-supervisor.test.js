@@ -5,10 +5,14 @@ const os = require('os');
 const path = require('path');
 
 const {
+  _distillRalphBP,
+  _extractDesignSections,
+  _extractProposalSections,
   _loadRuleSources,
   _parseSupervisorResponse,
   _SUPERVISOR_TEMPLATE_VARIABLES,
   _resetRuleSourceCache,
+  _summarizeDownstreamTasks,
 } = require('../../../lib/mini-ralph/supervisor');
 
 let tmpDir;
@@ -228,5 +232,105 @@ describe('mini-ralph supervisor parser', () => {
       'run_stdout_log_path',
       'run_stderr_log_path',
     ]);
+  });
+});
+
+describe('mini-ralph supervisor token economy preprocessors', () => {
+  test('summarizeDownstreamTasks compacts to title + scope only', () => {
+    const downstreamTasks = [
+      '- [ ] 4.3 **Implement the prompt renderer with retry suppression**',
+      '  - Scope: `lib/mini-ralph/supervisor.js`, `tests/unit/javascript/mini-ralph-supervisor.test.js`',
+      '  - Change: Render the supervisor prompt from all variables.',
+      '  - Done when:',
+      '    - prompt rendering test passes',
+      '  - Stop and hand off if: a template variable is missing',
+      '',
+      '- [ ] 4.4 **Implement the token-budget regression test**',
+      '  - Scope: `tests/unit/javascript/mini-ralph-supervisor-token-budget.test.js`',
+      '  - Change: Lock prompt size against the UXEP fixture.',
+      '  - Done when:',
+      '    - budget test passes',
+      '  - Stop and hand off if: the UXEP fixture is unavailable',
+      '',
+    ].join('\n');
+
+    expect(_summarizeDownstreamTasks(downstreamTasks)).toBe([
+      '- 4.3 **Implement the prompt renderer with retry suppression**',
+      '  - Scope: `lib/mini-ralph/supervisor.js`, `tests/unit/javascript/mini-ralph-supervisor.test.js`',
+      '',
+      '- 4.4 **Implement the token-budget regression test**',
+      '  - Scope: `tests/unit/javascript/mini-ralph-supervisor-token-budget.test.js`',
+    ].join('\n'));
+
+    process.env.RALPH_SELF_HEAL_FULL_DOWNSTREAM = '1';
+    expect(_summarizeDownstreamTasks(downstreamTasks)).toBe(downstreamTasks);
+    delete process.env.RALPH_SELF_HEAL_FULL_DOWNSTREAM;
+  });
+
+  test('extractDesignSections falls back to 4KB on no recognized headings', () => {
+    const design = ['## Context', '', 'alpha '.repeat(1200)].join('\n');
+    const extracted = _extractDesignSections(design);
+
+    expect(extracted).toContain('[fallback: first 4KB; no recognized sections found]');
+    expect(Buffer.byteLength(extracted, 'utf8')).toBeLessThanOrEqual(4 * 1024 + 64);
+
+    process.env.RALPH_SELF_HEAL_FULL_DESIGN = '1';
+    expect(_extractDesignSections(design)).toBe(design);
+    delete process.env.RALPH_SELF_HEAL_FULL_DESIGN;
+  });
+
+  test('extractProposalSections keeps why and goals headings', () => {
+    const proposal = [
+      '## Why',
+      '',
+      'Need a supervisor loop.',
+      '',
+      '## What Changes',
+      '',
+      'Add a second LLM pass.',
+      '',
+      '## Goals',
+      '',
+      'Reduce operator handoff churn.',
+      '',
+      '## Non-goals',
+      '',
+      'Do not edit app code.',
+      '',
+      '## Rollout',
+      '',
+      'Out of scope for extraction.',
+      '',
+    ].join('\n');
+
+    const extracted = _extractProposalSections(proposal);
+    expect(extracted).toContain('## Why');
+    expect(extracted).toContain('## What Changes');
+    expect(extracted).toContain('## Goals');
+    expect(extracted).toContain('## Non-goals');
+    expect(extracted).not.toContain('## Rollout');
+
+    process.env.RALPH_SELF_HEAL_FULL_PROPOSAL = '1';
+    expect(_extractProposalSections(proposal)).toBe(proposal);
+    delete process.env.RALPH_SELF_HEAL_FULL_PROPOSAL;
+  });
+
+  test('distillRalphBP fits in 4KB on canonical fixture', () => {
+    const bp = fs.readFileSync(
+      path.join(__dirname, '..', '..', '..', 'openspec', 'OPENSPEC-RALPH-BP.md'),
+      'utf8'
+    );
+
+    const distilled = _distillRalphBP(bp);
+    expect(Buffer.byteLength(distilled, 'utf8')).toBeLessThanOrEqual(4 * 1024);
+    expect(distilled).toContain('## Task template');
+    expect(distilled).toContain('```markdown');
+    expect(distilled).toContain('**Medium profile**');
+    expect(distilled).toContain('**Lightweight profile**');
+    expect(distilled).toContain('Start every task with the cheapest verifier');
+
+    process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT = '1';
+    expect(_distillRalphBP(bp)).toBe(bp);
+    delete process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT;
   });
 });
