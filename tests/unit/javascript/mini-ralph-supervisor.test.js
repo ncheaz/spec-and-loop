@@ -5,16 +5,21 @@ const os = require('os');
 const path = require('path');
 
 const {
+  _loadRuleSources,
   _parseSupervisorResponse,
   _SUPERVISOR_TEMPLATE_VARIABLES,
+  _resetRuleSourceCache,
 } = require('../../../lib/mini-ralph/supervisor');
 
 let tmpDir;
 let priorTasksEnv;
+let priorRuleCacheEnv;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-supervisor-test-'));
   priorTasksEnv = process.env.RALPH_TASKS_FILE;
+  priorRuleCacheEnv = process.env.RALPH_SELF_HEAL_RULE_CACHE;
+  _resetRuleSourceCache();
 });
 
 afterEach(() => {
@@ -23,7 +28,88 @@ afterEach(() => {
   } else {
     process.env.RALPH_TASKS_FILE = priorTasksEnv;
   }
+  if (priorRuleCacheEnv === undefined) {
+    delete process.env.RALPH_SELF_HEAL_RULE_CACHE;
+  } else {
+    process.env.RALPH_SELF_HEAL_RULE_CACHE = priorRuleCacheEnv;
+  }
+  _resetRuleSourceCache();
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('mini-ralph supervisor rule loading', () => {
+  test('loadRuleSources returns four entries with cache hit semantics', () => {
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const changeDir = path.join(tmpDir, 'openspec', 'changes', 'demo-change');
+    const openspecRoot = path.join(tmpDir, 'openspec');
+    const tasksFile = path.join(changeDir, 'tasks.md');
+    const configPath = path.join(openspecRoot, 'config.yaml');
+    const bpPath = path.join(openspecRoot, 'OPENSPEC-RALPH-BP.md');
+    const proposalPath = path.join(changeDir, 'proposal.md');
+    const designPath = path.join(changeDir, 'design.md');
+    fs.mkdirSync(changeDir, { recursive: true });
+    fs.writeFileSync(tasksFile, '# Tasks\n\n- [ ] 4.1 Add rule-source loader\n', 'utf8');
+    fs.writeFileSync(configPath, 'rules: alpha\n', 'utf8');
+    fs.writeFileSync(bpPath, '## Ralph\nUse canonical tasks.\n', 'utf8');
+    fs.writeFileSync(proposalPath, '## Why\nShip supervisor loop.\n', 'utf8');
+    fs.writeFileSync(designPath, '## Scope\nKeep edits minimal.\n', 'utf8');
+
+    const first = _loadRuleSources({ tasksFile });
+    expect(Object.keys(first)).toEqual([
+      'openspec_config_rules',
+      'ralph_authoring_rules',
+      'change_proposal',
+      'change_design',
+    ]);
+    expect(first.openspec_config_rules).toEqual({
+      path: configPath,
+      content: 'rules: alpha\n',
+    });
+    expect(first.ralph_authoring_rules.content).toContain('Use canonical tasks.');
+    expect(first.change_proposal.content).toContain('Ship supervisor loop.');
+    expect(first.change_design.content).toContain('Keep edits minimal.');
+
+    const second = _loadRuleSources({ tasksFile });
+    expect(second.openspec_config_rules.content).toBe('rules: alpha\n');
+    expect(stderrSpy).not.toHaveBeenCalledWith(
+      `[mini-ralph] warning: supervisor rule cache refreshed for ${configPath}\n`
+    );
+
+    const updated = 'rules: gamma\n';
+    fs.writeFileSync(configPath, updated, 'utf8');
+    const future = new Date(Date.now() + 2000);
+    fs.utimesSync(configPath, future, future);
+
+    const third = _loadRuleSources({ tasksFile });
+    expect(third.openspec_config_rules.content).toBe(updated);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      `[mini-ralph] warning: supervisor rule cache refreshed for ${configPath}\n`
+    );
+
+    fs.rmSync(bpPath);
+    const missing = _loadRuleSources({ tasksFile });
+    expect(missing.ralph_authoring_rules).toEqual({ path: bpPath, content: '' });
+
+    const oversized = 'x'.repeat((32 * 1024) + 128);
+    fs.writeFileSync(designPath, oversized, 'utf8');
+    const futureDesign = new Date(Date.now() + 4000);
+    fs.utimesSync(designPath, futureDesign, futureDesign);
+
+    const truncated = _loadRuleSources({ tasksFile });
+    expect(truncated.change_design.content.length).toBeLessThan(oversized.length);
+    expect(truncated.change_design.content).toContain(`... [truncated, ${Buffer.byteLength(oversized)} total]`);
+    expect(Buffer.byteLength(truncated.change_design.content, 'utf8')).toBeLessThanOrEqual(32 * 1024);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      `[mini-ralph] warning: supervisor rule source truncated: ${designPath}\n`
+    );
+
+    process.env.RALPH_SELF_HEAL_RULE_CACHE = '0';
+    fs.writeFileSync(proposalPath, '## Why\nBypass cache.\n', 'utf8');
+    const uncached = _loadRuleSources({ tasksFile });
+    expect(uncached.change_proposal.content).toBe('## Why\nBypass cache.\n');
+
+    stderrSpy.mockRestore();
+  });
 });
 
 describe('mini-ralph supervisor parser', () => {
