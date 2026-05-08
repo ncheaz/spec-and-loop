@@ -1,0 +1,1 @@
+The current task is blocked because the task body does not yet prove the UXEP-sized supervisor prompt stays within the default byte budgets, so the implementer cannot complete the regression coverage without a fixture-backed measurement and explicit threshold assertions.
