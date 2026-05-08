@@ -472,7 +472,7 @@ For common issues and solutions, see [QUICKSTART.md#troubleshooting](./QUICKSTAR
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RALPH_BASE_PROMPT_WARN_BYTES` | `4096` | Byte threshold above which `render()` emits a one-line warning to stderr when `{{base_prompt}}` resolves to a large file. Set to `0` to silence warnings entirely. Invalid values fall back to `4096` with a one-time notice per process. |
-| `RALPH_ITERATION_IDLE_TIMEOUT_MS` | `300000` | Milliseconds of silence on stdout+stderr before the per-iteration idle watchdog fires. Set to `0` to disable the watchdog entirely and restore pre-change behavior (no timeout). |
+| `RALPH_ITERATION_IDLE_TIMEOUT_MS` | `900000` | Milliseconds of silence on stdout+stderr before the per-iteration idle watchdog fires (default 15 minutes). Set to `0` to disable the watchdog entirely and restore pre-change behavior (no timeout). |
 | `RALPH_ITERATION_KILL_GRACE_MS` | `10000` | Milliseconds the runner waits after sending `SIGTERM` to a timed-out iteration child before escalating to `SIGKILL`. |
 
 ### Auto-commit ignore-filter surfacing and iteration watchdog
@@ -516,7 +516,7 @@ The `iteration_timeout_idle` reason also appears in the `## Recent Loop Signals`
 Set `RALPH_ITERATION_IDLE_TIMEOUT_MS=0` to disable the watchdog if your agent workflow runs legitimately long silent tools (e.g., large integration test suites). Example:
 
 ```bash
-RALPH_ITERATION_IDLE_TIMEOUT_MS=900000 ralph-run --change my-feature   # 15-minute idle threshold
+RALPH_ITERATION_IDLE_TIMEOUT_MS=1800000 ralph-run --change my-feature  # 30-minute idle threshold
 RALPH_ITERATION_IDLE_TIMEOUT_MS=0 ralph-run --change my-feature        # watchdog disabled
 ```
 
