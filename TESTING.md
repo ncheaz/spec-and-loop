@@ -179,6 +179,13 @@ JavaScript unit tests cover the mini Ralph module and wrapper:
 - **`mini-ralph-status.test.js`** — Status dashboard rendering and struggle indicators
 - **`mini-ralph-context.test.js`** — `--add-context` / `--clear-context` operations
 - **`mini-ralph-prompt.test.js`** — Prompt template loading and rendering
+- **`mini-ralph-supervisor.test.js`** — Supervisor prompt parsing, rule loading, prompt rendering, and patch application helpers
+- **`mini-ralph-supervisor-budget.test.js`** — Supervisor try budgets, oscillation detection, and downstream patch outcomes
+- **`mini-ralph-supervisor-cli.test.js`** — `--*self-heal*` CLI flags, env-var precedence, and verbose implication behavior
+- **`mini-ralph-supervisor-compliance.test.js`** — Structural validation of patched task bodies against Ralph authoring rules
+- **`mini-ralph-supervisor-hints.test.js`** — Investigation-hint normalization, dropping, persistence, and prompt injection
+- **`mini-ralph-supervisor-logaccess.test.js`** — Run-log path resolution and log-read audit detection
+- **`mini-ralph-supervisor-token-budget.test.js`** — UXEP fixture byte-budget regression coverage for supervisor prompts
 - **`ralph-run-wrapper.test.js`** — `bin/ralph-run` wrapper behavior
 - **`argument-passing.test.js`** — Flag forwarding to the mini Ralph engine
 - **`error-handling.test.js`** — Error propagation and exit codes
@@ -206,6 +213,10 @@ implementations of `mini-ralph-cli.js` injected via `MINI_RALPH_CLI_OVERRIDE`:
 - **`test-path-resolution.bats`** — `get_realpath()` with relative paths, symlinks, and `..`
 - **`test-file-stat-operations.bats`** — `get_file_mtime()` on macOS and Linux
 - **`test-md5-hashing.bats`** — `get_file_md5()` on macOS and Linux
+- **`supervisor-loop.bats`** — Supervisor happy-path recovery and crash-recovery wiring with the mocked OpenCode shim
+- **`supervisor-budget-exhaustion.bats`** — Supervisor budget exhaustion writes `### Supervisor attempts` and exits blocked
+- **`supervisor-investigation-hints.bats`** — Accepted supervisor hints round-trip into the next implementer prompt
+- **`supervisor-log-tail.bats`** — Supervisor log-tail audit fields and `RALPH_SELF_HEAL_LOG_ACCESS=0` opt-out behavior
 
 ## Cross-Platform Testing
 
@@ -329,7 +340,7 @@ describe('Feature being tested', () => {
 ## Coverage Requirements
 
 Critical functions in `scripts/ralph-run.sh` and `lib/mini-ralph/` must maintain
-**>80% test coverage**:
+**>80% test coverage**. Supervisor work has a stricter expectation: `lib/mini-ralph/supervisor.js` should stay at **>= 85%** coverage while preserving **>= 80%** global coverage for the repository.
 
 **Bash functions** (`scripts/ralph-run.sh`):
 - `detect_os()`, `get_file_mtime()`, `get_file_md5()`, `get_realpath()`
@@ -345,6 +356,7 @@ Critical functions in `scripts/ralph-run.sh` and `lib/mini-ralph/` must maintain
 - `context.js` — Context injection management
 - `prompt.js` — Prompt template loading and rendering
 - `tasks.js` — Task file synchronization
+- `supervisor.js` — Supervisor orchestration, patch validation, hint normalization, and prompt token-economy helpers
 
 To check coverage:
 ```bash

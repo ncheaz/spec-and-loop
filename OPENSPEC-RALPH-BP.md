@@ -2,6 +2,8 @@
 
 You are writing `tasks.md` for an OpenSpec change that will be executed by `ralph-run` in a fresh-session loop. Every iteration re-reads this file plus proposal.md, design.md, and specs. The loop implements one task per iteration, runs verification, and marks progress only on success.
 
+When an iteration emits `BLOCKED_HANDOFF`, the runner may now invoke the supervisor loop before surfacing the handoff to a human. That makes the implementer's structured blocker note load-bearing: it must describe the real scope conflict or missing precondition precisely enough for either a human or the supervisor to patch `tasks.md` without guessing.
+
 ## Task template
 
 Every `- [ ]` checkbox must follow this shape:
