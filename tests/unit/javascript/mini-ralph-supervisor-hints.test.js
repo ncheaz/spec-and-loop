@@ -76,6 +76,71 @@ describe('mini-ralph supervisor investigation hints', () => {
     expect(normalized.hints[0].rationale.endsWith('…')).toBe(true);
   });
 
+  test('non-object hints and root-resolution fallbacks are normalized safely', () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace');
+    const openspecRoot = path.join(workspaceRoot, 'openspec');
+    const changeDir = path.join(openspecRoot, 'changes', 'demo-change');
+    const ralphDir = path.join(workspaceRoot, '.ralph');
+    const fromOpenspec = path.join(workspaceRoot, 'from-openspec.js');
+    const fromChangeDir = path.join(openspecRoot, 'from-change.js');
+    const fromRalphDir = path.join(workspaceRoot, 'from-ralph.js');
+    const currentDirFile = path.join(process.cwd(), 'package.json');
+    const nestedDir = path.join(workspaceRoot, 'nested');
+
+    fs.mkdirSync(changeDir, { recursive: true });
+    fs.mkdirSync(ralphDir, { recursive: true });
+    fs.mkdirSync(nestedDir, { recursive: true });
+    fs.writeFileSync(fromOpenspec, 'module.exports = true;\n', 'utf8');
+    fs.writeFileSync(fromChangeDir, 'module.exports = true;\n', 'utf8');
+    fs.writeFileSync(fromRalphDir, 'module.exports = true;\n', 'utf8');
+
+    expect(_normalizeInvestigationHints([
+      null,
+      'not-an-object',
+      { path: 'from-openspec.js', rationale: 'Resolve from openspecRoot.' },
+      { path: 'nested', rationale: 'Directories are not valid hint targets.' },
+    ], { openspecRoot })).toEqual({
+      hints: [
+        { path: 'from-openspec.js', rationale: 'Resolve from openspecRoot.' },
+      ],
+      hintsDropped: [
+        { path: 'nested', rationale: 'Directories are not valid hint targets.', reason: 'out_of_tree' },
+      ],
+    });
+
+    expect(_normalizeInvestigationHints([
+      { path: 'from-change.js', rationale: 'Resolve from changeDir.' },
+    ], { changeDir })).toEqual({
+      hints: [
+        { path: 'from-change.js', rationale: 'Resolve from changeDir.' },
+      ],
+      hintsDropped: [],
+    });
+
+    expect(_normalizeInvestigationHints([
+      { path: 'from-ralph.js', rationale: 'Resolve from ralphDir.' },
+    ], { ralphDir })).toEqual({
+      hints: [
+        { path: 'from-ralph.js', rationale: 'Resolve from ralphDir.' },
+      ],
+      hintsDropped: [],
+    });
+
+    expect(_normalizeInvestigationHints([
+      { path: '', rationale: 'Blank paths are rejected.' },
+      { path: 'package.json', rationale: 'Resolve from process.cwd().' },
+    ])).toEqual({
+      hints: [
+        { path: 'package.json', rationale: 'Resolve from process.cwd().' },
+      ],
+      hintsDropped: [
+        { path: '', rationale: 'Blank paths are rejected.', reason: 'out_of_tree' },
+      ],
+    });
+
+    expect(fs.existsSync(currentDirFile)).toBe(true);
+  });
+
   test('RALPH_SELF_HEAL_HINTS=0 -> no injection', () => {
     const templateFile = path.join(tmpDir, 'template.md');
     fs.writeFileSync(templateFile, 'Base prompt body', 'utf8');

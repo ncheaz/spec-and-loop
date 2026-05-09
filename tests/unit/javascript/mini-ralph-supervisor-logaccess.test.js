@@ -75,6 +75,124 @@ describe('mini-ralph supervisor log access', () => {
     });
   });
 
+  test('tool-use trace can infer reads from nested path matches and preview bytes', () => {
+    const stdoutLog = path.join(tmpDir, 'ralph-stdout.log');
+    const stderrLog = path.join(tmpDir, 'ralph-stderr.log');
+
+    const audit = _detectSupervisorLogReads({
+      stdoutLog,
+      stderrLog,
+      result: {
+        toolUsage: [
+          [
+            {
+              tool: 'Read',
+              meta: {
+                file: `tail -> ${stderrLog}`,
+                preview: 'stderr preview text',
+              },
+            },
+          ],
+        ],
+      },
+    });
+
+    expect(audit).toEqual({
+      supervisorReadLogs: true,
+      supervisorReadLogsBytes: Buffer.byteLength('stderr preview text', 'utf8'),
+    });
+  });
+
+  test('log-read auditing handles content/text fallbacks, scalar entries, and empty output_dir files', () => {
+    const fixture = writeFixture();
+    const stdoutLog = path.join(tmpDir, 'ralph-stdout.log');
+    const stderrLog = path.join(tmpDir, 'ralph-stderr.log');
+
+    fs.writeFileSync(path.join(fixture.ralphDir, '.output_dir'), '   \n', 'utf8');
+    expect(_resolveRunLogPaths({ ralphDir: fixture.ralphDir })).toEqual({
+      stdoutLog: '',
+      stderrLog: '',
+    });
+
+    expect(_detectSupervisorLogReads({
+      stdoutLog,
+      stderrLog,
+      result: {
+        toolUsage: [
+          {
+            tool: 'Read',
+            input: { filePath: stdoutLog },
+            output: { content: 'stdout body' },
+          },
+          'not-an-object',
+        ],
+      },
+    })).toEqual({
+      supervisorReadLogs: true,
+      supervisorReadLogsBytes: Buffer.byteLength('stdout body', 'utf8'),
+    });
+
+    expect(_detectSupervisorLogReads({
+      stdoutLog,
+      stderrLog,
+      result: {
+        toolUsage: [
+          {
+            tool: 'Read',
+            input: { filePath: stdoutLog },
+            output: { text: 'ignored because matched key is text' },
+          },
+        ],
+      },
+    })).toEqual({
+      supervisorReadLogs: true,
+      supervisorReadLogsBytes: Buffer.byteLength('ignored because matched key is text', 'utf8'),
+    });
+
+    expect(_detectSupervisorLogReads({
+      stdoutLog,
+      stderrLog,
+      result: {
+        toolUsage: [
+          {
+            tool: 'Read',
+            input: { filePath: stdoutLog },
+            output: { meta: { text: 'nested text bytes' } },
+          },
+        ],
+      },
+    })).toEqual({
+      supervisorReadLogs: true,
+      supervisorReadLogsBytes: Buffer.byteLength('nested text bytes', 'utf8'),
+    });
+
+    expect(_detectSupervisorLogReads()).toEqual({
+      supervisorReadLogs: null,
+      supervisorReadLogsBytes: null,
+    });
+  });
+
+  test('tool-use details without matching log paths report false + zero bytes', () => {
+    const audit = _detectSupervisorLogReads({
+      stdoutLog: path.join(tmpDir, 'ralph-stdout.log'),
+      stderrLog: path.join(tmpDir, 'ralph-stderr.log'),
+      result: {
+        toolUsage: [
+          {
+            tool: 'Read',
+            input: { filePath: path.join(tmpDir, 'other.log') },
+            output: { bytes: 88 },
+          },
+        ],
+      },
+    });
+
+    expect(audit).toEqual({
+      supervisorReadLogs: false,
+      supervisorReadLogsBytes: 0,
+    });
+  });
+
   test('no tool-use details surfaced -> null', () => {
     const audit = _detectSupervisorLogReads({
       stdoutLog: path.join(tmpDir, 'ralph-stdout.log'),
@@ -131,6 +249,38 @@ describe('mini-ralph supervisor log access', () => {
       runStdoutLogPath: '',
       runStderrLogPath: '',
     }));
+  });
+
+  test('relative .output_dir path, unreadable metadata, and missing ralphDir resolve safely', () => {
+    const fixture = writeFixture();
+    const outputDir = path.join(fixture.ralphDir, 'logs');
+    const originalReadFileSync = fs.readFileSync;
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(path.join(fixture.ralphDir, '.output_dir'), 'logs\n', 'utf8');
+    fs.writeFileSync(path.join(outputDir, 'ralph-stdout.log'), 'stdout\n', 'utf8');
+
+    expect(_resolveRunLogPaths({ ralphDir: fixture.ralphDir })).toEqual({
+      stdoutLog: path.join(outputDir, 'ralph-stdout.log'),
+      stderrLog: '',
+    });
+
+    const readSpy = jest.spyOn(fs, 'readFileSync').mockImplementation((filePath, ...rest) => {
+      if (String(filePath).endsWith('.output_dir')) {
+        throw new Error('boom');
+      }
+      return originalReadFileSync.call(fs, filePath, ...rest);
+    });
+
+    expect(_resolveRunLogPaths({ ralphDir: fixture.ralphDir })).toEqual({
+      stdoutLog: '',
+      stderrLog: '',
+    });
+    expect(_resolveRunLogPaths({})).toEqual({
+      stdoutLog: '',
+      stderrLog: '',
+    });
+
+    readSpy.mockRestore();
   });
 });
 

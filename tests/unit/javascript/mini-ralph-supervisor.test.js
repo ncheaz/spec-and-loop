@@ -160,6 +160,90 @@ describe('mini-ralph supervisor rule loading', () => {
 });
 
 describe('mini-ralph supervisor parser', () => {
+  test('parser normalizes omitted and mistyped optional fields', () => {
+    const tasksFile = path.join(tmpDir, 'tasks.md');
+    fs.writeFileSync(tasksFile, ['# Tasks', '', '- [ ] 2.3 Freeze parser contract', ''].join('\n'), 'utf8');
+    process.env.RALPH_TASKS_FILE = tasksFile;
+
+    expect(_parseSupervisorResponse()).toEqual({
+      kind: 'infra_failure',
+      reason: 'missing_fence',
+    });
+
+    expect(_parseSupervisorResponse([
+      '```supervisor-response',
+      JSON.stringify({
+        unexpected: true,
+        downstream_patches: 'not-an-array',
+        investigation_hints: 'not-an-array',
+        summary: 42,
+        downstream_rationale: false,
+      }),
+      '```',
+    ].join('\n'))).toEqual({
+      current_task_patch: null,
+      downstream_patches: [],
+      investigation_hints: [],
+      summary: '',
+      downstream_rationale: '',
+    });
+
+    expect(_parseSupervisorResponse([
+      '```supervisor-response',
+      JSON.stringify({
+        current_task_patch: {
+          task_number: '2.3',
+          new_body: '- [ ] 2.3 Freeze parser contract',
+          rationale: 'Only validate object downstream patches.',
+        },
+        downstream_patches: [null, { task_number: '2.3', operation: 'modify', new_body: '- [ ] 2.3 Same task' }],
+      }),
+      '```',
+    ].join('\n'))).toEqual({
+      current_task_patch: {
+        task_number: '2.3',
+        new_body: '- [ ] 2.3 Freeze parser contract',
+        rationale: 'Only validate object downstream patches.',
+      },
+      downstream_patches: [null, { task_number: '2.3', operation: 'modify', new_body: '- [ ] 2.3 Same task' }],
+      investigation_hints: [],
+      summary: '',
+      downstream_rationale: '',
+    });
+  });
+
+  test('parser skips unknown-task validation when tasks file is unavailable', () => {
+    delete process.env.RALPH_TASKS_FILE;
+
+    expect(
+      _parseSupervisorResponse([
+        '```supervisor-response',
+        JSON.stringify({
+          current_task_patch: {
+            task_number: '9.9',
+            new_body: '- [ ] 9.9 Unknown task',
+            rationale: 'Allow parser to defer task validation.',
+          },
+          downstream_patches: [],
+          investigation_hints: [],
+          summary: 'No tasks file is available.',
+          downstream_rationale: '',
+        }),
+        '```',
+      ].join('\n'))
+    ).toEqual({
+      current_task_patch: {
+        task_number: '9.9',
+        new_body: '- [ ] 9.9 Unknown task',
+        rationale: 'Allow parser to defer task validation.',
+      },
+      downstream_patches: [],
+      investigation_hints: [],
+      summary: 'No tasks file is available.',
+      downstream_rationale: '',
+    });
+  });
+
   test('parser distinguishes infra failure from structural rejection', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     fs.writeFileSync(
@@ -310,6 +394,26 @@ describe('mini-ralph supervisor token economy preprocessors', () => {
     delete process.env.RALPH_SELF_HEAL_FULL_DOWNSTREAM;
   });
 
+  test('summarizeDownstreamTasks skips malformed blocks and tolerates missing scope', () => {
+    const downstreamTasks = [
+      'Context line before tasks',
+      '',
+      '- [ ] 4.5 **Keep only the title when scope is absent**',
+      '  - Change: Preserve compact fallback output.',
+      '',
+      '- [/] 4.6 **Include in-progress tasks too**',
+      '  - Scope: `tests/unit/javascript/mini-ralph-supervisor.test.js`',
+      '',
+    ].join('\n');
+
+    expect(_summarizeDownstreamTasks(downstreamTasks)).toBe([
+      '- 4.5 **Keep only the title when scope is absent**',
+      '',
+      '- 4.6 **Include in-progress tasks too**',
+      '  - Scope: `tests/unit/javascript/mini-ralph-supervisor.test.js`',
+    ].join('\n'));
+  });
+
   test('extractDesignSections falls back to 4KB on no recognized headings', () => {
     const design = ['## Context', '', 'alpha '.repeat(1200)].join('\n');
     const extracted = _extractDesignSections(design);
@@ -375,6 +479,32 @@ describe('mini-ralph supervisor token economy preprocessors', () => {
     process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT = '1';
     expect(_distillRalphBP(bp)).toBe(bp);
     delete process.env.RALPH_SELF_HEAL_FULL_BP_CONTEXT;
+  });
+
+  test('distillRalphBP falls back when headings are missing and trims oversized distilled output', () => {
+    const noSections = 'Plain prose only.\n'.repeat(400);
+    const fallback = _distillRalphBP(noSections);
+    expect(fallback).toContain('[fallback: first 4KB; no recognized sections found]');
+
+    const oversized = [
+      '## Task template',
+      '',
+      '```markdown',
+      'x'.repeat(5000),
+      '```',
+      '',
+      '**Medium profile** 3-7 `Done when` bullets.',
+      '**Lightweight profile** 2-5 `Done when` bullets.',
+      '',
+      '## Surgical validation',
+      '',
+      '- Start every task with the cheapest verifier.',
+    ].join('\n');
+    const distilled = _distillRalphBP(oversized);
+
+    expect(Buffer.byteLength(distilled, 'utf8')).toBeLessThanOrEqual(4 * 1024);
+    expect(distilled).toContain('## Task template');
+    expect(distilled).not.toContain('## Verifier cluster rule');
   });
 });
 
@@ -481,6 +611,70 @@ describe('mini-ralph supervisor prompt rendering', () => {
     expect(rendered).not.toContain('deadbeefdeadbeef');
     expect(rendered).toContain('Blocked on current task structure.');
   });
+
+  test('renderSupervisorPrompt rejects missing inputs, bad try indexes, and invalid templates', () => {
+    const fixture = writePromptFixture();
+    const emptyTemplate = path.join(tmpDir, 'empty-supervisor-prompt.md');
+    const missingTemplate = path.join(tmpDir, 'missing-supervisor-prompt.md');
+    fs.writeFileSync(emptyTemplate, '  \n', 'utf8');
+
+    expect(() => _renderSupervisorPrompt({
+      ...fixture,
+      blockerNote: 'Task body is missing a scoped verifier.',
+      currentTaskNumber: '4.3',
+      currentTaskBody: '- [ ] 4.3 **Implement the prompt renderer with try-aware suppression**',
+      downstreamTasks: '',
+      handoffHistory: '',
+      recentIterations: 'Iteration 8 -> BLOCKED_HANDOFF',
+      previousSupervisorAttempts: '',
+      runStdoutLogPath: '',
+      runStderrLogPath: '',
+    })).toThrow('mini-ralph supervisor: missing renderer input for tryIndex');
+
+    expect(() => _renderSupervisorPrompt({
+      ...fixture,
+      blockerNote: 'Task body is missing a scoped verifier.',
+      currentTaskNumber: '4.3',
+      currentTaskBody: '- [ ] 4.3 **Implement the prompt renderer with try-aware suppression**',
+      downstreamTasks: '',
+      handoffHistory: '',
+      recentIterations: 'Iteration 8 -> BLOCKED_HANDOFF',
+      tryIndex: 0,
+      previousSupervisorAttempts: '',
+      runStdoutLogPath: '',
+      runStderrLogPath: '',
+    })).toThrow('mini-ralph supervisor: tryIndex must be a positive integer');
+
+    expect(() => _renderSupervisorPrompt({
+      ...fixture,
+      templatePath: missingTemplate,
+      blockerNote: 'Task body is missing a scoped verifier.',
+      currentTaskNumber: '4.3',
+      currentTaskBody: '- [ ] 4.3 **Implement the prompt renderer with try-aware suppression**',
+      downstreamTasks: '',
+      handoffHistory: '',
+      recentIterations: 'Iteration 8 -> BLOCKED_HANDOFF',
+      tryIndex: 1,
+      previousSupervisorAttempts: '',
+      runStdoutLogPath: '',
+      runStderrLogPath: '',
+    })).toThrow(`mini-ralph supervisor: template file not found: ${missingTemplate}`);
+
+    expect(() => _renderSupervisorPrompt({
+      ...fixture,
+      templatePath: emptyTemplate,
+      blockerNote: 'Task body is missing a scoped verifier.',
+      currentTaskNumber: '4.3',
+      currentTaskBody: '- [ ] 4.3 **Implement the prompt renderer with try-aware suppression**',
+      downstreamTasks: '',
+      handoffHistory: '',
+      recentIterations: 'Iteration 8 -> BLOCKED_HANDOFF',
+      tryIndex: 1,
+      previousSupervisorAttempts: '',
+      runStdoutLogPath: '',
+      runStderrLogPath: '',
+    })).toThrow(`mini-ralph supervisor: template file is empty: ${emptyTemplate}`);
+  });
 });
 
 describe('mini-ralph supervisor patch application', () => {
@@ -515,6 +709,40 @@ describe('mini-ralph supervisor patch application', () => {
     expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(fixture.patchedContent);
     expect(fs.existsSync(`${fixture.tasksFile}.supervisor-orig`)).toBe(false);
     expect(fs.existsSync(`${fixture.tasksFile}.supervisor-tmp`)).toBe(false);
+    expect(execSpy).toHaveBeenCalledWith(
+      'npx',
+      ['openspec', 'validate', 'demo-change', '--strict'],
+      expect.objectContaining({
+        cwd: fixture.workspaceRoot,
+        timeout: 30000,
+      })
+    );
+
+    execSpy.mockRestore();
+  });
+
+  test('applyTaskPatch resolves workspace root from tasks file and stringifies non-buffer exec errors', () => {
+    const fixture = writePatchFixture();
+    const originalContent = fs.readFileSync(fixture.tasksFile, 'utf8');
+    const error = new Error('validation failed');
+    error.stderr = 'stderr as string';
+    error.stdout = 'stdout as string';
+    const execSpy = jest.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+      throw error;
+    });
+
+    const result = _applyTaskPatch({
+      tasksFile: fixture.tasksFile,
+      patchedContent: fixture.patchedContent,
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'validation_failed',
+      stderr: 'stderr as string',
+      stdout: 'stdout as string',
+    }));
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(originalContent);
     expect(execSpy).toHaveBeenCalledWith(
       'npx',
       ['openspec', 'validate', 'demo-change', '--strict'],
@@ -564,6 +792,31 @@ describe('mini-ralph supervisor patch application', () => {
     execSpy.mockRestore();
   });
 
+  test('applyTaskPatch normalizes missing exec streams to empty strings on rollback', () => {
+    const fixture = writePatchFixture();
+    const error = new Error('validation failed without stdio');
+    const execSpy = jest.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+      throw error;
+    });
+
+    const result = _applyTaskPatch({
+      tasksFile: fixture.tasksFile,
+      patchedContent: fixture.patchedContent,
+      cwd: fixture.workspaceRoot,
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'validation_failed',
+      stderr: '',
+      stdout: '',
+    }));
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-orig`)).toBe(false);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-tmp`)).toBe(false);
+
+    execSpy.mockRestore();
+  });
+
   test('recoverSupervisorTmpFiles restores tasks.md from .supervisor-orig residue', () => {
     const fixture = writePatchFixture();
     fs.renameSync(fixture.tasksFile, `${fixture.tasksFile}.supervisor-orig`);
@@ -590,6 +843,64 @@ describe('mini-ralph supervisor patch application', () => {
       `restored tasks file from staged supervisor tmp: ${fixture.tasksFile}.supervisor-tmp -> ${fixture.tasksFile}`,
     ]);
     expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(fixture.patchedContent);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-tmp`)).toBe(false);
+  });
+
+  test('applyTaskPatch and recovery validate required file-system context', () => {
+    const fixture = writePatchFixture();
+    const detachedTasksFile = path.join(tmpDir, 'detached', 'tasks.md');
+    fs.mkdirSync(path.dirname(detachedTasksFile), { recursive: true });
+    fs.writeFileSync(detachedTasksFile, '# Tasks\n', 'utf8');
+
+    expect(() => _applyTaskPatch({})).toThrow(
+      'mini-ralph supervisor: tasksFile is required for patch application'
+    );
+    expect(() => _applyTaskPatch({ tasksFile: path.join(tmpDir, 'missing.md') })).toThrow(
+      `mini-ralph supervisor: tasks file not found: ${path.join(tmpDir, 'missing.md')}`
+    );
+    expect(() => _applyTaskPatch({
+      tasksFile: detachedTasksFile,
+      patchedContent: '# Tasks\n',
+    })).toThrow(
+      `mini-ralph supervisor: unable to resolve workspace root from tasks file: ${detachedTasksFile}`
+    );
+    expect(() => _recoverSupervisorTmpFiles()).toThrow(
+      'mini-ralph supervisor: tasksFile or changeDir is required for recovery'
+    );
+
+    fs.writeFileSync(`${fixture.tasksFile}.supervisor-tmp`, fixture.patchedContent, 'utf8');
+    const originalTasks = fs.readFileSync(fixture.tasksFile, 'utf8');
+    fs.writeFileSync(`${fixture.tasksFile}.supervisor-orig`, `${originalTasks}restored\n`, 'utf8');
+
+    const result = _recoverSupervisorTmpFiles({ changeDir: fixture.changeDir });
+
+    expect(result).toEqual({
+      recovered: true,
+      actions: [
+        `removed stale tasks file: ${fixture.tasksFile}`,
+        `restored tasks file from rollback: ${fixture.tasksFile}.supervisor-orig -> ${fixture.tasksFile}`,
+        `discarded staged supervisor tmp: ${fixture.tasksFile}.supervisor-tmp`,
+      ],
+    });
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(`${originalTasks}restored\n`);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-orig`)).toBe(false);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-tmp`)).toBe(false);
+  });
+
+  test('recoverSupervisorTmpFiles discards orphaned tmp when tasks file already exists', () => {
+    const fixture = writePatchFixture();
+    const originalTasks = fs.readFileSync(fixture.tasksFile, 'utf8');
+    fs.writeFileSync(`${fixture.tasksFile}.supervisor-tmp`, fixture.patchedContent, 'utf8');
+
+    const result = _recoverSupervisorTmpFiles({ tasksFile: fixture.tasksFile });
+
+    expect(result).toEqual({
+      recovered: true,
+      actions: [
+        `discarded orphaned supervisor tmp: ${fixture.tasksFile}.supervisor-tmp`,
+      ],
+    });
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(originalTasks);
     expect(fs.existsSync(`${fixture.tasksFile}.supervisor-tmp`)).toBe(false);
   });
 });
