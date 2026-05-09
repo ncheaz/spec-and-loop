@@ -69,6 +69,27 @@ npm run lint
 npm run test:coverage
 ```
 
+### Testing supervisor changes locally
+
+Supervisor-loop coverage is designed to run without the live OpenCode CLI. Use the mocked shim in `tests/fixtures/supervisor/integration/mock-opencode.js` together with the shared fixture helpers in `tests/fixtures/supervisor/integration/common.bash` when working on supervisor behavior or the `BLOCKED_HANDOFF` recovery path.
+
+Useful local commands:
+
+```bash
+# Targeted supervisor unit suites
+npx jest tests/unit/javascript/mini-ralph-supervisor.test.js --runInBand
+npx jest tests/unit/javascript/mini-ralph-supervisor-budget.test.js --runInBand
+npx jest tests/unit/javascript/mini-ralph-supervisor-token-budget.test.js --runInBand
+
+# Mocked end-to-end supervisor flows
+npx bats tests/integration/supervisor-loop.bats
+npx bats tests/integration/supervisor-budget-exhaustion.bats
+npx bats tests/integration/supervisor-investigation-hints.bats
+npx bats tests/integration/supervisor-log-tail.bats
+```
+
+These tests exercise the supervisor prompt/render/patch flow through the mock shim, so changes to supervisor orchestration should be validated there before you rely on a manual `ralph-run` session.
+
 ### 4. Commit Changes
 
 Use clear, descriptive commit messages:

@@ -2,6 +2,8 @@
 
 You are writing `tasks.md` for an OpenSpec change that will be executed by `ralph-run` in a fresh-session loop. Every iteration re-reads this file plus proposal.md, design.md, and specs. The loop implements one task per iteration, runs verification, and marks progress only on success.
 
+When an iteration emits `BLOCKED_HANDOFF`, the runner may now invoke the supervisor loop before surfacing the handoff to a human. That makes the implementer's structured blocker note load-bearing: it must describe the real scope conflict or missing precondition precisely enough for either a human or the supervisor to patch `tasks.md` without guessing.
+
 ## Task template
 
 Every `- [ ]` checkbox must follow this shape:
@@ -116,6 +118,24 @@ Baseline artifact compatibility repair template:
 - "Maybe this, maybe that" wording in tasks or specs once loop starts
 - Repo-wide or slow validators for a narrow task when a focused verifier exists (`npm test`, `make all`, full browser/e2e suites)
 - Ambiguous package-manager forwarding such as `npm test -- event-schema` unless confirmed to execute only the intended test scope
+
+## Pre-loop scope-handoff pre-scan
+
+Before handing `tasks.md` to `ralph-run`, audit every pending `- [ ]` checkbox for the seven failure modes that most commonly cause `BLOCKED_HANDOFF` mid-loop. Each one is cheap to spot statically and expensive to discover after the loop has burned an iteration plus an auto-resolve attempt on it.
+
+For every pending task, verify in this order:
+
+1. **Referenced files exist.** Every path in `Scope:`, `Done when:`, and `Stop and hand off if:` resolves with `ls` or `git ls-files`. Dangling references (`SPEC.md` when only `SPEC-IA.md` exists, line ranges that drifted after a prior task, deleted fixtures) cause the agent to either hand off or hallucinate.
+2. **Referenced sections exist.** `### Acceptance Criteria items 1–9` must point to a real numbered list in a real document. Heading references must match the actual heading text (case-sensitive `rg "^## <heading>$" <file>`).
+3. **Verifier scope matches scope statement.** If `Scope:` names one file but `Done when:` runs a command that touches more (`pnpm test:update-snapshots` regenerates snapshots for *all* test files, not just one), either broaden `Scope:` to match the verifier's reach or replace the verifier with a narrower one (`vitest --run <single-test-file>`).
+4. **Pre-existing failures are classified.** If the verifier is a multi-file gate and the repo has known unrelated failures, they must be enumerated in a "Pre-existing unrelated failures" sub-section with file:line references and an explicit "do not stop on these" clause. See [Quality gates](#quality-gates).
+5. **Stop-conditions are objective.** Phrases like "diffs that cannot be explained" or "behavior looks wrong" are subjective and the agent will either over-trigger or under-trigger. Replace with grep-able evidence: "snapshot diff contains `atm-*` class on a docs MDX content element," "`hbr-tab-panel` appears in the rendered DOM."
+6. **Manual-only tasks are flagged.** Any task whose `Done when:` requires a human in a browser, eyes on a deployed URL, or visual judgement must be tagged with a `[manual]` marker in its title and have an explicit `Stop and hand off if:` line that says "manual verification required — emit BLOCKED_HANDOFF with verification template." This makes the handoff intentional, not a mid-loop surprise.
+7. **Cross-task scope conflicts are absent.** If task N writes a file that task N-1 already finished, or task N's `Stop and hand off if:` would trigger on the normal completion of task N+1, reorder or merge them. Read tasks in execution order and confirm no two tasks claim ownership of the same file/route/symbol.
+
+If any check fails, edit `tasks.md` before starting the loop. The cost of a static edit is a few seconds; the cost of discovering the same issue at iteration 21 is a `BLOCKED_HANDOFF`, a dirty worktree, and a context-poisoned restart.
+
+This pre-scan is mandatory before `ralph-run` on a freshly authored or freshly edited `tasks.md`. After remediation, re-run `openspec validate <change>` to confirm the change still validates.
 
 ## Examples
 

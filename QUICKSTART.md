@@ -75,6 +75,8 @@ ralph-run --change add-hello-world
 - Create a runner-managed task commit when auto-commit is enabled and task-scoped staging succeeds
 - Track progress in tasks.md
 
+If you want the handoff-recovery details and self-heal flags, see [`README.md#supervisor-loop`](./README.md#supervisor-loop).
+
 ## What Just Happened?
 
 1. **Created a spec** with OpenSpec

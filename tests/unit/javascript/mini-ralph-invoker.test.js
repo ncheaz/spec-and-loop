@@ -134,6 +134,45 @@ describe('mini-ralph invoker', () => {
     expect(result.stderr).toBe('some warning message\n');
   });
 
+  test('invoke preserves detailed tool usage from a tool-usage fenced block', async () => {
+    const stdout = [
+      '```supervisor-response',
+      '{"current_task_patch":null,"downstream_patches":[],"investigation_hints":[],"summary":"decline","downstream_rationale":""}',
+      '```',
+      '```tool-usage',
+      JSON.stringify([
+        {
+          tool: 'Read',
+          input: { filePath: '/tmp/ralph-stdout.log', offset: 1200, limit: 80 },
+          output: { bytes: 321 },
+        },
+      ]),
+      '```',
+    ].join('\n');
+
+    spawn.mockReturnValue(makeChildProcess({ stdout, exitCode: 0 }));
+
+    const result = await invoker.invoke({
+      prompt: 'Do the work.',
+      ralphDir: '/tmp/ralph',
+    });
+
+    expect(result.toolUsage).toEqual([
+      {
+        tool: 'Read',
+        input: { filePath: '/tmp/ralph-stdout.log', offset: 1200, limit: 80 },
+        output: { bytes: 321 },
+      },
+    ]);
+  });
+
+  test('_extractDetailedToolUsage falls back to aggregate tool counts when no detail block exists', () => {
+    expect(invoker._extractDetailedToolUsage('Read\nBash\nRead')).toEqual([
+      { tool: 'Read', count: 2 },
+      { tool: 'Bash', count: 1 },
+    ]);
+  });
+
   test('invoke preserves signal metadata when opencode is terminated by signal', async () => {
     spawn.mockReturnValue(
       makeChildProcess({

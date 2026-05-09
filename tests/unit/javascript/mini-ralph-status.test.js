@@ -20,6 +20,7 @@ const {
   _latestCommitAnomaly,
   _formatHistoryFailure,
   _isFailedHistoryEntry,
+  _supervisorStatus,
 } = require('../../../lib/mini-ralph/status');
 const state = require('../../../lib/mini-ralph/state');
 const history = require('../../../lib/mini-ralph/history');
@@ -150,6 +151,32 @@ describe('_latestCommitAnomaly()', () => {
 
   test('returns null when recent history has no commit anomaly', () => {
     expect(_latestCommitAnomaly([{ iteration: 1, commitAnomaly: '' }])).toBeNull();
+  });
+});
+
+describe('_supervisorStatus()', () => {
+  test('returns null when supervisor state or supervisor edits are absent', () => {
+    expect(_supervisorStatus({}, [])).toBeNull();
+    expect(_supervisorStatus({ supervisor: { currentBlockerHash: 'abc' } }, [])).toBeNull();
+  });
+
+  test('returns the condensed supervisor block data when supervisor edits exist', () => {
+    expect(_supervisorStatus({
+      supervisor: {
+        currentBlockerHash: 'abc123',
+        triesUsedForCurrentBlocker: 2,
+        lastOutcome: 'patch_applied',
+      },
+    }, [
+      { iteration: 7 },
+      { type: 'supervisorEdit', iteration: 7 },
+      { type: 'supervisorEdit', iteration: 7 },
+    ])).toEqual({
+      currentBlockerHash: 'abc123',
+      triesUsedForCurrentBlocker: 2,
+      lastOutcome: 'patch_applied',
+      editCount: 2,
+    });
   });
 });
 
@@ -559,6 +586,74 @@ describe('render()', () => {
     expect(output).toContain('[TASK]');
     expect(output).toContain('Iteration 2');
     expect(output).toContain('[COMPLETE]');
+  });
+
+  test('status rendering with supervisor block and edits present', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 7,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+      supervisor: {
+        currentBlockerHash: '0123456789abcdef',
+        triesUsedForCurrentBlocker: 2,
+        totalAttemptsForCurrentBlocker: 2,
+        lastOutcome: 'patch_applied',
+      },
+    });
+    history.append(ralphDir, {
+      iteration: 7,
+      duration: 1500,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: ['openspec/changes/demo/tasks.md'],
+      exitCode: 0,
+    });
+    history.append(ralphDir, {
+      type: 'supervisorEdit',
+      iteration: 7,
+      blockerHash: '0123456789abcdef',
+      tryIndex: 2,
+      taskNumber: '5.2',
+      rationaleSummary: 'Patch the blocked task.',
+      validatorOk: true,
+      softWarnings: [],
+    });
+
+    const output = render(ralphDir);
+    expect(output).toContain('--- Supervisor ---');
+    expect(output).toContain('Blocker hash: 0123456789abcdef');
+    expect(output).toContain('Tries used: 2');
+    expect(output).toContain('Last outcome: patch_applied');
+    expect(output).toContain('Supervisor edits: 1');
+  });
+
+  test('status rendering with no supervisor block omits the block', () => {
+    state.init(ralphDir, {
+      active: false,
+      iteration: 4,
+      maxIterations: 10,
+      startedAt: new Date().toISOString(),
+      supervisor: {
+        currentBlockerHash: 'ignored',
+        triesUsedForCurrentBlocker: 1,
+        totalAttemptsForCurrentBlocker: 1,
+        lastOutcome: 'declined',
+      },
+    });
+    history.append(ralphDir, {
+      iteration: 4,
+      duration: 1000,
+      completionDetected: false,
+      taskDetected: false,
+      toolUsage: [],
+      filesChanged: [],
+      exitCode: 0,
+    });
+
+    const output = render(ralphDir);
+    expect(output).not.toContain('--- Supervisor ---');
   });
 
   test('shows failure summaries for signal and fatal-stage history entries', () => {

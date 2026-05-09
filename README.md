@@ -232,6 +232,24 @@ git log --oneline
 ralph-run --add-context "Prefer async/await over callbacks"
 ```
 
+## Supervisor Loop
+
+When an iteration emits `BLOCKED_HANDOFF` for a structural task-shaping problem that the existing fast-path classifier cannot safely resolve, `ralph-run` can invoke a bounded supervisor pass that patches `tasks.md`, validates the change with `npx openspec validate <change> --strict`, and then hands the next iteration a cleaner task instead of stopping immediately for manual intervention. Set `RALPH_SELF_HEAL=0` or pass `--no-self-heal` to restore the fully manual handoff flow.
+
+| Flag | Env var | Default | Effect |
+|------|---------|---------|--------|
+| `--no-self-heal` | `RALPH_SELF_HEAL=0` | self-heal enabled | Disable supervisor self-heal and exit on unresolved `BLOCKED_HANDOFF` as before. |
+| `--self-heal-max-tries <n>` | `RALPH_SELF_HEAL_MAX_TRIES` | `3` | Cap supervisor tries per blocker event. |
+| `--no-self-heal-downstream` | `RALPH_SELF_HEAL_DOWNSTREAM=0` | downstream patching enabled | Prevent supervisor edits to downstream pending tasks. |
+| `--no-self-heal-hints` | `RALPH_SELF_HEAL_HINTS=0` | hints enabled | Disable `## Supervisor Investigation Hints` injection into the next implementer prompt. |
+| `--no-self-heal-log-access` | `RALPH_SELF_HEAL_LOG_ACCESS=0` | log-path injection enabled | Keep supervisor prompts from receiving run-log paths. |
+| `--self-heal-verbose` | `RALPH_SELF_HEAL_VERBOSE=1` | verbose off | Emit supervisor debug logging. |
+| `--no-self-heal-verbose` | `RALPH_SELF_HEAL_VERBOSE=0` | inherits `--verbose` when present | Force supervisor debug logging off, even if `--verbose` is set for the main runner. |
+
+### Token economy
+
+Supervisor prompts keep the expensive rule context on by default but aggressively compact it: Tier 1 trims `downstream_tasks`, `change_design`, `change_proposal`, and retry-only context; Tier 2 distills `OPENSPEC-RALPH-BP.md`; Tier 3 consolidates per-patch rationale into summary fields. Escape hatches are available per variable: `RALPH_SELF_HEAL_FULL_DOWNSTREAM=1`, `RALPH_SELF_HEAL_FULL_DESIGN=1`, `RALPH_SELF_HEAL_FULL_PROPOSAL=1`, and `RALPH_SELF_HEAL_FULL_BP_CONTEXT=1` restore verbatim inputs; `RALPH_SELF_HEAL_KEEP_DOWNSTREAM_ON_RETRY=1` and `RALPH_SELF_HEAL_KEEP_HANDOFF_HISTORY_ON_RETRY=1` keep retry-suppressed sections; `RALPH_SELF_HEAL_PER_PATCH_RATIONALES=1` restores per-patch rationale output when you need the uncompressed response shape.
+
 ## Example Workflow
 
 ```bash
@@ -472,7 +490,7 @@ For common issues and solutions, see [QUICKSTART.md#troubleshooting](./QUICKSTAR
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RALPH_BASE_PROMPT_WARN_BYTES` | `4096` | Byte threshold above which `render()` emits a one-line warning to stderr when `{{base_prompt}}` resolves to a large file. Set to `0` to silence warnings entirely. Invalid values fall back to `4096` with a one-time notice per process. |
-| `RALPH_ITERATION_IDLE_TIMEOUT_MS` | `300000` | Milliseconds of silence on stdout+stderr before the per-iteration idle watchdog fires. Set to `0` to disable the watchdog entirely and restore pre-change behavior (no timeout). |
+| `RALPH_ITERATION_IDLE_TIMEOUT_MS` | `900000` | Milliseconds of silence on stdout+stderr before the per-iteration idle watchdog fires (default 15 minutes). Set to `0` to disable the watchdog entirely and restore pre-change behavior (no timeout). |
 | `RALPH_ITERATION_KILL_GRACE_MS` | `10000` | Milliseconds the runner waits after sending `SIGTERM` to a timed-out iteration child before escalating to `SIGKILL`. |
 
 ### Auto-commit ignore-filter surfacing and iteration watchdog
@@ -516,7 +534,7 @@ The `iteration_timeout_idle` reason also appears in the `## Recent Loop Signals`
 Set `RALPH_ITERATION_IDLE_TIMEOUT_MS=0` to disable the watchdog if your agent workflow runs legitimately long silent tools (e.g., large integration test suites). Example:
 
 ```bash
-RALPH_ITERATION_IDLE_TIMEOUT_MS=900000 ralph-run --change my-feature   # 15-minute idle threshold
+RALPH_ITERATION_IDLE_TIMEOUT_MS=1800000 ralph-run --change my-feature  # 30-minute idle threshold
 RALPH_ITERATION_IDLE_TIMEOUT_MS=0 ralph-run --change my-feature        # watchdog disabled
 ```
 

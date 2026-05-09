@@ -130,6 +130,12 @@ CHANGE_NAME=""
 MAX_ITERATIONS=""
 NO_COMMIT=false
 AUTO_RESOLVE_HANDOFFS=""
+SELF_HEAL=""
+SELF_HEAL_MAX_TRIES=""
+SELF_HEAL_DOWNSTREAM=""
+SELF_HEAL_HINTS=""
+SELF_HEAL_LOG_ACCESS=""
+SELF_HEAL_VERBOSE=""
 SHOW_STATUS=false
 SHOW_VERSION=false
 ADD_CONTEXT=""
@@ -137,6 +143,12 @@ CLEAR_CONTEXT=false
 SUBCOMMAND=""
 ERROR_OCCURRED=false
 CLEANUP_IN_PROGRESS=false
+
+# Tracks the per-run temp directory created by setup_output_capture so the
+# EXIT trap can remove it. Without this each invocation leaves a stale
+# `$TMPDIR/ralph-run-XXXXXX` directory behind and they accumulate quickly
+# (we observed ~1k stale dirs on a single workstation).
+RALPH_RUN_TEMP_DIR=""
 
 # Trap signals for proper cleanup
 cleanup() {
@@ -153,7 +165,16 @@ cleanup() {
     # 1. The mini Ralph runtime runs synchronously in the foreground
     # 2. Ctrl+C (SIGINT) naturally propagates to child processes
     # 3. The shell's process group handling ensures clean termination.
-    
+
+    # Remove the per-run temp directory created by setup_output_capture.
+    # Path-shape guard: only delete dirs whose name starts with `ralph-run-`
+    # so an accidental empty/aliased value cannot wipe an unrelated path.
+    if [[ -n "$RALPH_RUN_TEMP_DIR" \
+          && -d "$RALPH_RUN_TEMP_DIR" \
+          && "$(basename "$RALPH_RUN_TEMP_DIR")" == ralph-run-* ]]; then
+        rm -rf "$RALPH_RUN_TEMP_DIR" 2>/dev/null || true
+    fi
+
     if [[ $exit_code -ne 0 ]]; then
         log_error "Script terminated with exit code: $exit_code"
     fi
@@ -190,6 +211,16 @@ OPTIONS:
     --auto-resolve-handoffs  Enable bounded continuation for explicit safe handoffs
     --no-auto-resolve-handoffs
                              Disable bounded continuation for explicit safe handoffs
+    --no-self-heal           Disable supervisor self-heal (env: RALPH_SELF_HEAL=0)
+    --self-heal-max-tries <n>
+                             Supervisor tries per blocker (env: RALPH_SELF_HEAL_MAX_TRIES)
+    --no-self-heal-downstream
+                             Disable downstream supervisor patches (env: RALPH_SELF_HEAL_DOWNSTREAM=0)
+    --no-self-heal-hints     Disable supervisor investigation hints (env: RALPH_SELF_HEAL_HINTS=0)
+    --no-self-heal-log-access
+                             Disable supervisor log-path injection (env: RALPH_SELF_HEAL_LOG_ACCESS=0)
+    --self-heal-verbose      Enable supervisor debug logging (env: RALPH_SELF_HEAL_VERBOSE=1)
+    --no-self-heal-verbose   Disable supervisor debug logging, even with --verbose
     --verbose, -v            Enable verbose mode for debugging
     --quiet                  Suppress the per-iteration progress stream
     --version                Print the version and exit
@@ -242,6 +273,34 @@ parse_arguments() {
                 ;;
             --no-auto-resolve-handoffs)
                 AUTO_RESOLVE_HANDOFFS=false
+                shift
+                ;;
+            --no-self-heal)
+                SELF_HEAL=false
+                shift
+                ;;
+            --self-heal-max-tries)
+                SELF_HEAL_MAX_TRIES="$2"
+                shift 2
+                ;;
+            --no-self-heal-downstream)
+                SELF_HEAL_DOWNSTREAM=false
+                shift
+                ;;
+            --no-self-heal-hints)
+                SELF_HEAL_HINTS=false
+                shift
+                ;;
+            --no-self-heal-log-access)
+                SELF_HEAL_LOG_ACCESS=false
+                shift
+                ;;
+            --self-heal-verbose)
+                SELF_HEAL_VERBOSE=true
+                shift
+                ;;
+            --no-self-heal-verbose)
+                SELF_HEAL_VERBOSE=false
                 shift
                 ;;
             --verbose|-v)
@@ -928,7 +987,10 @@ setup_output_capture() {
     local output_dir
     output_dir=$(make_temp_dir "ralph-run")
     log_info "Output directory: $output_dir"
-    
+
+    # Track for cleanup() so the EXIT trap can remove it.
+    RALPH_RUN_TEMP_DIR="$output_dir"
+
     # Store output directory path in Ralph directory for reference
     echo "$output_dir" > "$ralph_dir/.output_dir"
     
@@ -1022,6 +1084,32 @@ Do not create git commits yourself. The Ralph runner manages automatic task comm
         mini_ralph_args+=("--auto-resolve-handoffs")
     elif [[ "$AUTO_RESOLVE_HANDOFFS" == false ]]; then
         mini_ralph_args+=("--no-auto-resolve-handoffs")
+    fi
+
+    if [[ "$SELF_HEAL" == false ]]; then
+        mini_ralph_args+=("--no-self-heal")
+    fi
+
+    if [[ -n "$SELF_HEAL_MAX_TRIES" ]]; then
+        mini_ralph_args+=("--self-heal-max-tries" "$SELF_HEAL_MAX_TRIES")
+    fi
+
+    if [[ "$SELF_HEAL_DOWNSTREAM" == false ]]; then
+        mini_ralph_args+=("--no-self-heal-downstream")
+    fi
+
+    if [[ "$SELF_HEAL_HINTS" == false ]]; then
+        mini_ralph_args+=("--no-self-heal-hints")
+    fi
+
+    if [[ "$SELF_HEAL_LOG_ACCESS" == false ]]; then
+        mini_ralph_args+=("--no-self-heal-log-access")
+    fi
+
+    if [[ "$SELF_HEAL_VERBOSE" == true ]]; then
+        mini_ralph_args+=("--self-heal-verbose")
+    elif [[ "$SELF_HEAL_VERBOSE" == false ]]; then
+        mini_ralph_args+=("--no-self-heal-verbose")
     fi
 
     if [[ "$VERBOSE" == true ]]; then
@@ -1202,6 +1290,7 @@ rules:
     - Each task has one dominant outcome and one verification cluster
     - Use surgical, scope-targeted validation commands; reserve broad gates for pre-flight baselines or final integration tasks
     - Include explicit stop-and-hand-off conditions
+    - Run the OPENSPEC-RALPH-BP "Pre-loop scope-handoff pre-scan" against tasks.md before handing it to ralph-run; remediate every finding (dangling file paths, missing sections, scope/verifier mismatches, unclassified pre-existing failures, subjective stop conditions, unflagged manual-only tasks, cross-task scope conflicts)
   design:
     - Do not leave core policy choices unresolved
     - Specify algorithms, config shapes, and failure semantics
@@ -1224,6 +1313,18 @@ Before generating any OpenSpec artifacts, you MUST:
 - Ensure tasks use the task template with objective done-when conditions
 - Ensure each task uses the narrowest verifier that proves its scope; use broad gates only with baseline classification or final integration tasks
 - Include explicit stop-and-hand-off conditions in every task
+
+Before handing `tasks.md` to `ralph-run` (whether you just authored it or just edited it), you MUST run the **Pre-loop scope-handoff pre-scan** from `openspec/OPENSPEC-RALPH-BP.md` against every pending `- [ ]` task. For each pending task, statically verify:
+
+1. Every file path in `Scope:` / `Done when:` / `Stop and hand off if:` resolves on disk (`ls`, `git ls-files`).
+2. Every referenced section/heading exists in its named document with the exact heading text (`rg "^## <heading>$" <file>`).
+3. The verifier's actual reach matches the `Scope:` statement; broaden scope or narrow the verifier when they disagree.
+4. Multi-file gates that may hit pre-existing failures enumerate them in a "Pre-existing unrelated failures" sub-section with file:line references and a "do not stop on these" clause.
+5. `Stop and hand off if:` conditions are objective (grep-able evidence, exact class/selector names) — never subjective ("looks wrong", "cannot be explained").
+6. Any task requiring human-in-browser verification, deployed-URL checks, or visual judgment is tagged `[manual]` in its title with an explicit "manual verification required — emit BLOCKED_HANDOFF with verification template" stop condition.
+7. No two pending tasks claim ownership of the same file/route/symbol; no task's `Stop and hand off if:` would trigger on the normal completion of a later task.
+
+Remediate every finding by editing `tasks.md` directly, then re-run `openspec validate <change>` before starting the loop. If you cannot remediate a finding (it requires a product/policy decision), surface it to the user instead of starting the loop.
 RALPH_AGENTS
         log_verbose "Updated $agents_file with Ralph Wiggum compliance section"
     else
