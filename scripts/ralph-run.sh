@@ -144,6 +144,12 @@ SUBCOMMAND=""
 ERROR_OCCURRED=false
 CLEANUP_IN_PROGRESS=false
 
+# Tracks the per-run temp directory created by setup_output_capture so the
+# EXIT trap can remove it. Without this each invocation leaves a stale
+# `$TMPDIR/ralph-run-XXXXXX` directory behind and they accumulate quickly
+# (we observed ~1k stale dirs on a single workstation).
+RALPH_RUN_TEMP_DIR=""
+
 # Trap signals for proper cleanup
 cleanup() {
     # Prevent multiple cleanup calls
@@ -159,7 +165,16 @@ cleanup() {
     # 1. The mini Ralph runtime runs synchronously in the foreground
     # 2. Ctrl+C (SIGINT) naturally propagates to child processes
     # 3. The shell's process group handling ensures clean termination.
-    
+
+    # Remove the per-run temp directory created by setup_output_capture.
+    # Path-shape guard: only delete dirs whose name starts with `ralph-run-`
+    # so an accidental empty/aliased value cannot wipe an unrelated path.
+    if [[ -n "$RALPH_RUN_TEMP_DIR" \
+          && -d "$RALPH_RUN_TEMP_DIR" \
+          && "$(basename "$RALPH_RUN_TEMP_DIR")" == ralph-run-* ]]; then
+        rm -rf "$RALPH_RUN_TEMP_DIR" 2>/dev/null || true
+    fi
+
     if [[ $exit_code -ne 0 ]]; then
         log_error "Script terminated with exit code: $exit_code"
     fi
@@ -972,7 +987,10 @@ setup_output_capture() {
     local output_dir
     output_dir=$(make_temp_dir "ralph-run")
     log_info "Output directory: $output_dir"
-    
+
+    # Track for cleanup() so the EXIT trap can remove it.
+    RALPH_RUN_TEMP_DIR="$output_dir"
+
     # Store output directory path in Ralph directory for reference
     echo "$output_dir" > "$ralph_dir/.output_dir"
     
