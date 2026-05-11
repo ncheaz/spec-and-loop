@@ -77,7 +77,10 @@ Task validators must be surgical and efficient so the loop spends tokens on impl
   - Hard blocker: `` `<gate command>` exits 0; baseline failures are not allowed for this task ``
 - When strict clean-gate text conflicts with a failing pre-flight baseline and no classification/cleanup rule is written, `ralph-run` will warn the agent to stop with `BLOCKED_HANDOFF` instead of spending iterations on unauthorized cleanup.
 - When a task refers to a pre-flight baseline, or follows a completed pre-flight baseline task, but the matching `.ralph/baselines/<change>-<gate>.txt` artifact is missing, `ralph-run` will warn the agent to stop with `BLOCKED_HANDOFF` instead of treating undocumented failures as known.
-- A pre-flight baseline task must produce runner-recognizable artifacts, not just human-readable logs: baseline files must live under the change-local `.ralph/baselines/` directory that `ralph-run` reads, their filenames must identify the gate (`typecheck`, `lint`, `test`, etc.), and every captured gate file must end with a literal `EXIT=<integer>` line.
+- A pre-flight baseline task must produce runner-recognizable artifacts, not just human-readable logs: baseline files must live under the change-local `.ralph/baselines/` directory that `ralph-run` reads, their filenames must identify the gate (`typecheck`, `lint`, `test`, etc.), and every captured gate file must end with a literal `EXIT=<integer>` line. The runner discovers baselines in three supported layouts:
+  - flat unprefixed: `.ralph/baselines/<gate>.txt`
+  - flat prefixed: `.ralph/baselines/<change>-<gate>.txt`
+  - nested: `.ralph/baselines/<change>/<gate>.txt` (one level of subdirectory; useful when a single change emits many gate files and authors want to group them under a slug folder)
 - If a later task is allowed to repair baseline artifact compatibility, say so explicitly. Its `Scope:` must name the change-local `.ralph/baselines/` directory and its `Done when:` bullets must require the missing or malformed baseline files to be restored with parseable `EXIT=<integer>` footers. Without that authorization, baseline artifact repair remains an operator handoff, not product implementation work.
 - Authorized cleanup is intentionally narrow: the named files must be backticked, the cleanup is limited to compiler/lint-only fixes, and `ralph-run` gives the agent one repair attempt for those files on that task. If the gate still fails after that attempt, the next prompt tells the agent to hand off instead of retrying.
 
@@ -87,9 +90,9 @@ Pre-flight template:
   - Scope: no code edits; writes only under `.ralph/baselines/`
   - Change: Capture current state of all gates later tasks require.
   - Done when:
-    - `.ralph/baselines/<gate>.txt` or `.ralph/baselines/<change>-<gate>.txt` exists for each gate with full output
+    - one of `.ralph/baselines/<gate>.txt`, `.ralph/baselines/<change>-<gate>.txt`, or `.ralph/baselines/<change>/<gate>.txt` exists for each gate with full output
     - every captured gate file ends with a literal `EXIT=<integer>` line
-    - `.ralph/baselines/<change>-readme.md` lists passing/failing gates, exit codes, and exact failing identifiers
+    - `.ralph/baselines/<change>-readme.md` (flat layout) or `.ralph/baselines/<change>/readme.md` (nested layout) lists passing/failing gates, exit codes, and exact failing identifiers
   - Stop and hand off if: any gate is nondeterministic across two runs, or any captured baseline file is missing the `EXIT=<integer>` final line after retrying the capture command.
 ```
 
