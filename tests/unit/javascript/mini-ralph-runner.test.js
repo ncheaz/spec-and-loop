@@ -1272,6 +1272,34 @@ describe('_buildBaselineGateFeedback()', () => {
     })).toBe('');
   });
 
+  test('nested change-slug baselines satisfy the completed pre-flight gate', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-nested-pf');
+    const tasksFile = path.join(tmpDir, 'tasks-nested-pf.md');
+    const nestedDir = path.join(ralphDir, 'baselines', 'migrate-hero-dark');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    fs.writeFileSync(path.join(nestedDir, 'typecheck.txt'), 'gate output\n\nEXIT=1\n', 'utf8');
+    fs.writeFileSync(tasksFile, [
+      '- [x] 0.1 Pre-flight: record quality gate baselines',
+      '  - Done when:',
+      '    - `.ralph/baselines/migrate-hero-dark/typecheck.txt` exists',
+      '- [ ] 0.3 Implement hero',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0, or failures match the pre-flight baseline with no new failures',
+      '',
+    ].join('\n'), 'utf8');
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      number: '0.3',
+      description: 'Implement hero',
+    });
+
+    expect(feedback).not.toContain('matching baseline artifact is missing');
+    expect(feedback).toContain('appears to authorize baseline classification');
+    expect(feedback).toContain(
+      `baselines${path.sep}migrate-hero-dark${path.sep}typecheck.txt exits 1`,
+    );
+  });
+
   test('extracts current task block and detects strict gates', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     fs.writeFileSync(tasksFile, [
@@ -1311,6 +1339,117 @@ describe('_buildBaselineGateFeedback()', () => {
       { name: 'typecheck', file: path.join('baselines', 'demo-typecheck.txt'), exitCode: 2 },
       { name: 'test', file: path.join('baselines', 'demo-test.txt'), exitCode: 1 },
     ]);
+  });
+
+  test('discovers baselines nested one level under a change-slug subdirectory', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-nested');
+    const nestedDir = path.join(ralphDir, 'baselines', 'migrate-hero-dark');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    fs.writeFileSync(path.join(nestedDir, 'typecheck.txt'), 'gate output\n\nEXIT=1\n', 'utf8');
+    fs.writeFileSync(path.join(nestedDir, 'lint.txt'), 'gate output\n\nEXIT=0\n', 'utf8');
+    fs.writeFileSync(path.join(nestedDir, 'test-full.txt'), 'gate output\n\nEXIT=1\n', 'utf8');
+
+    expect(_detectRecordedBaselineGates(ralphDir)).toEqual([
+      {
+        name: 'typecheck',
+        file: path.join('baselines', 'migrate-hero-dark', 'typecheck.txt'),
+        exitCode: 1,
+      },
+      {
+        name: 'lint',
+        file: path.join('baselines', 'migrate-hero-dark', 'lint.txt'),
+        exitCode: 0,
+      },
+      {
+        name: 'test',
+        file: path.join('baselines', 'migrate-hero-dark', 'test-full.txt'),
+        exitCode: 1,
+      },
+    ]);
+  });
+
+  test('merges flat and nested baseline layouts in the same baselines dir', () => {
+    const ralphDir = path.join(tmpDir, '.ralph-mixed');
+    writeBaseline(ralphDir, 'shared-lint.txt', 0);
+    const nestedDir = path.join(ralphDir, 'baselines', 'feature-x');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    fs.writeFileSync(path.join(nestedDir, 'typecheck.txt'), 'gate output\n\nEXIT=2\n', 'utf8');
+
+    const gates = _detectRecordedBaselineGates(ralphDir);
+    expect(gates).toEqual([
+      {
+        name: 'typecheck',
+        file: path.join('baselines', 'feature-x', 'typecheck.txt'),
+        exitCode: 2,
+      },
+      {
+        name: 'lint',
+        file: path.join('baselines', 'shared-lint.txt'),
+        exitCode: 0,
+      },
+    ]);
+  });
+
+  test('discovers baselines at repo-root <repoRoot>/.ralph/baselines/<slug>/ when ralphDir is a per-change .ralph dir', () => {
+    // Mirrors the layout that ralph-run.sh produces for OpenSpec changes:
+    //   ralphDir   = <repoRoot>/openspec/changes/<slug>/.ralph
+    //   baselines  = <repoRoot>/.ralph/baselines/<slug>/<gate>.txt
+    // The per-change `.ralph/baselines` is intentionally empty in this test
+    // to prove the repo-root fallback is what surfaces the gates.
+    const repoRoot = path.join(tmpDir, 'repo-root-fallback');
+    const slug = 'migrate-uxep-hero-dark-to-hbr-mode-dark';
+    const ralphDir = path.join(repoRoot, 'openspec', 'changes', slug, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+
+    const repoBaselineDir = path.join(repoRoot, '.ralph', 'baselines', slug);
+    fs.mkdirSync(repoBaselineDir, { recursive: true });
+    fs.writeFileSync(path.join(repoBaselineDir, 'typecheck.txt'), 'gate output\n\nEXIT=1\n', 'utf8');
+    fs.writeFileSync(path.join(repoBaselineDir, 'lint.txt'), 'gate output\n\nEXIT=0\n', 'utf8');
+
+    expect(_detectRecordedBaselineGates(ralphDir)).toEqual([
+      {
+        name: 'typecheck',
+        file: path.join('baselines', slug, 'typecheck.txt'),
+        exitCode: 1,
+      },
+      {
+        name: 'lint',
+        file: path.join('baselines', slug, 'lint.txt'),
+        exitCode: 0,
+      },
+    ]);
+  });
+
+  test('repo-root fallback satisfies a completed pre-flight baseline gate', () => {
+    const repoRoot = path.join(tmpDir, 'repo-root-fallback-gate');
+    const slug = 'migrate-uxep-hero-dark-to-hbr-mode-dark';
+    const ralphDir = path.join(repoRoot, 'openspec', 'changes', slug, '.ralph');
+    fs.mkdirSync(ralphDir, { recursive: true });
+
+    const repoBaselineDir = path.join(repoRoot, '.ralph', 'baselines', slug);
+    fs.mkdirSync(repoBaselineDir, { recursive: true });
+    fs.writeFileSync(path.join(repoBaselineDir, 'typecheck.txt'), 'gate output\n\nEXIT=1\n', 'utf8');
+
+    const tasksFile = path.join(ralphDir, '..', 'tasks.md');
+    fs.writeFileSync(tasksFile, [
+      '- [x] Pre-flight: record quality gate baselines',
+      '  - Done when:',
+      `    - \`.ralph/baselines/${slug}/typecheck.txt\` exists`,
+      '- [ ] Implement hero',
+      '  - Done when:',
+      '    - `pnpm typecheck` exits 0, or failures match the pre-flight baseline with no new failures',
+      '',
+    ].join('\n'), 'utf8');
+
+    const feedback = _buildBaselineGateFeedback(ralphDir, tasksFile, {
+      description: 'Implement hero',
+    });
+
+    expect(feedback).not.toContain('matching baseline artifact is missing');
+    expect(feedback).toContain('appears to authorize baseline classification');
+    expect(feedback).toContain(
+      `baselines${path.sep}${slug}${path.sep}typecheck.txt exits 1`,
+    );
   });
 
   test('detects missing baseline gates only when a baseline policy exists', () => {
