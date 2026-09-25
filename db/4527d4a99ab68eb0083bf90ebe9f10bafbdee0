@@ -1,0 +1,143 @@
+tests/unit/javascript/mini-ralph-runner.test.js
+  s_f4b78855d2cb7e::t_f7d4b52bd7f7cc 5018,5037,5066,5092
+  s_e3f08a70100731::t_85963bdcaaa980 5027-5028,5046-5047,5075-5076,5085,5098
+  s_a44f4cf6306b07::t_173dd907c7ee51 5021,5040,5069,5095
+  s_478143921e25e1::t_d3a49d0075b642 5033
+  s_cf4685f7ad8ff1::t_e4ee425bb60ddc 5020,5039,5068,5094
+  s_478143921e25e1::t_809f071250384b 2750-2751,2753,2903-2904,2907
+  s_478143921e25e1::t_403a7266a49d42 5010-5015,5032,5051-5063,5081,5089,5099-5106
+  s_d1666739e89fae::t_76f8d9909680ce 5022-5023,5041-5042,5070-5071,5082-5083
+  s_aed3f42c1f5755::t_5065e11bc251c5 5019,5038,5067,5093
+  s_e3f08a70100731::t_486c0e89dc5a1f 5024-5026,5043-5045,5072-5074,5084,5096-5097
+  s_e3f08a70100731::t_0c52e48fa55e8c 5029-5031,5048-5050,5077-5080,5086-5088
+  s_478143921e25e1::t_b480349fdef2a6 5016,5035,5064,5090
+  s_478143921e25e1::t_9130df54ce4c0e 5017,5036,5065,5091
+  s_478143921e25e1::t_7886d1402f393f 5034
+tests/fixtures/supervisor/integration/common.bash
+  s_478143921e25e1::t_e47b628d4ab471 35
+  s_478143921e25e1::t_e854010f904fd7 31-34,36-38
+tests/unit/javascript/mini-ralph-tasks.test.js
+  s_929de344d43428::t_76a55a30503237 115-124
+  s_478143921e25e1::t_b867b17672f6e8 223-228
+  s_cf4685f7ad8ff1::t_6dcc74f00be5d8 205
+tests/unit/javascript/mini-ralph-status.test.js
+  s_cf4685f7ad8ff1::t_5028d3b574f80d 735
+  s_478143921e25e1::t_b867b17672f6e8 195,722
+tests/integration/supervisor-loop.bats
+  s_478143921e25e1::t_e854010f904fd7 66-73,76-101
+  s_e3f08a70100731::t_c9066f82b7fbf1 74-75
+tests/unit/javascript/mini-ralph-supervisor.test.js
+  s_478143921e25e1::t_cb05a87097bab6 695-710
+lib/mini-ralph/tasks.js
+  s_cf4685f7ad8ff1::t_6dcc74f00be5d8 119-121
+  s_929de344d43428::t_d465b8cf6cf065 89,97-106,175
+  s_478143921e25e1::t_20036cafc853fa 115-118,177
+lib/mini-ralph/runner.js
+  s_478143921e25e1::t_45965f6ceb12e3 340
+  s_e3f08a70100731::t_8dc1679519f6aa 344
+  s_478143921e25e1::t_68b8e7fcca1047 817
+  s_e3f08a70100731::t_62436557192e68 338
+  s_478143921e25e1::t_1acba9570e43f0 301,312-314,335,794-795,798,804,807-813,935-936,1084,1593,1637
+  s_e3f08a70100731::t_6a90048f3c3c6e 337,339
+  s_a44f4cf6306b07::t_bb8dceccc6658a 343
+  s_f4b78855d2cb7e::t_f7d4b52bd7f7cc 336,341
+  s_a44f4cf6306b07::t_c04757feec46c2 342
+  s_e3f08a70100731::t_3b29419fc6df68 345-346
+tests/unit/javascript/mini-ralph-supervisor-budget.test.js
+  s_aed3f42c1f5755::t_b72b0fccd78cac 281,314-326
+  s_cf4685f7ad8ff1::t_d62407df18fd4a 54-77
+  s_478143921e25e1::t_b480349fdef2a6 78-100
+  s_478143921e25e1::t_e0ad7d9e7228c5 113,392
+  s_478143921e25e1::t_cb05a87097bab6 26-53,101-112,114-135
+  s_929de344d43428::t_51000cee9b8bd3 160-162
+  s_478143921e25e1::t_fc3b5e47ca9d82 787
+  s_929de344d43428::t_76a55a30503237 136-159,163-177
+  s_478143921e25e1::t_6aa7bff66cb7d4 492
+  s_478143921e25e1::t_9571e28563d12b 497
+  s_f4b78855d2cb7e::t_e981c8adeb2e67 795-822
+lib/mini-ralph/supervisor.js
+  s_478143921e25e1::t_6aa7bff66cb7d4 1001
+  s_aed3f42c1f5755::t_6f137586dba979 785
+  s_478143921e25e1::t_a069be904f692c 282-284,1172-1176,1180-1181
+  s_478143921e25e1::t_f398c561a64704 830-831
+  s_f4b78855d2cb7e::t_e981c8adeb2e67 1177-1178
+  s_f4b78855d2cb7e::t_04b5a62db3ff91 1179
+  s_478143921e25e1::t_20036cafc853fa 1092
+  s_929de344d43428::t_d465b8cf6cf065 1124
+  s_478143921e25e1::t_d38cee09d79eee 822-826,1043
+  s_478143921e25e1::t_aceaaee63b272d 389-392,809-821,833,1025,1027-1028,1164-1165,1182-1184,1188,1192,1196,1203,1218,1224,1261-1266,1269-1271,1275-1276,1279-1288,1294,1299-1301,1305,1317
+tests/unit/javascript/mini-ralph-supervisor-compliance.test.js
+  s_d1666739e89fae::t_caffa667edeca2 59,153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "db4527d4a99ab68eb0083bf90ebe9f10bafbdee0",
+  "prompts": {},
+  "sessions": {
+    "s_478143921e25e1": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "cf007493-6498-4dc8-b3a2-d52fa5419ddc",
+        "model": "copilot/gpt-6-sol"
+      },
+      "human_author": "Nixon Cheaz <6854716+ncheaz@users.noreply.github.com>"
+    },
+    "s_929de344d43428": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "08f7a091-90c2-4a1d-97bd-884a04a395ef",
+        "model": "copilot/gpt-6-sol"
+      },
+      "human_author": "Nixon Cheaz <6854716+ncheaz@users.noreply.github.com>"
+    },
+    "s_a44f4cf6306b07": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "530db244-17c5-40ab-bd0b-e3239006fb0a",
+        "model": "copilot/gpt-6-sol"
+      },
+      "human_author": "Nixon Cheaz <6854716+ncheaz@users.noreply.github.com>"
+    },
+    "s_aed3f42c1f5755": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "93e8f581-604d-40e3-80eb-d3af1dee1d74",
+        "model": "copilot/gpt-6-sol"
+      },
+      "human_author": "Nixon Cheaz <6854716+ncheaz@users.noreply.github.com>"
+    },
+    "s_cf4685f7ad8ff1": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "81d83464-d0d6-486f-b854-a19b62587044",
+        "model": "copilot/gpt-6-sol"
+      },
+      "human_author": "Nixon Cheaz <6854716+ncheaz@users.noreply.github.com>"
+    },
+    "s_d1666739e89fae": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "279bee25-11ad-46ca-bf07-68495c09d64a",
+        "model": "copilot/gpt-6-sol"
+      },
+      "human_author": "Nixon Cheaz <6854716+ncheaz@users.noreply.github.com>"
+    },
+    "s_e3f08a70100731": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "1ba7e365-2034-44da-92b8-227f7a431064",
+        "model": "copilot/gpt-6-sol"
+      },
+      "human_author": "Nixon Cheaz <6854716+ncheaz@users.noreply.github.com>"
+    },
+    "s_f4b78855d2cb7e": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "83dc26f0-33f6-4da7-97b6-41de159aeb5e",
+        "model": "copilot/gpt-6-sol"
+      },
+      "human_author": "Nixon Cheaz <6854716+ncheaz@users.noreply.github.com>"
+    }
+  }
+}
