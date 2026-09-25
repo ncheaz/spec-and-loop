@@ -14,6 +14,7 @@
     "test:integration": "bats tests/integration/*.bats",
     "test:watch": "npm run test:js -- --watch",
     "test:coverage": "npm run test:unit -- --coverage",
+    "postversion": "git push --follow-tags",
     "lint": "shellcheck scripts/*.sh"
   },
   "dependencies": {
@@ -26,6 +27,10 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/\\.kilo/"
+    ],
     "collectCoverage": true,
     "coverageDirectory": "coverage",
     "coverageReporters": [
