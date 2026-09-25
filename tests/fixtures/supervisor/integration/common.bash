@@ -28,3 +28,11 @@ EOF
   export MOCK_OPENCODE_STATE_FILE="$state_file"
   export MOCK_OPENCODE_CAPTURE_PROMPT_FILE="$prompt_capture_file"
 }
+
+install_supervisor_active_mock_opencode() {
+  cat > "$MOCK_BIN_DIR/opencode" <<EOF
+#!/bin/bash
+node "$PROJECT_ROOT/tests/fixtures/supervisor/integration/mock-opencode.js" "\$@" | sed 's/- \[ \] 1\.1 /- [\/] 1.1 /g'
+EOF
+  chmod +x "$MOCK_BIN_DIR/opencode"
+}
