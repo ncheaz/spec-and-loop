@@ -112,6 +112,16 @@ describe('tasks.parseTasks()', () => {
     expect(result[0].description).toBe('First task');
   });
 
+  test('parses a task number inside a bold heading', () => {
+    const file = path.join(tmpDir, 'tasks.md');
+    writeTasks(file, '- [ ] **5.2 Align release and validation runbooks**\n');
+    expect(tasks.currentTask(file)).toEqual(expect.objectContaining({
+      number: '5.2',
+      description: 'Align release and validation runbooks',
+      fullDescription: '**5.2 Align release and validation runbooks**',
+    }));
+  });
+
   test('parses in-progress tasks', () => {
     const file = path.join(tmpDir, 'tasks.md');
     writeTasks(file, '- [/] 2.3 In progress task\n');
@@ -192,7 +202,7 @@ describe('tasks.currentTask()', () => {
     expect(tasks.currentTask(file)).toBeNull();
   });
 
-  test('returns in-progress task before incomplete tasks', () => {
+  test('prioritizes an in-progress task over an earlier pending task', () => {
     const content = '- [ ] 1.1 Todo\n- [/] 1.2 In progress\n- [ ] 1.3 Another todo\n';
     const file = path.join(tmpDir, 'tasks.md');
     writeTasks(file, content);
@@ -209,6 +219,12 @@ describe('tasks.currentTask()', () => {
     const result = tasks.currentTask(file);
     expect(result).not.toBeNull();
     expect(result.number).toBe('1.2');
+  });
+
+  test('ignores operator-only markers and selects an earlier in-progress task', () => {
+    const file = path.join(tmpDir, 'tasks.md');
+    writeTasks(file, '- [op] Manual check\n- [/] 1.1 Active\n- [ ] 1.2 Pending\n');
+    expect(tasks.currentTask(file)).toEqual(expect.objectContaining({ number: '1.1', status: 'in_progress' }));
   });
 });
 

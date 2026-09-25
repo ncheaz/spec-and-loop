@@ -56,7 +56,7 @@ describe('mini-ralph supervisor compliance checks', () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors).toContain(
-      'bold_title_missing: task body must start with a pending checkbox line containing a bold title'
+      'bold_title_missing: task body must start with an editable checkbox line containing a bold title'
     );
   });
 
@@ -150,7 +150,7 @@ describe('mini-ralph supervisor compliance checks', () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors).toEqual(expect.arrayContaining([
-      'bold_title_missing: task body must start with a pending checkbox line containing a bold title',
+      'bold_title_missing: task body must start with an editable checkbox line containing a bold title',
       'scope_missing: task body must include a `Scope:` bullet',
       'change_missing: task body must include a `Change:` bullet',
       'done_when_missing: task body must include a `Done when:` bullet',

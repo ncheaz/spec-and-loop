@@ -692,6 +692,22 @@ describe('mini-ralph supervisor patch application', () => {
     };
   }
 
+  test('rejects a stale preimage without swapping or validating', () => {
+    const fixture = writePatchFixture();
+    const original = fs.readFileSync(fixture.tasksFile, 'utf8');
+    const execSpy = jest.spyOn(childProcess, 'execFileSync');
+    expect(_applyTaskPatch({
+      tasksFile: fixture.tasksFile,
+      patchedContent: fixture.patchedContent,
+      expectedContent: 'outdated snapshot',
+      cwd: fixture.workspaceRoot,
+    })).toEqual({ ok: false, reason: 'stale_task_file' });
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(original);
+    expect(fs.existsSync(`${fixture.tasksFile}.supervisor-orig`)).toBe(false);
+    expect(execSpy).not.toHaveBeenCalled();
+    execSpy.mockRestore();
+  });
+
   test('applyTaskPatch leaves no residue on validation success', () => {
     const fixture = writePatchFixture();
     const execSpy = jest.spyOn(childProcess, 'execFileSync').mockImplementation(() => Buffer.from('ok'));

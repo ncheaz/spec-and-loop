@@ -63,3 +63,39 @@ teardown() {
   jq -e 'map(select(.type == "supervisorEdit" and .validatorOk == true)) | length == 1' \
     "openspec/changes/supervisor-demo-change/.ralph/ralph-history.json" >/dev/null
 }
+
+@test "supervisor repairs an in-progress task without losing its checkbox" {
+  prepare_supervisor_workspace
+  install_supervisor_active_mock_opencode
+  export MOCK_OPENCODE_CHANGE_NAME="supervisor-demo-change"
+  export MOCK_OPENCODE_SCENARIO="happy_path"
+
+  local change_dir="openspec/changes/supervisor-demo-change"
+  sed -i.bak 's/^- \[ \] 1\.1 /- [\/] 1.1 /' "$change_dir/tasks.md"
+  rm "$change_dir/tasks.md.bak"
+  run bash "$SCRIPT_PATH" --change supervisor-demo-change --max-iterations 2 --no-commit
+
+  [ "$status" -eq 0 ]
+  grep -q '^- \[/\] 1.1 \*\*Repair the blocked task' "$change_dir/tasks.md"
+  grep -q 'Recovery route: supervisor' "$change_dir/.ralph/HANDOFF.md"
+  jq -e 'map(select(.type == "supervisorEdit" and .taskNumber == "1.1" and .validatorOk == true)) | length == 1' \
+    "$change_dir/.ralph/ralph-history.json" >/dev/null
+}
+
+@test "ambiguous task ID stops repair and leaves the plan unchanged" {
+  prepare_supervisor_workspace
+  export MOCK_OPENCODE_CHANGE_NAME="supervisor-demo-change"
+  export MOCK_OPENCODE_SCENARIO="happy_path"
+
+  local change_dir="openspec/changes/supervisor-demo-change"
+  printf '\n- [x] 1.1 **Earlier completed duplicate**\n' >> "$change_dir/tasks.md"
+  local before
+  before=$(cat "$change_dir/tasks.md")
+  run bash "$SCRIPT_PATH" --change supervisor-demo-change --max-iterations 2 --no-commit
+
+  [ "$status" -ne 0 ]
+  [ "$(cat "$change_dir/tasks.md")" = "$before" ]
+  grep -q 'duplicate_task_number' "$change_dir/.ralph/HANDOFF.md"
+  jq -e 'map(select(.recoveryRoute == "supervisor" and .supervisorOutcome == "blocked_handoff")) | length == 1' \
+    "$change_dir/.ralph/ralph-history.json" >/dev/null
+}

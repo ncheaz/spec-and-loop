@@ -192,7 +192,7 @@ describe('tasks helpers', () => {
     ]);
   });
 
-  test('currentTask prefers in-progress and countTasks summarizes statuses', () => {
+  test('currentTask selects first unfinished and countTasks summarizes statuses', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     fs.writeFileSync(tasksFile, '- [x] 1.1 Done task\n- [/] 1.2 Active task\n- [ ] 1.3 Next task\n');
 
@@ -719,7 +719,7 @@ describe('render()', () => {
     const tasksFile = path.join(tmpDir, 'tasks.md');
     fs.writeFileSync(
       tasksFile,
-      '- [x] Task one\n- [/] Task two\n- [ ] Task three\n'
+      '- [x] Task one\n- [op] Manual check\n- [ ] Task two\n- [/] Task three\n'
     );
     state.init(ralphDir, {
       active: true,
@@ -732,6 +732,7 @@ describe('render()', () => {
     const output = render(ralphDir, tasksFile);
     expect(output).toContain('Tasks:');
     expect(output).toContain('completed');
+    expect(output).toContain('Current task:  Task three');
   });
 
   test('shows struggle indicators when all iterations have no file changes', () => {

@@ -2747,7 +2747,10 @@ describe('run() with mocked invoker', () => {
       expect(result.exitReason).toBe('blocked_handoff');
       expect(history.recent(ralphDir, 1)[0]).toMatchObject({
         autoResolveHandoffAttempted: false,
+        autoResolveHandoffClass: 'verifier_narrowing',
+        autoResolveHandoffBudgetKey: '4.1:verifier_narrowing',
         autoResolveHandoffReason: 'disabled',
+        recoveryRoute: 'operator',
       });
     } finally {
       restore();
@@ -2897,8 +2900,11 @@ describe('run() with mocked invoker', () => {
       expect(result.exitReason).toBe('blocked_handoff');
       expect(history.recent(ralphDir, 1)[0]).toMatchObject({
         autoResolveHandoffAttempted: false,
+        recoveryRoute: 'operator',
+        recoveryBudgetKey: '4.1:verifier_narrowing',
         autoResolveHandoffReason: 'global_budget_exhausted',
       });
+      expect(state.read(ralphDir).autoResolveHandoffs.totalAttempts).toBe(6);
     } finally {
       restore();
     }
@@ -4995,6 +5001,103 @@ describe('run() — BLOCKED_HANDOFF integration', () => {
         tasksFile,
         changeDir: path.dirname(tasksFile),
       }));
+    } finally {
+      restoreSupervisor();
+      restoreInvoker();
+    }
+  });
+
+  test('routes an inactive stop clause to supervisor but an active operator blocker to handoff', async () => {
+    const tasksFile = path.join(tmpDir, 'openspec/changes/demo/tasks.md');
+    fs.mkdirSync(path.dirname(tasksFile), { recursive: true });
+    fs.writeFileSync(tasksFile, '- [/] 5.1 **Demo task**\n  - Stop and hand off if: manual approval is required\n- [ ] 5.2 **Next task**\n');
+    const inactiveDir = path.join(tmpDir, '.ralph-inactive-stop');
+    const activeDir = path.join(tmpDir, '.ralph-active-stop');
+    const policyDir = path.join(tmpDir, '.ralph-policy-stop');
+    const firedDir = path.join(tmpDir, '.ralph-fired-stop');
+    const mixedDir = path.join(tmpDir, '.ralph-mixed-stop');
+    const pendingApprovalDir = path.join(tmpDir, '.ralph-pending-approval');
+    const inlineApprovalDir = path.join(tmpDir, '.ralph-inline-approval');
+    const immediateApprovalDir = path.join(tmpDir, '.ralph-immediate-approval');
+    const notYetDir = path.join(tmpDir, '.ralph-not-yet-stop');
+    const notBeenDir = path.join(tmpDir, '.ralph-not-been-stop');
+    const humanSignoffDir = path.join(tmpDir, '.ralph-human-signoff');
+    const operatorApproveDir = path.join(tmpDir, '.ralph-operator-approve');
+    const noApprovalDir = path.join(tmpDir, '.ralph-no-approval');
+    const operatorReviewDir = path.join(tmpDir, '.ralph-operator-review');
+    const noOperatorApprovalDir = path.join(tmpDir, '.ralph-no-operator-approval');
+    const hasntFiredDir = path.join(tmpDir, '.ralph-hasnt-fired');
+    const hasntBeenMetDir = path.join(tmpDir, '.ralph-hasnt-been-met');
+    const doesntNeedApprovalDir = path.join(tmpDir, '.ralph-doesnt-need-approval');
+    const notes = [
+      'Task scope is missing a focused verifier.\nStop and hand off if: manual approval is required; the stop condition has not fired.',
+      'Manual approval is required before continuing.',
+      'The policy decision must come from the operator now.',
+      'The stop condition fired: operator verification is required.',
+      'The stop condition fired; another stop condition has not fired.',
+      'Blocked pending manual approval from the operator.',
+      'Stop and hand off if: manual approval is required; manual approval is required now.',
+      'Stop and hand off if: manual approval is required now.',
+      'Task scope needs a verifier; the stop condition has not yet triggered.',
+      'Task scope needs a verifier; the stop condition has not been met.',
+      'Human sign-off is required before continuing.',
+      'The operator must approve this change before proceeding.',
+      'No manual approval is required; task scope needs a focused verifier.',
+      'Operator review is required before proceeding.',
+      'No operator approval is required; task scope needs a verifier.',
+      "Task scope needs a verifier; the stop condition hasn't fired.",
+      "Task scope needs a verifier; the stop condition hasn't yet been met.",
+      "Task scope needs a verifier; the task doesn't need manual approval.",
+    ];
+    const restoreInvoker = mockInvoker(jest.fn().mockImplementation(async () => ({
+      stdout: `## Blocker Note\n${notes.shift()}\n<promise>BLOCKED_HANDOFF</promise>`,
+      exitCode: 0, filesChanged: [], toolUsage: [],
+    })));
+    const supervisorMock = jest.fn().mockResolvedValue({ outcome: 'blocked_handoff', summary: 'patch_rejected_structural duplicate_task_number',
+      attempts: ['try 1: patch_rejected_structural duplicate_task_number'] });
+    const restoreSupervisor = mockSupervisor(supervisorMock);
+    try {
+      const runOptions = { promptText: 'Do the task.', tasksMode: true, tasksFile,
+        maxIterations: 1, minIterations: 1, selfHeal: true };
+      await run(Object.assign({ ralphDir: inactiveDir }, runOptions));
+      await run(Object.assign({ ralphDir: activeDir }, runOptions));
+      await run(Object.assign({ ralphDir: policyDir }, runOptions));
+      await run(Object.assign({ ralphDir: firedDir }, runOptions));
+      await run(Object.assign({ ralphDir: mixedDir }, runOptions));
+      await run(Object.assign({ ralphDir: pendingApprovalDir }, runOptions));
+      await run(Object.assign({ ralphDir: inlineApprovalDir }, runOptions));
+      await run(Object.assign({ ralphDir: immediateApprovalDir }, runOptions));
+      await run(Object.assign({ ralphDir: notYetDir }, runOptions));
+      await run(Object.assign({ ralphDir: notBeenDir }, runOptions));
+      await run(Object.assign({ ralphDir: humanSignoffDir }, runOptions));
+      await run(Object.assign({ ralphDir: operatorApproveDir }, runOptions));
+      await run(Object.assign({ ralphDir: noApprovalDir }, runOptions));
+      await run(Object.assign({ ralphDir: operatorReviewDir }, runOptions));
+      await run(Object.assign({ ralphDir: noOperatorApprovalDir }, runOptions));
+      await run(Object.assign({ ralphDir: hasntFiredDir }, runOptions));
+      await run(Object.assign({ ralphDir: hasntBeenMetDir }, runOptions));
+      await run(Object.assign({ ralphDir: doesntNeedApprovalDir }, runOptions));
+      expect(supervisorMock).toHaveBeenCalledTimes(8);
+      expect(history.recent(inactiveDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'supervisor' });
+      expect(history.recent(notYetDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'supervisor' });
+      expect(history.recent(notBeenDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'supervisor' });
+      expect(history.recent(noApprovalDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'supervisor' });
+      expect(history.recent(noOperatorApprovalDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'supervisor' });
+      expect(history.recent(hasntFiredDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'supervisor' });
+      expect(history.recent(hasntBeenMetDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'supervisor' });
+      expect(history.recent(doesntNeedApprovalDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'supervisor' });
+      expect(history.recent(activeDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(policyDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(firedDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(mixedDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(pendingApprovalDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(inlineApprovalDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(immediateApprovalDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(humanSignoffDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(operatorApproveDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(history.recent(operatorReviewDir, 1)[0]).toMatchObject({ taskNumber: '5.1', recoveryRoute: 'operator', recoveryReason: 'operator_owned_blocker' });
+      expect(fs.readFileSync(path.join(activeDir, 'HANDOFF.md'), 'utf8')).toContain('Recovery route: operator');
+      expect(fs.readFileSync(path.join(inactiveDir, 'HANDOFF.md'), 'utf8')).toContain('duplicate_task_number');
     } finally {
       restoreSupervisor();
       restoreInvoker();

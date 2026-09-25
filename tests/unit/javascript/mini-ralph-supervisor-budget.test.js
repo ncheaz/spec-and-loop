@@ -23,6 +23,158 @@ afterEach(() => {
 });
 
 describe('mini-ralph supervisor budget orchestrator', () => {
+  test('repairs the in-progress current block without changing its marker or downstream task', async () => {
+    const fixture = writeFixture();
+    const original = fs.readFileSync(fixture.tasksFile, 'utf8');
+    fs.writeFileSync(fixture.tasksFile, original.replace('- [ ] 4.7', '- [/] 4.7'));
+    const applyTaskPatch = jest.fn(({ tasksFile, patchedContent }) => {
+      fs.writeFileSync(tasksFile, patchedContent);
+      return { ok: true };
+    });
+    const result = await runSupervisor({
+      blockerNote: 'In-progress task needs a verifier.',
+      ralphDir: fixture.ralphDir,
+      changeDir: fixture.changeDir,
+      openspecRoot: fixture.openspecRoot,
+      config: { selfHealMaxTries: 1, selfHealDownstream: false },
+      invoke: async () => ({ stdout: 'ok' }),
+      parseResponse: () => ({
+        current_task_patch: { task_number: '4.7', new_body: buildTaskBody('4.7', 'Repaired', '`current.js`').replace('- [ ]', '- [/]') },
+        downstream_patches: [{ task_number: '4.8', new_body: buildTaskBody('4.8', 'Unwanted', '`next.js`') }],
+      }),
+      applyTaskPatch,
+    });
+    expect(result.outcome).toBe('patch_applied');
+    expect(result.patchedTasks).toEqual(['4.7']);
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toContain('- [/] 4.7 **Repaired**');
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toContain(buildTaskBody('4.8', 'Implement investigation hints normalization and persistence', '`lib/mini-ralph/prompt.js`'));
+    expect(applyTaskPatch).toHaveBeenCalledTimes(1);
+  });
+
+  test('repairs an active task after an earlier pending task', async () => {
+    const fixture = writeFixture();
+    const original = fs.readFileSync(fixture.tasksFile, 'utf8');
+    fs.writeFileSync(fixture.tasksFile, original.replace('- [ ] 4.8', '- [/] 4.8'));
+    const result = await runSupervisor({
+      blockerNote: 'Active task needs a verifier.',
+      ralphDir: fixture.ralphDir,
+      changeDir: fixture.changeDir,
+      openspecRoot: fixture.openspecRoot,
+      config: { selfHealMaxTries: 1, selfHealDownstream: false },
+      invoke: async () => ({ stdout: 'ok' }),
+      parseResponse: () => ({ current_task_patch: { task_number: '4.8',
+        new_body: buildTaskBody('4.8', 'Repaired active task', '`next.js`').replace('- [ ]', '- [/]') } }),
+      applyTaskPatch: ({ tasksFile, patchedContent }) => {
+        fs.writeFileSync(tasksFile, patchedContent);
+        return { ok: true };
+      },
+    });
+    expect(result).toEqual(expect.objectContaining({ outcome: 'patch_applied', patchedTasks: ['4.8'] }));
+    const updated = fs.readFileSync(fixture.tasksFile, 'utf8');
+    expect(updated).toContain('- [/] 4.8 **Repaired active task**');
+    expect(updated).toContain(buildTaskBody('4.7', 'Implement the supervisor invocation orchestrator', '`lib/mini-ralph/supervisor.js`'));
+  });
+
+  test('repairs the only unfinished task when it is in progress', async () => {
+    const fixture = writeFixture();
+    const original = fs.readFileSync(fixture.tasksFile, 'utf8');
+    fs.writeFileSync(fixture.tasksFile, original.replace('- [ ] 4.7', '- [/] 4.7')
+      .replace('- [ ] 4.8', '- [x] 4.8').replace('- [ ] 4.9', '- [x] 4.9'));
+    const result = await runSupervisor({
+      blockerNote: 'Only the active task remains.',
+      ralphDir: fixture.ralphDir,
+      changeDir: fixture.changeDir,
+      openspecRoot: fixture.openspecRoot,
+      config: { selfHealMaxTries: 1, selfHealDownstream: false },
+      invoke: async () => ({ stdout: 'ok' }),
+      parseResponse: () => ({ current_task_patch: { task_number: '4.7',
+        new_body: buildTaskBody('4.7', 'Repaired active task', '`current.js`').replace('- [ ]', '- [/]') } }),
+      applyTaskPatch: ({ tasksFile, patchedContent }) => {
+        fs.writeFileSync(tasksFile, patchedContent);
+        return { ok: true };
+      },
+    });
+    expect(result).toEqual(expect.objectContaining({ outcome: 'patch_applied', patchedTasks: ['4.7'] }));
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toContain('- [/] 4.7 **Repaired active task**');
+  });
+
+  test.each([
+    ['missing ID', (content) => content.replace('- [ ] 4.7', '- [ ] Current'), 'missing_task_number'],
+    ['duplicate ID', (content) => content.replace('- [ ] 4.8', '- [ ] 4.7'), 'duplicate_task_number'],
+  ])('refuses %s before invoking a patch', async (label, mutate, reason) => {
+    const fixture = writeFixture();
+    const original = mutate(fs.readFileSync(fixture.tasksFile, 'utf8'));
+    fs.writeFileSync(fixture.tasksFile, original);
+    const invoke = jest.fn();
+    const result = await runSupervisor({ blockerNote: label, ralphDir: fixture.ralphDir,
+      changeDir: fixture.changeDir, openspecRoot: fixture.openspecRoot, invoke });
+    expect(result.outcome).toBe('blocked_handoff');
+    expect(result.attempts.join(' ')).toContain(reason);
+    expect(result.summary).toContain('3 tries remaining');
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(original);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['status change', '4.7', 'x', 'task_status_changed'],
+    ['wrong ID', '4.8', ' ', 'current task mismatch'],
+  ])('rejects a %s in the proposed current task', async (label, number, marker, reason) => {
+    const fixture = writeFixture();
+    const original = fs.readFileSync(fixture.tasksFile, 'utf8');
+    const applyTaskPatch = jest.fn();
+    const result = await runSupervisor({ blockerNote: label, ralphDir: fixture.ralphDir,
+      changeDir: fixture.changeDir, openspecRoot: fixture.openspecRoot,
+      config: { selfHealMaxTries: 1 }, invoke: async () => ({ stdout: 'ok' }),
+      parseResponse: () => ({ current_task_patch: { task_number: number,
+        new_body: buildTaskBody(number, 'Changed', '`current.js`').replace('- [ ]', `- [${marker}]`) } }),
+      applyTaskPatch });
+    expect(result.outcome).toBe('blocked_handoff');
+    expect(result.attempts.join(' ')).toContain(reason);
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toBe(original);
+    expect(applyTaskPatch).not.toHaveBeenCalled();
+  });
+  test('applies a patch to a task whose number is inside a bold heading', async () => {
+    const fixture = writeFixture();
+    const original = fs.readFileSync(fixture.tasksFile, 'utf8');
+    fs.writeFileSync(fixture.tasksFile, original.replace(
+      '- [ ] 4.7 **Implement the supervisor invocation orchestrator**',
+      '- [ ] **4.7 Implement the supervisor invocation orchestrator**'
+    ), 'utf8');
+    const applyTaskPatch = jest.fn().mockImplementation(({ tasksFile, patchedContent }) => {
+      fs.writeFileSync(tasksFile, patchedContent, 'utf8');
+      return { ok: true, activeChangeId: 'demo-change' };
+    });
+
+    const result = await runSupervisor({
+      blockerNote: 'Task 4.7 omits an active runbook from scope.',
+      ralphDir: fixture.ralphDir,
+      changeDir: fixture.changeDir,
+      openspecRoot: fixture.openspecRoot,
+      config: { selfHealMaxTries: 1 },
+      iteration: 12,
+      invoke: jest.fn().mockResolvedValue({ stdout: 'ok', toolUsage: [] }),
+      renderPrompt: () => 'prompt',
+      parseResponse: () => ({
+        current_task_patch: {
+          task_number: '4.7',
+          new_body: buildTaskBody('4.7', 'Align the runbook', '`docs/RELEASE.md`').replace(
+            '- [ ] 4.7 **Align the runbook**', '- [ ] **4.7 Align the runbook**'
+          ),
+          rationale: 'Authorize the active runbook.',
+        },
+        downstream_patches: [],
+        investigation_hints: [],
+        summary: 'Expanded scope.',
+      }),
+      applyTaskPatch,
+    });
+
+    expect(result.outcome).toBe('patch_applied');
+    expect(result.patchedTasks).toEqual(['4.7']);
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toContain('Align the runbook');
+    expect(applyTaskPatch).toHaveBeenCalledTimes(1);
+  });
+
   test('bounded-budget helpers allow unbounded use, then block exhausted keys and totals', () => {
     expect(_decideBoundedBudget({})).toEqual({ allowed: true, reason: 'unbounded' });
 
@@ -126,7 +278,7 @@ describe('mini-ralph supervisor budget orchestrator', () => {
     });
   });
 
-  test('same-hash oscillation exits immediately', async () => {
+  test('same-hash oscillation remains stopped on subsequent handoffs', async () => {
     const fixture = writeFixture();
     const note = 'The same blocker came back unchanged.';
     state.update(fixture.ralphDir, {
@@ -159,6 +311,19 @@ describe('mini-ralph supervisor budget orchestrator', () => {
       totalAttemptsForCurrentBlocker: 1,
       lastOutcome: 'oscillation',
     });
+    const repeated = await runSupervisor({
+      blockerNote: note,
+      ralphDir: fixture.ralphDir,
+      changeDir: fixture.changeDir,
+      openspecRoot: fixture.openspecRoot,
+      config: { selfHealMaxTries: 3 },
+      iteration: 8,
+      invoke,
+      renderPrompt: () => 'prompt',
+    });
+    expect(repeated.outcome).toBe('blocked_handoff');
+    expect(invoke).not.toHaveBeenCalled();
+    expect(state.read(fixture.ralphDir).supervisor.totalAttemptsForCurrentBlocker).toBe(1);
   });
 
   test('single-downstream-patch failure does not revert other downstream patches', async () => {
@@ -224,6 +389,7 @@ describe('mini-ralph supervisor budget orchestrator', () => {
     expect(result.outcome).toBe('patch_applied');
     expect(result.patchedTasks).toEqual(['4.7', '4.8']);
     expect(result.summary).toContain('Downstream patch failures: 4.9:patch_rejected_validation');
+    expect(result.summary).toContain('strict validation failed for downstream two');
     expect(writtenTasks).toContain('Current patched');
     expect(writtenTasks).toContain('Downstream one patched');
     expect(writtenTasks).not.toContain('Downstream two patched');
@@ -323,12 +489,12 @@ describe('mini-ralph supervisor budget orchestrator', () => {
 
     expect(result).toEqual(expect.objectContaining({
       outcome: 'blocked_handoff',
-      summary: 'Supervisor could not find a pending task to patch.',
+      summary: 'Supervisor could not find an unfinished task to patch.',
       readLogs: false,
       readLogsBytes: 0,
     }));
     expect(invoke).not.toHaveBeenCalled();
-    expect(state.read(fixture.ralphDir).supervisor.lastOutcome).toBe('no_pending_task');
+    expect(state.read(fixture.ralphDir).supervisor.lastOutcome).toBe('no_unfinished_task');
   });
 
   test('runSupervisor treats invalid, missing, and mismatched patch responses as rejection paths', async () => {
@@ -618,13 +784,41 @@ describe('mini-ralph supervisor budget orchestrator', () => {
     expect(result).toEqual(expect.objectContaining({
       outcome: 'patch_applied',
       patchedTasks: ['4.7', '4.6', '4.85'],
-      summary: 'Downstream patch failures: unknown:patch_rejected_structural, 9.9:patch_rejected_structural, 4.95:patch_rejected_structural',
+      summary: 'Downstream patch failures: unknown:patch_rejected_structural (patch must be an object), 9.9:patch_rejected_structural (target task not found), 4.95:patch_rejected_structural (task_number_missing_or_changed)',
     }));
     expect(writtenTasks).toContain('4.6 **Inserted task with preserved audit comment**');
     expect(writtenTasks).toContain('4.85 **Inserted task after the anchor**');
     expect(writtenTasks).toContain('<!-- supervised-edit: iter=2 reason="keep original" hash=feedbeef -->');
     expect(validateTaskStructure).toHaveBeenCalled();
     expect(applyTaskPatch).toHaveBeenCalledTimes(3);
+  });
+
+  test.each(['insert_before', 'insert_after'])('rejects extra checkbox headings in an %s patch', async (operation) => {
+    const fixture = writeFixture();
+    const applyTaskPatch = jest.fn(({ tasksFile, patchedContent }) => {
+      fs.writeFileSync(tasksFile, patchedContent, 'utf8');
+      return { ok: true };
+    });
+    const result = await runSupervisor({
+      blockerNote: 'Insert one downstream task.',
+      ralphDir: fixture.ralphDir,
+      changeDir: fixture.changeDir,
+      openspecRoot: fixture.openspecRoot,
+      config: { selfHealMaxTries: 1, selfHealDownstream: true },
+      invoke: async () => ({ stdout: 'ok' }),
+      parseResponse: () => ({
+        current_task_patch: { task_number: '4.7', new_body: buildTaskBody('4.7', 'Repaired', '`current.js`') },
+        downstream_patches: [{ task_number: '4.6', anchor_task_number: '4.8', operation,
+          new_body: `${buildTaskBody('4.6', 'Inserted', '`new.js`')}\n- [x] 4.8 **Injected task**` }],
+      }),
+      applyTaskPatch,
+    });
+
+    expect(result.patchedTasks).toEqual(['4.7']);
+    expect(result.summary).toContain('4.6:patch_rejected_structural (unrelated_task_block_changed)');
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).not.toContain('4.6 **Inserted**');
+    expect(fs.readFileSync(fixture.tasksFile, 'utf8')).toContain('- [ ] 4.8 **Implement investigation hints normalization and persistence**');
+    expect(applyTaskPatch).toHaveBeenCalledTimes(1);
   });
 });
 
